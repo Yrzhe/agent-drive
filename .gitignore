@@ -67,6 +67,7 @@ temp/
 # Development screenshots
 *.png
 !web/public/*.png
+!docs/*.png
 
 # Lock files (regenerated on npm install)
 server/package-lock.json
