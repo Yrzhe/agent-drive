@@ -1,0 +1,13 @@
+# yaml-language-server: $schema=https://schemas.edgespark.dev/v1/auth-config.schema.json
+
+disableSignUp: true
+providerEmailPassword:
+  config:
+    minPasswordLength: 8
+    requireEmailVerification: false
+    requirePasswordResetEmailVerification: false
+    revokeSessionsOnPasswordReset: false
+  enabled: true
+providerGoogle:
+  config: {}
+  enabled: false

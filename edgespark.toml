@@ -1,0 +1,10 @@
+# project_id is set automatically after `edgespark init`
+# project_id = ""
+
+[server]
+path = "server"
+
+[web]
+path = "web"
+output_path = "web/dist"
+
