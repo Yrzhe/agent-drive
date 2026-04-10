@@ -186,15 +186,24 @@ filesRoutes.delete(
       .map((x) => x.path);
 
     if (storagePaths.length > 0) await storage.from(buckets.drive).delete(storagePaths);
+
+    const fileIds = rows.filter((x) => x.isFolder === 0).map((x) => x.id);
+
     if (target.isFolder === 1) {
       await db.batch([
         db.delete(shares).where(or(eq(shares.folderPath, target.path), like(shares.folderPath, descendantPattern(target.path)))),
         db.delete(files).where(or(eq(files.path, target.path), like(files.path, descendantPattern(target.path)))),
       ]);
-      return c.json({ deleted: rows.filter((x) => x.isFolder === 0).length });
+      for (const fid of fileIds) {
+        await db.delete(shares).where(eq(shares.fileId, fid));
+      }
+      return c.json({ deleted: fileIds.length });
     }
 
-    await db.delete(files).where(eq(files.id, target.id));
+    await db.batch([
+      db.delete(shares).where(eq(shares.fileId, target.id)),
+      db.delete(files).where(eq(files.id, target.id)),
+    ]);
     return c.json({ deleted: 1 });
   })
 );

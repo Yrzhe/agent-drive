@@ -1,5 +1,4 @@
-# project_id is set automatically after `edgespark init`
-# project_id = ""
+project_id = "0aa24640-4f27-444a-9908-b5f0c810df40"
 
 [server]
 path = "server"

@@ -32,7 +32,8 @@ Returns: { file: { id, name, path, size, ... } }
 **Notes:**
 - `path` is the parent folder. Use `"/"` for root.
 - Parent folders are created automatically.
-- Both `filename` and `path` are required in upload AND complete.
+- `filename` is required. `path` defaults to `"/"` (root) if omitted.
+- Always pass `filename` and `path` to both upload and complete for clarity.
 
 ## Create a Folder
 

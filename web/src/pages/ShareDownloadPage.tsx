@@ -104,6 +104,36 @@ export default function ShareDownloadPage() {
     }
   };
 
+  const handleDownloadZip = async (subPath?: string) => {
+    if (!shareInfo) return;
+    setDownloadingId("zip");
+    setErrorMessage(null);
+    try {
+      const token = await ensureAccessToken();
+      const query = subPath ? `?path=${encodeURIComponent(subPath)}` : "";
+      const url = `${window.location.origin}/api/public/s/${shareId}/download-zip${query}`;
+      const response = await fetch(url, { headers: { "X-Access-Token": token } });
+      if (!response.ok) {
+        const body = await response.json().catch(() => null) as { error?: { message?: string } } | null;
+        throw new Error(body?.error?.message ?? `Download failed (${response.status})`);
+      }
+      const blob = await response.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = objectUrl;
+      anchor.download = `${shareInfo.folderPath ?? shareInfo.file?.name ?? "download"}.zip`;
+      document.body.append(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(objectUrl);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "ZIP download failed");
+    } finally {
+      setDownloadingId(null);
+      await refreshShare();
+    }
+  };
+
   const needsPassword = shareInfo?.status === "active" && shareInfo.requiresPassword && !accessToken;
   const needsFileList = shareInfo?.status === "active" && isFolder && accessToken && sharedFiles.length === 0 && !loadingFiles;
 
@@ -152,8 +182,9 @@ export default function ShareDownloadPage() {
               ) : null}
 
               {shareInfo.status === "active" && isFolder && accessToken ? (
-                <div className="space-y-2">
-                  <h3 className="text-sm font-medium text-slate-700">Files in this share</h3>
+                <div className="space-y-3">
+                  <button className="w-full rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-700 disabled:bg-blue-300" disabled={downloadingId === "zip"} onClick={() => { void handleDownloadZip(); }} type="button">{downloadingId === "zip" ? "Preparing ZIP..." : "Download All as ZIP"}</button>
+                  <h3 className="text-sm font-medium text-slate-700">Or download individual files</h3>
                   {loadingFiles ? <p className="text-sm text-slate-500">Loading file list...</p> : sharedFiles.length === 0 ? <p className="text-sm text-slate-500">No files found.</p> : (
                     <div className="space-y-1">
                       {sharedFiles.map((file) => (

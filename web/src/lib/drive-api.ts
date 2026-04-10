@@ -141,19 +141,19 @@ export const driveApi = {
         const name = typeof body.name === "string" ? body.name : "Agent Drive";
         const description = typeof body.description === "string" ? body.description : "";
         const sections: GuideSection[] = [];
+        const skipKeys = new Set(["name", "version", "description"]);
 
-        if (body.howToDownload && typeof body.howToDownload === "object") {
-          const steps = Object.entries(body.howToDownload as Record<string, string>)
-            .map(([, value]) => value)
-            .join("\n");
-          sections.push({ title: "How to Download", content: steps });
-        }
-
-        if (body.example && typeof body.example === "object") {
-          const examples = Object.entries(body.example as Record<string, string>)
-            .map(([key, value]) => `${key}: ${value}`)
-            .join("\n");
-          sections.push({ title: "Example URLs", content: examples });
+        for (const [key, value] of Object.entries(body)) {
+          if (skipKeys.has(key) || value == null) continue;
+          const title = key.replace(/([A-Z])/g, " $1").replace(/^./, (s) => s.toUpperCase()).trim();
+          if (typeof value === "string") {
+            sections.push({ title, content: value });
+          } else if (Array.isArray(value)) {
+            sections.push({ title, content: value.filter((v): v is string => typeof v === "string").join("\n") });
+          } else if (typeof value === "object") {
+            const lines = Object.entries(value as Record<string, string>).map(([k, v]) => `${k}: ${v}`);
+            sections.push({ title, content: lines.join("\n") });
+          }
         }
 
         return { title: name, intro: description, sections } as GuideData;
