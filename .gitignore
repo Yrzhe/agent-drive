@@ -20,6 +20,11 @@ out/
 .env.production
 .env.staging
 
+# User config (generated during setup, contains secrets/URLs)
+drive.json
+skill/.env
+skill/drive.json
+
 # IDE
 .idea/
 .vscode/

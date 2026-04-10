@@ -91,15 +91,23 @@ curl -X POST https://{URL}/api/_es/auth/sign-up/email \
 
 ## Save Configuration
 
-Create `drive.json` in the project root:
+Write config files **into this skill's directory** so the agent can find them in future sessions:
+
+**`.env`** (in this skill directory):
+```
+AGENT_TOKEN={the token value from the project .env}
+```
+
+**`drive.json`** (in this skill directory):
 ```json
 {
   "url": "https://{DEPLOYED_URL}",
   "apiBase": "https://{DEPLOYED_URL}/api/public/v1",
-  "guideUrl": "https://{DEPLOYED_URL}/api/public/guide",
-  "envFile": ".env"
+  "guideUrl": "https://{DEPLOYED_URL}/api/public/guide"
 }
 ```
+
+Copy the token from the project's `.env` into the skill's `.env`. Copy the deployed URL into `drive.json`. Both files sit alongside this `SKILL.md`.
 
 ## Show Summary
 
@@ -109,8 +117,10 @@ Agent Drive is live!
   Dashboard:  https://{URL}
   API Base:   https://{URL}/api/public/v1
   Guide URL:  https://{URL}/api/public/guide
-  Token:      stored in .env (never share this)
+  Token:      stored in skill .env (never share this)
   Login:      {email}
+
+Config saved to skill directory — agent can use it in any future session.
 ```
 
 ## Troubleshooting

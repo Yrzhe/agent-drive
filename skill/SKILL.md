@@ -33,11 +33,17 @@ Your private cloud drive that agents operate via API. Upload files, organize fol
 
 ## Configuration
 
-| Item | Location | How to read |
-|------|----------|-------------|
-| API base URL | `drive.json` → `apiBase` | Read the JSON file |
-| AGENT_TOKEN | `.env` → `AGENT_TOKEN=xxx` | `grep AGENT_TOKEN .env \| cut -d= -f2-` |
-| Guide URL | `drive.json` → `guideUrl` | Read the JSON file |
+Config files are in this skill's directory, use relative paths:
+
+| Item | File | How to read |
+|------|------|-------------|
+| API base URL | `drive.json` → `apiBase` | Read `drive.json` in this directory |
+| AGENT_TOKEN | `.env` → `AGENT_TOKEN=xxx` | Read `.env` in this directory, extract value after `=` |
+| Guide URL | `drive.json` → `guideUrl` | Read `drive.json` in this directory |
+
+**Not configured yet?** After running `references/setup.md`, the setup process creates both files:
+- `.env` — contains `AGENT_TOKEN=xxx`
+- `drive.json` — contains `{ "url": "...", "apiBase": "...", "guideUrl": "..." }`
 
 All management API calls require header: `Authorization: Bearer {AGENT_TOKEN}`
 
