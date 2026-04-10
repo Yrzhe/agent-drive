@@ -161,7 +161,13 @@ export default function DashboardPage() {
   const handleCreateShare = async (input: ShareModalInput) => {
     if (!shareTarget) return;
     try {
-      const payload = shareTarget.isFolder ? { ...input, folderPath: shareTarget.path } : { ...input, fileId: shareTarget.id };
+      const expiresIn = input.expiresAt ? Math.max(1, Math.round((new Date(input.expiresAt).getTime() - Date.now()) / 1000)) : undefined;
+      const apiInput = {
+        password: input.password,
+        maxDownloads: input.maxDownloads ?? undefined,
+        expiresIn: expiresIn ?? undefined,
+      };
+      const payload = shareTarget.isFolder ? { ...apiInput, folderPath: shareTarget.path } : { ...apiInput, fileId: shareTarget.id };
       await driveApi.createShare(payload);
       await refreshShares();
       setShareTarget(null);

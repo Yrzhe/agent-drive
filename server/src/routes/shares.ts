@@ -81,10 +81,10 @@ sharesRoutes.post(
     if ((fileId ? 1 : 0) + (folderPath ? 1 : 0) !== 1) {
       throw new ApiError(400, "validation_error", "Exactly one of fileId or folderPath is required");
     }
-    if (body.maxDownloads !== undefined && (!Number.isInteger(body.maxDownloads) || body.maxDownloads <= 0)) {
+    if (body.maxDownloads != null && (!Number.isInteger(body.maxDownloads) || body.maxDownloads <= 0)) {
       throw new ApiError(400, "validation_error", "maxDownloads must be a positive integer");
     }
-    if (body.expiresIn !== undefined && (!Number.isInteger(body.expiresIn) || body.expiresIn <= 0)) {
+    if (body.expiresIn != null && (!Number.isInteger(body.expiresIn) || body.expiresIn <= 0)) {
       throw new ApiError(400, "validation_error", "expiresIn must be a positive integer in seconds");
     }
 
