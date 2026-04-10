@@ -40,3 +40,27 @@ Your private cloud drive that agents operate via API. Upload files, organize fol
 | Guide URL | `drive.json` → `guideUrl` | Read the JSON file |
 
 All management API calls require header: `Authorization: Bearer {AGENT_TOKEN}`
+
+## Share Handoff Message (IMPORTANT)
+
+Every time you create a share link, you MUST reply to the user with this exact format so they can copy-paste it to the receiving agent:
+
+```
+Please download the shared content from my Agent Drive:
+
+  📖 Guide: {guideUrl}
+  🔗 Share: {shareUrl}
+  🔑 Password: {password or "none"}
+  ⏰ Expires: {expiresAt or "never"}
+  📥 Max downloads: {maxDownloads or "unlimited"}
+
+The receiving agent should read the Guide URL first to learn the download API,
+then use the Share URL to access the files.
+```
+
+**Rules:**
+- The first line "Please download..." is critical — it tells the receiving agent what to do when the user pastes this message
+- Always include ALL five fields even when values are "none", "never", or "unlimited"
+- The Guide URL teaches the receiving agent the full download API — always include it
+- NEVER include the AGENT_TOKEN in this message — it is the owner's private key
+- See `references/sharing.md` for full details on creating shares with different options
