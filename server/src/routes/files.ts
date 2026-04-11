@@ -2,16 +2,34 @@ import { and, asc, desc, eq, inArray, like, ne, or } from "drizzle-orm";
 import { Hono } from "hono";
 import { nanoid } from "nanoid";
 import { buckets, files, shares } from "@defs";
-import { ensureFolderChain, nowIso, parseUploadObjectPath, toFileObject } from "../lib/files";
+import { ensureFolderChain, nowIso, toFileObject } from "../lib/files";
 import { ApiError, withErrorHandling } from "../lib/errors";
 import { descendantPattern, joinPath, normalizeName, normalizePath, parentOfPath } from "../lib/paths";
 import { PRESIGNED_URL_TTL_SECS } from "../types";
 
 export const filesRoutes = new Hono();
+const PENDING_UPLOAD_PREFIX = "pending:";
+const FILE_SIZE_TOLERANCE_RATIO = 0.1;
 
 function isPathUniqueConflict(error: unknown): boolean {
   const message = (error as { message?: string } | null)?.message?.toLowerCase() ?? "";
-  return message.includes("unique constraint failed: files.path") || message.includes("duplicate key") && message.includes("files.path");
+  return message.includes("unique constraint failed: files.path") || (message.includes("duplicate key") && message.includes("files.path"));
+}
+
+function createPendingUploadMarker(declaredSize: number): string {
+  return `${PENDING_UPLOAD_PREFIX}${declaredSize}`;
+}
+
+function readPendingUploadDeclaredSize(marker: string | null): number | null {
+  if (!marker || !marker.startsWith(PENDING_UPLOAD_PREFIX)) return null;
+  const size = Number(marker.slice(PENDING_UPLOAD_PREFIX.length));
+  return Number.isFinite(size) && size >= 0 ? size : null;
+}
+
+function isFileSizeWithinTolerance(expected: number, actual: number): boolean {
+  const diff = Math.abs(actual - expected);
+  const tolerance = expected * FILE_SIZE_TOLERANCE_RATIO;
+  return diff <= tolerance;
 }
 
 function getIdParam(c: { req: { param: (name: string) => string | undefined } }): string {
@@ -26,8 +44,9 @@ filesRoutes.post(
     const body = (await c.req.json()) as { filename?: string; contentType?: string; size?: number; path?: string };
     const filename = normalizeName(body.filename);
     const contentType = (body.contentType ?? "application/octet-stream").trim();
+    const declaredSize = Number(body.size);
     if (!contentType) throw new ApiError(400, "validation_error", "contentType is required");
-    if (!Number.isFinite(body.size) || Number(body.size) < 0) {
+    if (!Number.isFinite(declaredSize) || declaredSize < 0) {
       throw new ApiError(400, "validation_error", "size must be a non-negative number");
     }
 
@@ -41,6 +60,27 @@ filesRoutes.post(
 
     const fileId = nanoid();
     const objectPath = `${fileId}/${filename}`;
+    const timestamp = nowIso();
+    try {
+      await db.insert(files).values({
+        id: fileId,
+        name: filename,
+        path: targetPath,
+        parentPath,
+        isFolder: 0,
+        size: 0,
+        contentType,
+        s3Uri: createPendingUploadMarker(declaredSize),
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      });
+    } catch (error) {
+      if (isPathUniqueConflict(error)) {
+        throw new ApiError(409, "path_conflict", "Path already exists");
+      }
+      throw error;
+    }
+
     const presigned = await storage.from(buckets.drive).createPresignedPutUrl(objectPath, PRESIGNED_URL_TTL_SECS, {
       contentType,
     });
@@ -65,42 +105,47 @@ filesRoutes.post(
 
     const filename = normalizeName(body.filename);
     const parentPath = normalizePath(body.path ?? "/");
+    const targetPath = joinPath(parentPath, filename);
 
     const { db, storage } = await import("edgespark");
+    const [pending] = await db.select().from(files).where(eq(files.id, fileId)).limit(1);
+    if (!pending || pending.isFolder !== 0 || pending.size !== 0) {
+      throw new ApiError(400, "invalid_upload_ticket", "Upload ticket is invalid or already completed");
+    }
+    if (pending.path !== targetPath || pending.parentPath !== parentPath || pending.name !== filename) {
+      throw new ApiError(409, "path_conflict", "Upload ticket does not match the target path");
+    }
+
+    const pendingMarker = pending.s3Uri;
+    if (!pendingMarker) {
+      throw new ApiError(400, "invalid_upload_ticket", "Upload ticket metadata is invalid");
+    }
+    const declaredSize = readPendingUploadDeclaredSize(pendingMarker);
+    if (declaredSize === null) {
+      throw new ApiError(400, "invalid_upload_ticket", "Upload ticket metadata is invalid");
+    }
+
     const objectPath = `${fileId}/${filename}`;
     const metadata = await storage.from(buckets.drive).head(objectPath);
     if (!metadata) throw new ApiError(404, "upload_not_found", "Uploaded file not found in storage");
 
-    await ensureFolderChain(db, parentPath);
-
-    const targetPath = joinPath(parentPath, filename);
-    const [conflict] = await db.select().from(files).where(eq(files.path, targetPath)).limit(1);
-    if (conflict) throw new ApiError(409, "path_conflict", "Path already exists");
+    if (!isFileSizeWithinTolerance(declaredSize, metadata.size)) {
+      throw new ApiError(400, "size_mismatch", "Uploaded file size differs too much from declared size");
+    }
 
     const timestamp = nowIso();
-    let inserted: typeof files.$inferSelect;
-    try {
-      [inserted] = await db
-        .insert(files)
-        .values({
-          id: fileId,
-          name: filename,
-          path: targetPath,
-          parentPath,
-          isFolder: 0,
-          size: metadata.size,
-          contentType: metadata.contentType ?? null,
-          s3Uri: storage.createS3Uri(buckets.drive, objectPath),
-          createdAt: timestamp,
-          updatedAt: timestamp,
-        })
-        .returning();
-    } catch (error) {
-      if (isPathUniqueConflict(error)) {
-        throw new ApiError(409, "path_conflict", "Path already exists");
-      }
-      throw error;
-    }
+    const completed = await db
+      .update(files)
+      .set({
+        size: metadata.size,
+        contentType: metadata.contentType ?? pending.contentType ?? null,
+        s3Uri: storage.createS3Uri(buckets.drive, objectPath),
+        updatedAt: timestamp,
+      })
+      .where(and(eq(files.id, fileId), eq(files.size, 0), eq(files.s3Uri, pendingMarker)))
+      .returning();
+    const [inserted] = completed;
+    if (!inserted) throw new ApiError(409, "upload_state_conflict", "Upload ticket was already completed");
 
     return c.json({ file: toFileObject(inserted) });
   })

@@ -26,6 +26,13 @@ function isExhausted(maxDownloads: number | null, downloadCount: number): boolea
   return maxDownloads !== null && downloadCount >= maxDownloads;
 }
 
+function sanitizeZipFilename(name: string): string {
+  const ascii = name.replace(/[^\x20-\x7E]/g, "");
+  const safe = ascii.replace(/[^A-Za-z0-9._-]/g, "_").replace(/_+/g, "_").replace(/^[_\.-]+|[_\.-]+$/g, "");
+  const base = safe || "download";
+  return `${base}.zip`;
+}
+
 function assertShareAccessible(share: typeof shares.$inferSelect): void {
   if (isExpired(share.expiresAt)) throw new ApiError(410, "share_expired", "Share link has expired");
   if (isExhausted(share.maxDownloads, share.downloadCount)) {
@@ -67,6 +74,20 @@ publicSharesRoutes.get(
     const { db } = await import("edgespark");
     const [share] = await db.select().from(shares).where(eq(shares.id, getShareId(c))).limit(1);
     if (!share) throw new ApiError(404, "share_not_found", "Share link not found");
+    const expired = isExpired(share.expiresAt);
+    const exhausted = isExhausted(share.maxDownloads, share.downloadCount);
+    const shareType = share.fileId ? "file" : "folder";
+
+    if (expired || exhausted) {
+      return c.json({
+        id: share.id,
+        type: shareType,
+        expired,
+        exhausted,
+        expiresAt: share.expiresAt,
+        createdAt: share.createdAt,
+      });
+    }
 
     if (share.fileId) {
       const [file] = await db.select().from(files).where(eq(files.id, share.fileId)).limit(1);
@@ -81,8 +102,8 @@ publicSharesRoutes.get(
         maxDownloads: share.maxDownloads,
         downloadCount: share.downloadCount,
         expiresAt: share.expiresAt,
-        expired: isExpired(share.expiresAt),
-        exhausted: isExhausted(share.maxDownloads, share.downloadCount),
+        expired,
+        exhausted,
         createdAt: share.createdAt,
       });
     }
@@ -105,8 +126,8 @@ publicSharesRoutes.get(
       maxDownloads: share.maxDownloads,
       downloadCount: share.downloadCount,
       expiresAt: share.expiresAt,
-      expired: isExpired(share.expiresAt),
-      exhausted: isExhausted(share.maxDownloads, share.downloadCount),
+      expired,
+      exhausted,
       createdAt: share.createdAt,
     });
   })
@@ -222,7 +243,7 @@ publicSharesRoutes.get(
 
     const [baseFolder] = await db.select().from(files).where(and(eq(files.path, basePath), eq(files.isFolder, 1))).limit(1);
     if (!baseFolder) throw new ApiError(404, "file_not_found", "Folder not found in share");
-    zipName = `${baseFolder.name}.zip`;
+    zipName = sanitizeZipFilename(baseFolder.name);
 
     const fileRows = await db
       .select()

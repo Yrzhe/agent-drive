@@ -57,7 +57,10 @@ export async function withMockFallback<T>(
   try {
     return await realRequest();
   } catch (error) {
-    if (import.meta.env.DEV) {
+    const isNetworkFetchError =
+      error instanceof TypeError &&
+      (error.message.includes("Failed to fetch") || error.message.includes("fetch failed"));
+    if (import.meta.env.DEV && isNetworkFetchError) {
       console.warn("[drive-api] falling back to mock data", error);
       return mockRequest();
     }

@@ -1,11 +1,11 @@
-import { eq } from "drizzle-orm";
+import { inArray } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
 import { files } from "@defs";
 
 import type { AppDb, FileObject, FileRow } from "../types";
 import { ApiError } from "./errors";
-import { joinPath, normalizeName, normalizePath } from "./paths";
+import { joinPath, normalizePath } from "./paths";
 
 export function nowIso(): string {
   return new Date().toISOString();
@@ -25,48 +25,47 @@ export function toFileObject(file: FileRow): FileObject {
   };
 }
 
-export function parseUploadObjectPath(storagePath: string): { parentPath: string; filename: string } {
-  const parts = storagePath.split("/");
-  if (parts.length < 3) {
-    throw new ApiError(500, "internal_error", "Invalid upload object path");
-  }
-
-  const parentPath = normalizePath(decodeURIComponent(parts[1] ?? ""));
-  const filename = normalizeName(decodeURIComponent(parts.slice(2).join("/")));
-  return { parentPath, filename };
-}
-
 export async function ensureFolderChain(db: AppDb, targetPath: string): Promise<void> {
   const normalized = normalizePath(targetPath);
   if (normalized === "/") return;
 
   const segments = normalized.slice(1).split("/").filter(Boolean);
+  const folderPaths: string[] = [];
   let cursor = "/";
-
   for (const segment of segments) {
-    const folderPath = joinPath(cursor, segment);
-    const [existing] = await db.select().from(files).where(eq(files.path, folderPath)).limit(1);
+    cursor = joinPath(cursor, segment);
+    folderPaths.push(cursor);
+  }
 
+  const existingRows = await db
+    .select({ path: files.path, isFolder: files.isFolder })
+    .from(files)
+    .where(inArray(files.path, folderPaths));
+  const existingByPath = new Map(existingRows.map((row) => [row.path, row]));
+
+  for (const [index, folderPath] of folderPaths.entries()) {
+    const existing = existingByPath.get(folderPath);
     if (existing) {
       if (existing.isFolder !== 1) {
         throw new ApiError(409, "path_conflict", `Path already exists as file: ${folderPath}`);
       }
-    } else {
-      const timestamp = nowIso();
-      await db.insert(files).values({
-        id: nanoid(),
-        name: segment,
-        path: folderPath,
-        parentPath: cursor,
-        isFolder: 1,
-        size: 0,
-        contentType: null,
-        s3Uri: null,
-        createdAt: timestamp,
-        updatedAt: timestamp,
-      });
+      continue;
     }
 
-    cursor = folderPath;
+    const timestamp = nowIso();
+    const segment = segments[index]!;
+    const parentPath = index === 0 ? "/" : folderPaths[index - 1]!;
+    await db.insert(files).values({
+      id: nanoid(),
+      name: segment,
+      path: folderPath,
+      parentPath,
+      isFolder: 1,
+      size: 0,
+      contentType: null,
+      s3Uri: null,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
   }
 }
