@@ -215,7 +215,6 @@ export default function DashboardPage() {
               <button className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700" onClick={() => fileInputRef.current?.click()} type="button">Upload Files</button>
               <button className="rounded-lg border border-blue-600 px-3 py-1.5 text-sm font-medium text-blue-600 hover:bg-blue-50" onClick={() => folderInputRef.current?.click()} type="button">Upload Folder</button>
               <input className="hidden" multiple onChange={(event) => { void handleUploadFiles(event.target.files ? Array.from(event.target.files) : []); event.target.value = ""; }} ref={fileInputRef} type="file" />
-              {/* @ts-expect-error webkitdirectory is non-standard */}
               <input className="hidden" onChange={(event) => { void handleUploadFolder(event.target.files ? Array.from(event.target.files) : []); event.target.value = ""; }} ref={folderInputRef} type="file" webkitdirectory="" />
             </div>
           </div>

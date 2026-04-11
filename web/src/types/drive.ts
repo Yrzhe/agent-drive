@@ -8,7 +8,6 @@ export interface DriveFile {
   contentType: string | null;
   createdAt: string;
   updatedAt: string;
-  s3Uri?: string | null;
 }
 
 export interface UploadTicket {

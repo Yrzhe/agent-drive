@@ -60,7 +60,7 @@ export function ShareModal({
         <p className="mt-1 text-sm text-slate-600">{target.path}</p>
 
         <label className="mt-4 block text-sm font-medium text-slate-700" htmlFor="share-password">Password (optional)</label>
-        <input className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" id="share-password" onChange={(event) => setPassword(event.target.value)} placeholder="Leave blank for no password" type="text" value={password} />
+        <input className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" id="share-password" onChange={(event) => setPassword(event.target.value)} placeholder="Leave blank for no password" type="password" value={password} />
 
         <label className="mt-3 block text-sm font-medium text-slate-700" htmlFor="share-max-downloads">Max downloads (optional)</label>
         <input className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" id="share-max-downloads" min={1} onChange={(event) => setMaxDownloads(event.target.value)} placeholder="e.g. 10" type="number" value={maxDownloads} />

@@ -32,7 +32,11 @@ export function UploadZone({ uploading, progress, onFilesSelected, onFolderSelec
           .filter((entry): entry is FileSystemEntry => entry !== null && entry !== undefined);
         const hasFolder = fileEntries.some((entry) => entry.isDirectory);
         if (hasFolder) {
-          collectFilesFromEntries(fileEntries).then(onFolderSelected);
+          void collectFilesFromEntries(fileEntries)
+            .then(onFolderSelected)
+            .catch((error) => {
+              console.error("Failed to read dropped folder entries", error);
+            });
         } else {
           onFilesSelected(Array.from(event.dataTransfer.files));
         }
@@ -56,6 +60,18 @@ export function UploadZone({ uploading, progress, onFilesSelected, onFolderSelec
 
 async function collectFilesFromEntries(entries: FileSystemEntry[]): Promise<File[]> {
   const result: File[] = [];
+  async function readDirectoryEntries(reader: FileSystemDirectoryReader): Promise<FileSystemEntry[]> {
+    const all: FileSystemEntry[] = [];
+    // readEntries returns batches; keep reading until empty to avoid truncation.
+    while (true) {
+      const batch = await new Promise<FileSystemEntry[]>((resolve, reject) => {
+        reader.readEntries(resolve, reject);
+      });
+      if (batch.length === 0) break;
+      all.push(...batch);
+    }
+    return all;
+  }
 
   async function readEntry(entry: FileSystemEntry, path: string): Promise<void> {
     if (entry.isFile) {
@@ -67,9 +83,7 @@ async function collectFilesFromEntries(entries: FileSystemEntry[]): Promise<File
       result.push(fileWithPath);
     } else if (entry.isDirectory) {
       const reader = (entry as FileSystemDirectoryEntry).createReader();
-      const children = await new Promise<FileSystemEntry[]>((resolve, reject) => {
-        reader.readEntries(resolve, reject);
-      });
+      const children = await readDirectoryEntries(reader);
       for (const child of children) {
         await readEntry(child, `${path}${entry.name}/`);
       }

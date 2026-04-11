@@ -47,11 +47,11 @@ const guide: GuideData = {
 let fileCounter = 6;
 let shareCounter = 3;
 let files: DriveFile[] = [
-  { id: "file_1", name: "docs", path: "/docs", parentPath: "/", isFolder: true, size: 0, contentType: null, createdAt: nowIso(), updatedAt: nowIso(), s3Uri: null },
-  { id: "file_2", name: "readme.md", path: "/docs/readme.md", parentPath: "/docs", isFolder: false, size: 2401, contentType: "text/markdown", createdAt: nowIso(), updatedAt: nowIso(), s3Uri: "mock://bucket/docs/readme.md" },
-  { id: "file_3", name: "meeting-notes.txt", path: "/meeting-notes.txt", parentPath: "/", isFolder: false, size: 913, contentType: "text/plain", createdAt: nowIso(), updatedAt: nowIso(), s3Uri: "mock://bucket/meeting-notes.txt" },
-  { id: "file_4", name: "assets", path: "/assets", parentPath: "/", isFolder: true, size: 0, contentType: null, createdAt: nowIso(), updatedAt: nowIso(), s3Uri: null },
-  { id: "file_5", name: "logo.png", path: "/assets/logo.png", parentPath: "/assets", isFolder: false, size: 147822, contentType: "image/png", createdAt: nowIso(), updatedAt: nowIso(), s3Uri: "mock://bucket/assets/logo.png" },
+  { id: "file_1", name: "docs", path: "/docs", parentPath: "/", isFolder: true, size: 0, contentType: null, createdAt: nowIso(), updatedAt: nowIso() },
+  { id: "file_2", name: "readme.md", path: "/docs/readme.md", parentPath: "/docs", isFolder: false, size: 2401, contentType: "text/markdown", createdAt: nowIso(), updatedAt: nowIso() },
+  { id: "file_3", name: "meeting-notes.txt", path: "/meeting-notes.txt", parentPath: "/", isFolder: false, size: 913, contentType: "text/plain", createdAt: nowIso(), updatedAt: nowIso() },
+  { id: "file_4", name: "assets", path: "/assets", parentPath: "/", isFolder: true, size: 0, contentType: null, createdAt: nowIso(), updatedAt: nowIso() },
+  { id: "file_5", name: "logo.png", path: "/assets/logo.png", parentPath: "/assets", isFolder: false, size: 147822, contentType: "image/png", createdAt: nowIso(), updatedAt: nowIso() },
 ];
 let shares: ShareRecord[] = [
   { id: "share1234", fileId: "file_3", folderPath: null, password: null, maxDownloads: 10, downloadCount: 2, expiresAt: null, createdAt: nowIso() },
@@ -77,7 +77,7 @@ function ensureFolder(path: string): void {
     if (files.some((entry) => entry.path === current)) continue;
     const createdAt = nowIso();
     fileCounter += 1;
-    files.push({ id: `file_${fileCounter}`, name: segment, path: current, parentPath: getParentPath(current), isFolder: true, size: 0, contentType: null, createdAt, updatedAt: createdAt, s3Uri: null });
+    files.push({ id: `file_${fileCounter}`, name: segment, path: current, parentPath: getParentPath(current), isFolder: true, size: 0, contentType: null, createdAt, updatedAt: createdAt });
   }
 }
 
@@ -126,13 +126,13 @@ export const mockDriveApi = {
   async completeUpload(fileId: string): Promise<{ file: DriveFile }> {
     const pending = pendingUploads.get(fileId); if (!pending) throw new DriveApiError("Upload ticket not found", 404, "UPLOAD_NOT_FOUND");
     const path = joinPath(pending.path, pending.filename); if (files.some((entry) => entry.path === path)) throw new DriveApiError("A file with this path already exists", 409, "FILE_EXISTS");
-    const createdAt = nowIso(); const file: DriveFile = { id: fileId, name: pending.filename, path, parentPath: pending.path, isFolder: false, size: pending.size, contentType: pending.contentType, createdAt, updatedAt: createdAt, s3Uri: `mock://bucket${path}` };
+    const createdAt = nowIso(); const file: DriveFile = { id: fileId, name: pending.filename, path, parentPath: pending.path, isFolder: false, size: pending.size, contentType: pending.contentType, createdAt, updatedAt: createdAt };
     files.push(file); pendingUploads.delete(fileId); return { file };
   },
   async createFolder(name: string, parentPath: string): Promise<{ folder: DriveFile }> {
     const parent = normalizePath(parentPath); ensureFolder(parent); const path = joinPath(parent, name);
     if (files.some((entry) => entry.path === path)) throw new DriveApiError("A folder with this path already exists", 409, "FOLDER_EXISTS");
-    fileCounter += 1; const createdAt = nowIso(); const folder: DriveFile = { id: `file_${fileCounter}`, name, path, parentPath: parent, isFolder: true, size: 0, contentType: null, createdAt, updatedAt: createdAt, s3Uri: null };
+    fileCounter += 1; const createdAt = nowIso(); const folder: DriveFile = { id: `file_${fileCounter}`, name, path, parentPath: parent, isFolder: true, size: 0, contentType: null, createdAt, updatedAt: createdAt };
     files.push(folder); return { folder };
   },
   async renameFile(fileId: string, payload: { name?: string; parentPath?: string }): Promise<{ file: DriveFile }> {
@@ -163,7 +163,7 @@ export const mockDriveApi = {
     const status = shareStatus(share); if (status === "expired") throw new DriveApiError(shareMessage("expired") ?? "Share expired", 410, "SHARE_EXPIRED"); if (status === "depleted") throw new DriveApiError(shareMessage("depleted") ?? "Download limit reached", 410, "DOWNLOAD_LIMIT");
     if (share.password) { const token = shareTokens.get(shareId); if (!token || token !== accessToken) throw new DriveApiError("Invalid access token, verify password first", 401, "ACCESS_DENIED"); }
     share.downloadCount += 1; const file = share.fileId ? findFile(share.fileId) : null; const folder = share.folderPath?.split("/").filter(Boolean).slice(-1)[0] || "shared-folder";
-    return { downloadUrl: file?.s3Uri || `mock://download/${share.id}/${encodeURIComponent(file?.name || `${folder}.zip`)}`, fileName: file?.name || `${folder}.zip`, downloadCount: share.downloadCount };
+    return { downloadUrl: `mock://download/${share.id}/${encodeURIComponent(file?.name || `${folder}.zip`)}`, fileName: file?.name || `${folder}.zip`, downloadCount: share.downloadCount };
   },
   async getGuide(): Promise<GuideData> { return guide; },
 };

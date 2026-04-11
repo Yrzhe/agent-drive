@@ -133,20 +133,53 @@ publicSharesRoutes.get(
   })
 );
 
+const RATE_LIMIT_MAX_ATTEMPTS = 5;
+const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000;
+const failedAttempts = new Map<string, { count: number; firstAt: number }>();
+
+function checkRateLimit(shareId: string): void {
+  const now = Date.now();
+  const entry = failedAttempts.get(shareId);
+  if (entry && now - entry.firstAt < RATE_LIMIT_WINDOW_MS && entry.count >= RATE_LIMIT_MAX_ATTEMPTS) {
+    const retryAfter = Math.ceil((entry.firstAt + RATE_LIMIT_WINDOW_MS - now) / 1000);
+    throw new ApiError(429, "too_many_attempts", `Too many failed password attempts. Try again in ${Math.ceil(retryAfter / 60)} minutes.`);
+  }
+  if (entry && now - entry.firstAt >= RATE_LIMIT_WINDOW_MS) {
+    failedAttempts.delete(shareId);
+  }
+}
+
+function recordFailedAttempt(shareId: string): void {
+  const now = Date.now();
+  const entry = failedAttempts.get(shareId);
+  if (entry && now - entry.firstAt < RATE_LIMIT_WINDOW_MS) {
+    entry.count += 1;
+  } else {
+    failedAttempts.set(shareId, { count: 1, firstAt: now });
+  }
+}
+
 publicSharesRoutes.post(
   "/:shareId/access",
   withErrorHandling(async (c) => {
+    const shareId = getShareId(c);
+    checkRateLimit(shareId);
+
     const body = (await c.req.json().catch(() => ({}))) as { password?: string };
     const { db, secret } = await import("edgespark");
 
-    const [share] = await db.select().from(shares).where(eq(shares.id, getShareId(c))).limit(1);
+    const [share] = await db.select().from(shares).where(eq(shares.id, shareId)).limit(1);
     if (!share) throw new ApiError(404, "share_not_found", "Share link not found");
     assertShareAccessible(share);
 
     if (share.passwordHash) {
       const valid = await verifyPasswordHash(body.password ?? "", share.passwordHash);
-      if (!valid) throw new ApiError(403, "wrong_password", "Wrong share password");
+      if (!valid) {
+        recordFailedAttempt(shareId);
+        throw new ApiError(403, "wrong_password", "Wrong share password");
+      }
     }
+    failedAttempts.delete(shareId);
 
     const tokenSecret = secret.get("AGENT_TOKEN");
     if (!tokenSecret) throw new ApiError(500, "internal_error", "AGENT_TOKEN is not configured");

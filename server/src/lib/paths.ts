@@ -14,6 +14,15 @@ export function normalizePath(input?: string | null): string {
 export function normalizeName(input: string | undefined): string {
   const name = (input ?? "").trim();
   if (!name) throw new ApiError(400, "validation_error", "Name is required");
+  if (name.length > 255) {
+    throw new ApiError(400, "validation_error", "Name must be at most 255 characters");
+  }
+  if (name === "." || name === "..") {
+    throw new ApiError(400, "validation_error", "Name cannot be '.' or '..'");
+  }
+  if (/[\x00-\x1f]/.test(name)) {
+    throw new ApiError(400, "validation_error", "Name cannot contain control characters");
+  }
   if (name.includes("/")) {
     throw new ApiError(400, "validation_error", "Name cannot contain '/'");
   }
