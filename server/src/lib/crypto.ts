@@ -124,7 +124,9 @@ export async function createAccessToken(shareId: string, secret: string): Promis
 
 export async function verifyAccessToken(token: string | undefined, shareId: string, secret: string): Promise<boolean> {
   if (!token) return false;
-  const [timestampPart, signature] = token.split(".");
+  const tokenParts = token.split(".");
+  if (tokenParts.length !== 2) return false;
+  const [timestampPart, signature] = tokenParts;
   if (!timestampPart || !signature) return false;
 
   const issuedAt = Number(timestampPart);
@@ -134,6 +136,7 @@ export async function verifyAccessToken(token: string | undefined, shareId: stri
   if (issuedAt > now + 60_000) return false;
   if (now - issuedAt > ACCESS_TOKEN_TTL_MS) return false;
 
+  // shareId is part of the signed payload, so a token can only validate for the exact requested shareId.
   const expected = await hmacSha256Hex(secret, `${shareId}:${issuedAt}`);
   return timingSafeEqualStrings(expected, signature);
 }

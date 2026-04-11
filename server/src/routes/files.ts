@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, like, ne, or } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, like, ne, or } from "drizzle-orm";
 import { Hono } from "hono";
 import { nanoid } from "nanoid";
 import { buckets, files, shares } from "@defs";
@@ -8,6 +8,11 @@ import { descendantPattern, joinPath, normalizeName, normalizePath, parentOfPath
 import { PRESIGNED_URL_TTL_SECS } from "../types";
 
 export const filesRoutes = new Hono();
+
+function isPathUniqueConflict(error: unknown): boolean {
+  const message = (error as { message?: string } | null)?.message?.toLowerCase() ?? "";
+  return message.includes("unique constraint failed: files.path") || message.includes("duplicate key") && message.includes("files.path");
+}
 
 function getIdParam(c: { req: { param: (name: string) => string | undefined } }): string {
   const id = c.req.param("id");
@@ -73,21 +78,29 @@ filesRoutes.post(
     if (conflict) throw new ApiError(409, "path_conflict", "Path already exists");
 
     const timestamp = nowIso();
-    const [inserted] = await db
-      .insert(files)
-      .values({
-        id: fileId,
-        name: filename,
-        path: targetPath,
-        parentPath,
-        isFolder: 0,
-        size: metadata.size,
-        contentType: metadata.contentType ?? null,
-        s3Uri: storage.createS3Uri(buckets.drive, objectPath),
-        createdAt: timestamp,
-        updatedAt: timestamp,
-      })
-      .returning();
+    let inserted: typeof files.$inferSelect;
+    try {
+      [inserted] = await db
+        .insert(files)
+        .values({
+          id: fileId,
+          name: filename,
+          path: targetPath,
+          parentPath,
+          isFolder: 0,
+          size: metadata.size,
+          contentType: metadata.contentType ?? null,
+          s3Uri: storage.createS3Uri(buckets.drive, objectPath),
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        })
+        .returning();
+    } catch (error) {
+      if (isPathUniqueConflict(error)) {
+        throw new ApiError(409, "path_conflict", "Path already exists");
+      }
+      throw error;
+    }
 
     return c.json({ file: toFileObject(inserted) });
   })
@@ -159,6 +172,19 @@ filesRoutes.patch(
         const path = `${nextPath}${item.path.slice(existing.path.length)}`;
         await db.update(files).set({ path, parentPath: parentOfPath(path), updatedAt }).where(eq(files.id, item.id));
       }
+
+      const linkedShares = await db
+        .select({ id: shares.id, folderPath: shares.folderPath })
+        .from(shares)
+        .where(or(eq(shares.folderPath, existing.path), like(shares.folderPath, descendantPattern(existing.path))));
+      for (const linkedShare of linkedShares) {
+        if (!linkedShare.folderPath) continue;
+        const updatedFolderPath =
+          linkedShare.folderPath === existing.path
+            ? nextPath
+            : `${nextPath}${linkedShare.folderPath.slice(existing.path.length)}`;
+        await db.update(shares).set({ folderPath: updatedFolderPath }).where(eq(shares.id, linkedShare.id));
+      }
     }
 
     const [updated] = await db.select().from(files).where(eq(files.id, existing.id)).limit(1);
@@ -192,11 +218,9 @@ filesRoutes.delete(
     if (target.isFolder === 1) {
       await db.batch([
         db.delete(shares).where(or(eq(shares.folderPath, target.path), like(shares.folderPath, descendantPattern(target.path)))),
+        ...(fileIds.length > 0 ? [db.delete(shares).where(inArray(shares.fileId, fileIds))] : []),
         db.delete(files).where(or(eq(files.path, target.path), like(files.path, descendantPattern(target.path)))),
       ]);
-      for (const fid of fileIds) {
-        await db.delete(shares).where(eq(shares.fileId, fid));
-      }
       return c.json({ deleted: fileIds.length });
     }
 

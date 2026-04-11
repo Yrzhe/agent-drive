@@ -1,4 +1,4 @@
-import { and, asc, eq, like, or, sql } from "drizzle-orm";
+import { and, asc, eq, isNull, like, lt, or, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { zipSync } from "fflate";
 
@@ -7,6 +7,7 @@ import { buckets, files, shares } from "@defs";
 import { createAccessToken, verifyAccessToken, verifyPasswordHash } from "../lib/crypto";
 import { ApiError, withErrorHandling } from "../lib/errors";
 import { descendantPattern, normalizePath, relativePath } from "../lib/paths";
+import type { AppDb } from "../types";
 
 export const publicSharesRoutes = new Hono();
 const MAX_ZIP_DOWNLOAD_BYTES = 50 * 1024 * 1024;
@@ -28,6 +29,18 @@ function isExhausted(maxDownloads: number | null, downloadCount: number): boolea
 function assertShareAccessible(share: typeof shares.$inferSelect): void {
   if (isExpired(share.expiresAt)) throw new ApiError(410, "share_expired", "Share link has expired");
   if (isExhausted(share.maxDownloads, share.downloadCount)) {
+    throw new ApiError(429, "share_exhausted", "Share download limit reached");
+  }
+}
+
+async function incrementDownloadCountOrThrow(db: AppDb, shareId: string): Promise<void> {
+  const updated = await db
+    .update(shares)
+    .set({ downloadCount: sql`${shares.downloadCount} + 1` })
+    .where(and(eq(shares.id, shareId), or(isNull(shares.maxDownloads), lt(shares.downloadCount, shares.maxDownloads))))
+    .returning({ id: shares.id });
+
+  if (updated.length === 0) {
     throw new ApiError(429, "share_exhausted", "Share download limit reached");
   }
 }
@@ -175,7 +188,7 @@ publicSharesRoutes.get(
     if (!parsed) throw new ApiError(404, "upload_not_found", "Storage path is invalid");
 
     const presigned = await storage.from(buckets.drive).createPresignedGetUrl(parsed.path, 60 * 60);
-    await db.update(shares).set({ downloadCount: sql`${shares.downloadCount} + 1` }).where(eq(shares.id, share.id));
+    await incrementDownloadCountOrThrow(db, share.id);
 
     return c.json({
       downloadUrl: presigned.downloadUrl,
@@ -249,7 +262,7 @@ publicSharesRoutes.get(
     }
 
     const zipped = zipSync(zipEntries);
-    await db.update(shares).set({ downloadCount: sql`${shares.downloadCount} + 1` }).where(eq(shares.id, share.id));
+    await incrementDownloadCountOrThrow(db, share.id);
 
     return new Response(zipped, {
       headers: {
