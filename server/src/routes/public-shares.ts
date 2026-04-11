@@ -4,11 +4,12 @@ import { zipSync } from "fflate";
 
 import { buckets, files, shares } from "@defs";
 
-import { createAccessToken, sha256Hex, verifyAccessToken } from "../lib/crypto";
+import { createAccessToken, verifyAccessToken, verifyPasswordHash } from "../lib/crypto";
 import { ApiError, withErrorHandling } from "../lib/errors";
 import { descendantPattern, normalizePath, relativePath } from "../lib/paths";
 
 export const publicSharesRoutes = new Hono();
+const MAX_ZIP_DOWNLOAD_BYTES = 50 * 1024 * 1024;
 
 function getShareId(c: { req: { param: (name: string) => string | undefined } }): string {
   const shareId = c.req.param("shareId");
@@ -109,8 +110,8 @@ publicSharesRoutes.post(
     assertShareAccessible(share);
 
     if (share.passwordHash) {
-      const provided = await sha256Hex(body.password ?? "");
-      if (provided !== share.passwordHash) throw new ApiError(403, "wrong_password", "Wrong share password");
+      const valid = await verifyPasswordHash(body.password ?? "", share.passwordHash);
+      if (!valid) throw new ApiError(403, "wrong_password", "Wrong share password");
     }
 
     const tokenSecret = secret.get("AGENT_TOKEN");
@@ -217,6 +218,19 @@ publicSharesRoutes.get(
       .orderBy(asc(files.path));
 
     if (fileRows.length === 0) throw new ApiError(404, "file_not_found", "No files in this folder");
+    const totalSize = fileRows.reduce((sum, row) => sum + row.size, 0);
+    if (totalSize > MAX_ZIP_DOWNLOAD_BYTES) {
+      return c.json({
+        error: {
+          code: "zip_too_large",
+          message: `ZIP download is limited to 50MB. This folder is ${Math.ceil(totalSize / (1024 * 1024))}MB.`,
+          hint: "Use GET /files to list all files, then GET /download?fileId=<id> to download each file individually. Preserve the relative path from the file list to maintain folder structure.",
+          filesEndpoint: `/api/public/s/${getShareId(c)}/files`,
+          fileCount: fileRows.length,
+          totalSizeMB: Math.ceil(totalSize / (1024 * 1024)),
+        },
+      }, 413);
+    }
 
     const zipEntries: Record<string, Uint8Array> = {};
     for (const row of fileRows) {
