@@ -4,6 +4,7 @@ import { nanoid } from "nanoid";
 
 import { files } from "@defs";
 
+import { getRequestActor, logEvent } from "../lib/activity";
 import { ensureFolderChain, nowIso, toFileObject } from "../lib/files";
 import { ApiError, withErrorHandling } from "../lib/errors";
 import { joinPath, normalizeName, normalizePath } from "../lib/paths";
@@ -39,6 +40,17 @@ foldersRoutes.post(
         updatedAt: nowIso(),
       })
       .returning();
+
+    await logEvent(db, {
+      eventType: "folder.created",
+      targetType: "folder",
+      targetId: folder.id,
+      targetPath: folder.path,
+      actor: await getRequestActor(),
+      metadata: {
+        parentPath,
+      },
+    });
 
     return c.json({ folder: toFileObject(folder) });
   })

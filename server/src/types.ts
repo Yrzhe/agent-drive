@@ -1,9 +1,14 @@
-import type { drizzleSchema, files, shares } from "@defs";
+import type { activityLog, drizzleSchema, files, shares, webhooks } from "@defs";
 import type { DrizzleD1Database } from "drizzle-orm/d1";
 
 export type AppDb = DrizzleD1Database<typeof drizzleSchema>;
 export type FileRow = typeof files.$inferSelect;
 export type ShareRow = typeof shares.$inferSelect;
+export type ActivityLogRow = typeof activityLog.$inferSelect;
+export type WebhookRow = typeof webhooks.$inferSelect;
+
+export type ActivityTargetType = "file" | "folder" | "share";
+export type ActivityActor = "owner" | "agent" | "public";
 
 export interface FileObject {
   id: string;
@@ -38,6 +43,15 @@ export interface ShareObject {
   expiresAt: string | null;
   createdAt: string;
   shareUrl: string;
+}
+
+export interface ActivityEventInput {
+  eventType: string;
+  targetType?: ActivityTargetType;
+  targetId?: string | null;
+  targetPath?: string | null;
+  actor: ActivityActor;
+  metadata?: Record<string, unknown> | null;
 }
 
 export const ACCESS_TOKEN_TTL_MS = 15 * 60 * 1000;

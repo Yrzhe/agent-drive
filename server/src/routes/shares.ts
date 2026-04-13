@@ -4,6 +4,7 @@ import { nanoid } from "nanoid";
 
 import { files, shares } from "@defs";
 
+import { getRequestActor, logEvent } from "../lib/activity";
 import { sha256Hex } from "../lib/crypto";
 import { nowIso } from "../lib/files";
 import { ApiError, withErrorHandling } from "../lib/errors";
@@ -115,6 +116,21 @@ sharesRoutes.post(
       })
       .returning();
 
+    await logEvent(db, {
+      eventType: "share.created",
+      targetType: "share",
+      targetId: created.id,
+      targetPath: created.folderPath,
+      actor: await getRequestActor(),
+      metadata: {
+        fileId: created.fileId,
+        folderPath: created.folderPath,
+        hasPassword: Boolean(created.passwordHash),
+        maxDownloads: created.maxDownloads,
+        expiresAt: created.expiresAt,
+      },
+    });
+
     const origin = new URL(c.req.url).origin;
     return c.json({
       share: await toShareObject(db, created, origin),
@@ -155,6 +171,17 @@ sharesRoutes.delete(
     const { db } = await import("edgespark");
     const deleted = await db.delete(shares).where(eq(shares.id, getShareId(c))).returning();
     if (deleted.length === 0) throw new ApiError(404, "share_not_found", "Share link not found");
+    await logEvent(db, {
+      eventType: "share.deleted",
+      targetType: "share",
+      targetId: deleted[0]!.id,
+      targetPath: deleted[0]!.folderPath,
+      actor: await getRequestActor(),
+      metadata: {
+        fileId: deleted[0]!.fileId,
+        folderPath: deleted[0]!.folderPath,
+      },
+    });
     return c.json({ success: true });
   })
 );

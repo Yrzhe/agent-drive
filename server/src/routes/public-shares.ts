@@ -4,6 +4,7 @@ import { zipSync } from "fflate";
 
 import { buckets, files, shares } from "@defs";
 
+import { logEvent } from "../lib/activity";
 import { createAccessToken, verifyAccessToken, verifyPasswordHash } from "../lib/crypto";
 import { ApiError, withErrorHandling } from "../lib/errors";
 import { descendantPattern, normalizePath, relativePath } from "../lib/paths";
@@ -79,6 +80,18 @@ publicSharesRoutes.get(
     const shareType = share.fileId ? "file" : "folder";
 
     if (expired || exhausted) {
+      await logEvent(db, {
+        eventType: "share.accessed",
+        targetType: "share",
+        targetId: share.id,
+        targetPath: share.folderPath,
+        actor: "public",
+        metadata: {
+          shareType,
+          expired,
+          exhausted,
+        },
+      });
       return c.json({
         id: share.id,
         type: shareType,
@@ -92,6 +105,17 @@ publicSharesRoutes.get(
     if (share.fileId) {
       const [file] = await db.select().from(files).where(eq(files.id, share.fileId)).limit(1);
       if (!file) throw new ApiError(404, "file_not_found", "Shared file not found");
+      await logEvent(db, {
+        eventType: "share.accessed",
+        targetType: "share",
+        targetId: share.id,
+        targetPath: file.path,
+        actor: "public",
+        metadata: {
+          shareType: "file",
+          fileId: file.id,
+        },
+      });
       return c.json({
         id: share.id,
         type: "file",
@@ -115,6 +139,19 @@ publicSharesRoutes.get(
     const descendants = await db.select({ size: files.size, isFolder: files.isFolder }).from(files).where(like(files.path, descendantPattern(folderPath)));
     const size = descendants.filter((x) => x.isFolder === 0).reduce((sum, x) => sum + x.size, 0);
     const fileCount = descendants.filter((x) => x.isFolder === 0).length;
+
+    await logEvent(db, {
+      eventType: "share.accessed",
+      targetType: "share",
+      targetId: share.id,
+      targetPath: folder.path,
+      actor: "public",
+      metadata: {
+        shareType: "folder",
+        folderPath,
+        fileCount,
+      },
+    });
 
     return c.json({
       id: share.id,
@@ -176,6 +213,16 @@ publicSharesRoutes.post(
       const valid = await verifyPasswordHash(body.password ?? "", share.passwordHash);
       if (!valid) {
         recordFailedAttempt(shareId);
+        await logEvent(db, {
+          eventType: "share.password_failed",
+          targetType: "share",
+          targetId: share.id,
+          targetPath: share.folderPath,
+          actor: "public",
+          metadata: {
+            fileId: share.fileId,
+          },
+        });
         throw new ApiError(403, "wrong_password", "Wrong share password");
       }
     }
@@ -243,6 +290,18 @@ publicSharesRoutes.get(
 
     const presigned = await storage.from(buckets.drive).createPresignedGetUrl(parsed.path, 60 * 60);
     await incrementDownloadCountOrThrow(db, share.id);
+    await logEvent(db, {
+      eventType: "share.downloaded",
+      targetType: "share",
+      targetId: share.id,
+      targetPath: target.path,
+      actor: "public",
+      metadata: {
+        fileId: target.id,
+        filename: target.name,
+        mode: "single",
+      },
+    });
 
     return c.json({
       downloadUrl: presigned.downloadUrl,
@@ -317,6 +376,18 @@ publicSharesRoutes.get(
 
     const zipped = zipSync(zipEntries);
     await incrementDownloadCountOrThrow(db, share.id);
+    await logEvent(db, {
+      eventType: "share.downloaded",
+      targetType: "share",
+      targetId: share.id,
+      targetPath: basePath,
+      actor: "public",
+      metadata: {
+        mode: "zip",
+        fileCount: Object.keys(zipEntries).length,
+        zipName,
+      },
+    });
 
     return new Response(zipped, {
       headers: {

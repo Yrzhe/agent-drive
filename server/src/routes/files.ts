@@ -2,6 +2,7 @@ import { and, asc, desc, eq, inArray, like, ne, or } from "drizzle-orm";
 import { Hono } from "hono";
 import { nanoid } from "nanoid";
 import { buckets, files, shares } from "@defs";
+import { getRequestActor, logEvent } from "../lib/activity";
 import { ensureFolderChain, nowIso, toFileObject } from "../lib/files";
 import { ApiError, withErrorHandling } from "../lib/errors";
 import { descendantPattern, joinPath, normalizeName, normalizePath, parentOfPath } from "../lib/paths";
@@ -147,6 +148,18 @@ filesRoutes.post(
     const [inserted] = completed;
     if (!inserted) throw new ApiError(409, "upload_state_conflict", "Upload ticket was already completed");
 
+    await logEvent(db, {
+      eventType: "file.uploaded",
+      targetType: "file",
+      targetId: inserted.id,
+      targetPath: inserted.path,
+      actor: await getRequestActor(),
+      metadata: {
+        size: inserted.size,
+        contentType: inserted.contentType,
+      },
+    });
+
     return c.json({ file: toFileObject(inserted) });
   })
 );
@@ -234,6 +247,40 @@ filesRoutes.patch(
 
     const [updated] = await db.select().from(files).where(eq(files.id, existing.id)).limit(1);
     if (!updated) throw new ApiError(404, "file_not_found", "File not found");
+
+    const actor = await getRequestActor();
+    const targetType = updated.isFolder === 1 ? "folder" : "file";
+    if (existing.name !== updated.name) {
+      await logEvent(db, {
+        eventType: "file.renamed",
+        targetType,
+        targetId: updated.id,
+        targetPath: updated.path,
+        actor,
+        metadata: {
+          previousName: existing.name,
+          nextName: updated.name,
+          previousPath: existing.path,
+          nextPath: updated.path,
+        },
+      });
+    }
+    if (existing.parentPath !== updated.parentPath) {
+      await logEvent(db, {
+        eventType: "file.moved",
+        targetType,
+        targetId: updated.id,
+        targetPath: updated.path,
+        actor,
+        metadata: {
+          previousParentPath: existing.parentPath,
+          nextParentPath: updated.parentPath,
+          previousPath: existing.path,
+          nextPath: updated.path,
+        },
+      });
+    }
+
     return c.json({ file: toFileObject(updated) });
   })
 );
@@ -266,6 +313,17 @@ filesRoutes.delete(
         ...(fileIds.length > 0 ? [db.delete(shares).where(inArray(shares.fileId, fileIds))] : []),
         db.delete(files).where(or(eq(files.path, target.path), like(files.path, descendantPattern(target.path)))),
       ]);
+      await logEvent(db, {
+        eventType: "file.deleted",
+        targetType: "folder",
+        targetId: target.id,
+        targetPath: target.path,
+        actor: await getRequestActor(),
+        metadata: {
+          deletedFiles: fileIds.length,
+          deletedPaths: rows.length,
+        },
+      });
       return c.json({ deleted: fileIds.length });
     }
 
@@ -273,6 +331,16 @@ filesRoutes.delete(
       db.delete(shares).where(eq(shares.fileId, target.id)),
       db.delete(files).where(eq(files.id, target.id)),
     ]);
+    await logEvent(db, {
+      eventType: "file.deleted",
+      targetType: "file",
+      targetId: target.id,
+      targetPath: target.path,
+      actor: await getRequestActor(),
+      metadata: {
+        size: target.size,
+      },
+    });
     return c.json({ deleted: 1 });
   })
 );
