@@ -70,3 +70,10 @@ export const webhooks = sqliteTable(
   },
   (table) => [index("idx_webhooks_enabled").on(table.enabled), index("idx_webhooks_created_at").on(table.createdAt)]
 );
+
+export const rateLimits = sqliteTable("rate_limits", {
+  key: text("key").primaryKey(),
+  count: integer("count").notNull().default(0),
+  firstAt: integer("first_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+});
