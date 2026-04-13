@@ -9,7 +9,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { DriveApiError } from "@/lib/api-client";
 import { driveApi } from "@/lib/drive-api";
 import { normalizePath } from "@/lib/path-utils";
-import type { DriveFile, ShareLink } from "@/types/drive";
+import type { DriveFile, ShareLink, ShareStats } from "@/types/drive";
 
 const formatDate = (value: string) => new Date(value).toLocaleString();
 const getErrorMessage = (error: unknown) => (error instanceof Error ? error.message : "Request failed. Please try again.");
@@ -25,14 +25,31 @@ export default function DashboardPage() {
   }, [setSearchParams]);
   const [entries, setEntries] = useState<DriveFile[]>([]);
   const [shares, setShares] = useState<ShareLink[]>([]);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<DriveFile[]>([]);
+  const [searching, setSearching] = useState(false);
   const [loadingFiles, setLoadingFiles] = useState(false);
   const [loadingShares, setLoadingShares] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [shareTarget, setShareTarget] = useState<DriveFile | null>(null);
   const [uploadProgress, setUploadProgress] = useState<UploadProgress | null>(null);
+  const [expandedShareStats, setExpandedShareStats] = useState<Record<string, boolean>>({});
+  const [shareStatsById, setShareStatsById] = useState<Record<string, ShareStats | undefined>>({});
+  const [loadingShareStats, setLoadingShareStats] = useState<Record<string, boolean>>({});
+  const [shareStatsErrors, setShareStatsErrors] = useState<Record<string, string | undefined>>({});
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const folderInputRef = useRef<HTMLInputElement | null>(null);
+  const isSearchActive = debouncedSearchQuery.trim().length > 0;
+  const displayedEntries = isSearchActive ? searchResults : entries;
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      setDebouncedSearchQuery(searchQuery.trim());
+    }, 300);
+    return () => window.clearTimeout(timeout);
+  }, [searchQuery]);
 
   const refreshFiles = useCallback(async (path: string) => {
     setLoadingFiles(true);
@@ -59,6 +76,15 @@ export default function DashboardPage() {
     }
   }, []);
 
+  const refreshVisibleEntries = useCallback(async () => {
+    if (debouncedSearchQuery) {
+      const result = await driveApi.searchFiles(debouncedSearchQuery);
+      setSearchResults(result.files);
+      return;
+    }
+    await refreshFiles(currentPath);
+  }, [currentPath, debouncedSearchQuery, refreshFiles]);
+
   useEffect(() => {
     if (!isAuthenticated) return;
     void refreshFiles(currentPath);
@@ -68,6 +94,33 @@ export default function DashboardPage() {
     if (!isAuthenticated) return;
     void refreshShares();
   }, [isAuthenticated, refreshShares]);
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    if (!debouncedSearchQuery) {
+      setSearchResults([]);
+      setSearching(false);
+      return;
+    }
+
+    let cancelled = false;
+    setSearching(true);
+    void driveApi.searchFiles(debouncedSearchQuery).then((result) => {
+      if (cancelled) return;
+      setSearchResults(result.files);
+      setErrorMessage(null);
+    }).catch((error) => {
+      if (cancelled) return;
+      setSearchResults([]);
+      setErrorMessage(getErrorMessage(error));
+    }).finally(() => {
+      if (!cancelled) setSearching(false);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [debouncedSearchQuery, isAuthenticated]);
 
   const uploadSingleFile = useCallback(async (file: File, targetPath: string) => {
     setUploadProgress({ filename: file.name, percent: 0 });
@@ -101,14 +154,14 @@ export default function DashboardPage() {
       for (const file of files) {
         await uploadSingleFile(file, currentPath);
       }
-      await refreshFiles(currentPath);
+      await refreshVisibleEntries();
     } catch (error) {
       setErrorMessage(getErrorMessage(error));
     } finally {
       setUploading(false);
       setUploadProgress(null);
     }
-  }, [currentPath, refreshFiles, uploadSingleFile]);
+  }, [currentPath, refreshVisibleEntries, uploadSingleFile]);
 
   const handleUploadFolder = useCallback(async (files: File[]) => {
     if (files.length === 0) return;
@@ -122,21 +175,21 @@ export default function DashboardPage() {
         const subPath = parts.length > 0 ? `${currentPath === "/" ? "" : currentPath}/${parts.join("/")}` : currentPath;
         await uploadSingleFile(new File([file], fileName, { type: file.type }), subPath);
       }
-      await refreshFiles(currentPath);
+      await refreshVisibleEntries();
     } catch (error) {
       setErrorMessage(getErrorMessage(error));
     } finally {
       setUploading(false);
       setUploadProgress(null);
     }
-  }, [currentPath, refreshFiles, uploadSingleFile]);
+  }, [currentPath, refreshVisibleEntries, uploadSingleFile]);
 
   const handleCreateFolder = async () => {
     const name = window.prompt("New folder name");
     if (!name?.trim()) return;
     try {
       await driveApi.createFolder(name.trim(), currentPath);
-      await refreshFiles(currentPath);
+      await refreshVisibleEntries();
     } catch (error) {
       setErrorMessage(getErrorMessage(error));
     }
@@ -147,7 +200,7 @@ export default function DashboardPage() {
     if (!name?.trim() || name.trim() === entry.name) return;
     try {
       await driveApi.renameFile(entry.id, { name: name.trim() });
-      await refreshFiles(currentPath);
+      await refreshVisibleEntries();
     } catch (error) {
       setErrorMessage(getErrorMessage(error));
     }
@@ -158,7 +211,7 @@ export default function DashboardPage() {
     if (!window.confirm(confirmText)) return;
     try {
       await driveApi.deleteFile(entry.id);
-      await Promise.all([refreshFiles(currentPath), refreshShares()]);
+      await Promise.all([refreshVisibleEntries(), refreshShares()]);
     } catch (error) {
       setErrorMessage(getErrorMessage(error));
     }
@@ -186,11 +239,46 @@ export default function DashboardPage() {
     if (!window.confirm("Delete this share link?")) return;
     try {
       await driveApi.deleteShare(shareId);
+      setExpandedShareStats((current) => {
+        const next = { ...current };
+        delete next[shareId];
+        return next;
+      });
+      setShareStatsById((current) => {
+        const next = { ...current };
+        delete next[shareId];
+        return next;
+      });
       await refreshShares();
     } catch (error) {
       setErrorMessage(getErrorMessage(error));
     }
   };
+
+  const handleOpenFolder = useCallback((entry: DriveFile) => {
+    if (!entry.isFolder) return;
+    setSearchQuery("");
+    setDebouncedSearchQuery("");
+    setSearchResults([]);
+    setCurrentPath(entry.path);
+  }, [setCurrentPath]);
+
+  const handleToggleShareStats = useCallback(async (shareId: string) => {
+    const nextExpanded = !expandedShareStats[shareId];
+    setExpandedShareStats((current) => ({ ...current, [shareId]: nextExpanded }));
+    if (!nextExpanded || shareStatsById[shareId] || loadingShareStats[shareId]) return;
+
+    setLoadingShareStats((current) => ({ ...current, [shareId]: true }));
+    setShareStatsErrors((current) => ({ ...current, [shareId]: undefined }));
+    try {
+      const stats = await driveApi.getShareStats(shareId);
+      setShareStatsById((current) => ({ ...current, [shareId]: stats }));
+    } catch (error) {
+      setShareStatsErrors((current) => ({ ...current, [shareId]: getErrorMessage(error) }));
+    } finally {
+      setLoadingShareStats((current) => ({ ...current, [shareId]: false }));
+    }
+  }, [expandedShareStats, loadingShareStats, shareStatsById]);
 
   const handleCopy = async (url: string) => {
     try {
@@ -209,7 +297,17 @@ export default function DashboardPage() {
       <div className="mx-auto max-w-6xl space-y-6">
         <header className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-4">
           <div><h1 className="text-xl font-semibold text-slate-900">Agent Drive Dashboard</h1><p className="text-sm text-slate-600">Current user: {user?.email ?? user?.name ?? "Unknown"}</p></div>
-          <div className="flex items-center gap-2"><Link className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-700" to="/guide">Open Guide</Link><button className="rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-medium text-white" onClick={() => { void signOut(); }} type="button">Sign out</button></div>
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              className="w-72 rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-900 outline-none ring-0 placeholder:text-slate-400 focus:border-blue-500"
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="Search files and folders"
+              type="search"
+              value={searchQuery}
+            />
+            <Link className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-700" to="/guide">Open Guide</Link>
+            <button className="rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-medium text-white" onClick={() => { void signOut(); }} type="button">Sign out</button>
+          </div>
         </header>
 
         <section className="rounded-2xl border border-slate-200 bg-white p-4">
@@ -227,7 +325,12 @@ export default function DashboardPage() {
 
           <UploadZone uploading={uploading} progress={uploadProgress} onFilesSelected={(f) => { void handleUploadFiles(f); }} onFolderSelected={(f) => { void handleUploadFolder(f); }} />
           {errorMessage ? <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{errorMessage}</div> : null}
-          <FileTable entries={entries} loading={loadingFiles} onDelete={(entry) => { void handleDelete(entry); }} onOpenFolder={(entry) => setCurrentPath(entry.path)} onRename={(entry) => { void handleRename(entry); }} onShare={(entry) => setShareTarget(entry)} />
+          {isSearchActive ? (
+            <div className="mb-4 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-sm text-blue-800">
+              Showing search results for <span className="font-medium">{debouncedSearchQuery}</span>. Clear the search box to return to <span className="font-medium">{currentPath}</span>.
+            </div>
+          ) : null}
+          <FileTable entries={displayedEntries} loading={isSearchActive ? searching : loadingFiles} onDelete={(entry) => { void handleDelete(entry); }} onOpenFolder={handleOpenFolder} onRename={(entry) => { void handleRename(entry); }} onShare={(entry) => setShareTarget(entry)} />
         </section>
 
         <section className="rounded-2xl border border-slate-200 bg-white p-4">
@@ -235,13 +338,50 @@ export default function DashboardPage() {
           {loadingShares ? <p className="text-sm text-slate-600">Loading share links...</p> : shares.length === 0 ? <p className="text-sm text-slate-500">No share links yet.</p> : (
             <div className="space-y-2">
               {shares.map((share) => (
-                <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 p-3" key={share.id}>
-                  <div className="space-y-1 text-sm">
-                    <div className="font-medium text-slate-900">{shareTargetLabel(share)}</div>
-                    <div className="text-slate-600">{share.shareUrl} {share.hasPassword ? "· Password protected" : ""}</div>
-                    <div className="text-xs text-slate-500">Downloads {share.downloadCount}{share.maxDownloads ? ` / ${share.maxDownloads}` : ""}{share.expiresAt ? ` · Expires ${formatDate(share.expiresAt)}` : ""}</div>
+                <div className="rounded-xl border border-slate-200 p-3" key={share.id}>
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="space-y-1 text-sm">
+                      <div className="font-medium text-slate-900">{shareTargetLabel(share)}</div>
+                      <div className="text-slate-600">{share.shareUrl} {share.hasPassword ? "· Password protected" : ""}</div>
+                      <div className="text-xs text-slate-500">Downloads {share.downloadCount}{share.maxDownloads ? ` / ${share.maxDownloads}` : ""}{share.expiresAt ? ` · Expires ${formatDate(share.expiresAt)}` : ""}</div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Link className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-700" to={`/s/${share.id}`}>Open</Link>
+                      <button className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-700" onClick={() => { void handleToggleShareStats(share.id); }} type="button">
+                        {expandedShareStats[share.id] ? "Hide Stats" : "Stats"}
+                      </button>
+                      <button className="rounded bg-slate-900 px-2 py-1 text-xs text-white" onClick={() => { void handleCopy(share.shareUrl); }} type="button">Copy Link</button>
+                      <button className="rounded border border-red-300 px-2 py-1 text-xs text-red-600 hover:bg-red-50" onClick={() => { void handleDeleteShare(share.id); }} type="button">Delete</button>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2"><Link className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-700" to={`/s/${share.id}`}>Open</Link><button className="rounded bg-slate-900 px-2 py-1 text-xs text-white" onClick={() => { void handleCopy(share.shareUrl); }} type="button">Copy Link</button><button className="rounded border border-red-300 px-2 py-1 text-xs text-red-600 hover:bg-red-50" onClick={() => { void handleDeleteShare(share.id); }} type="button">Delete</button></div>
+                  {expandedShareStats[share.id] ? (
+                    <div className="mt-3 rounded-lg bg-slate-50 p-3 text-sm text-slate-700">
+                      {loadingShareStats[share.id] ? <div>Loading stats...</div> : shareStatsErrors[share.id] ? <div className="text-red-600">{shareStatsErrors[share.id]}</div> : shareStatsById[share.id] ? (
+                        <div className="space-y-2">
+                          <div className="flex flex-wrap gap-x-6 gap-y-1">
+                            <span>Total downloads: <span className="font-medium text-slate-900">{shareStatsById[share.id]!.totalDownloads}</span></span>
+                            <span>Total accesses: <span className="font-medium text-slate-900">{shareStatsById[share.id]!.totalAccesses}</span></span>
+                            <span>First accessed: <span className="font-medium text-slate-900">{shareStatsById[share.id]!.firstAccessed ? formatDate(shareStatsById[share.id]!.firstAccessed!) : "Never"}</span></span>
+                            <span>Last accessed: <span className="font-medium text-slate-900">{shareStatsById[share.id]!.lastAccessed ? formatDate(shareStatsById[share.id]!.lastAccessed!) : "Never"}</span></span>
+                            <span>Last download: <span className="font-medium text-slate-900">{shareStatsById[share.id]!.lastDownload ? formatDate(shareStatsById[share.id]!.lastDownload!) : "Never"}</span></span>
+                          </div>
+                          {shareStatsById[share.id]!.fileBreakdown.length > 0 ? (
+                            <div>
+                              <div className="mb-1 text-xs font-medium uppercase tracking-wide text-slate-500">Popular files</div>
+                              <div className="space-y-1">
+                                {shareStatsById[share.id]!.fileBreakdown.map((item) => (
+                                  <div className="flex items-center justify-between rounded border border-slate-200 bg-white px-2 py-1" key={`${share.id}-${item.fileId}`}>
+                                    <span className="truncate text-slate-800">{item.filename}</span>
+                                    <span className="text-xs text-slate-500">{item.downloads} downloads</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : <div>No stats yet.</div>}
+                    </div>
+                  ) : null}
                 </div>
               ))}
             </div>

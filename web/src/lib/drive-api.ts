@@ -10,6 +10,7 @@ import type {
   ShareDownloadResult,
   ShareInfo,
   ShareLink,
+  ShareStats,
   UploadTicket,
 } from "@/types/drive";
 
@@ -29,6 +30,11 @@ export const driveApi = {
     withMockFallback(
       () => apiFetchJson<{ files: DriveFile[]; path: string }>(`/api/public/v1/files?${toQuery(path)}`),
       () => mockDriveApi.listFiles(path),
+    ),
+  searchFiles: (query: string, limit = 50) =>
+    withMockFallback(
+      () => apiFetchJson<{ files: DriveFile[]; query: string; count: number }>(`/api/public/v1/files/search?${new URLSearchParams({ q: query, limit: String(limit) }).toString()}`),
+      () => mockDriveApi.searchFiles(query, limit),
     ),
   requestUpload: (input: { filename: string; contentType: string; size: number; path: string }) =>
     withMockFallback(
@@ -65,6 +71,11 @@ export const driveApi = {
     withMockFallback(
       () => apiFetchJson<{ success: boolean }>(`/api/public/v1/shares/${shareId}`, { method: "DELETE" }),
       async () => ({ success: true }),
+    ),
+  getShareStats: (shareId: string) =>
+    withMockFallback(
+      () => apiFetchJson<ShareStats>(`/api/public/v1/shares/${shareId}/stats`),
+      () => mockDriveApi.getShareStats(shareId),
     ),
   getShareInfo: (shareId: string) =>
     withMockFallback(

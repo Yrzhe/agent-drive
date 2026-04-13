@@ -6,6 +6,7 @@ import type {
   ShareDownloadResult,
   ShareInfo,
   ShareLink,
+  ShareStats,
   ShareStatus,
   UploadTicket,
 } from "@/types/drive";
@@ -118,6 +119,15 @@ export const mockDriveApi = {
     const normalized = normalizePath(path);
     return { files: files.filter((entry) => entry.parentPath === normalized).sort((a, b) => (a.isFolder === b.isFolder ? a.name.localeCompare(b.name) : a.isFolder ? -1 : 1)), path: normalized };
   },
+  async searchFiles(query: string, limit = 50): Promise<{ files: DriveFile[]; query: string; count: number }> {
+    const trimmed = query.trim();
+    if (!trimmed) return { files: [], query: trimmed, count: 0 };
+    const matched = files
+      .filter((entry) => entry.name.toLowerCase().includes(trimmed.toLowerCase()) || entry.path.toLowerCase().includes(trimmed.toLowerCase()))
+      .sort((a, b) => Number(b.isFolder) - Number(a.isFolder) || a.name.localeCompare(b.name))
+      .slice(0, limit);
+    return { files: matched, query: trimmed, count: matched.length };
+  },
   async requestUpload(input: { filename: string; contentType: string; size: number; path: string }): Promise<UploadTicket> {
     const path = normalizePath(input.path); ensureFolder(path); fileCounter += 1;
     const fileId = `file_${fileCounter}`; pendingUploads.set(fileId, { ...input, path });
@@ -150,6 +160,37 @@ export const mockDriveApi = {
     if (input.folderPath && !files.some((entry) => entry.path === input.folderPath && entry.isFolder)) throw new DriveApiError("Folder not found", 404, "FOLDER_NOT_FOUND");
     shareCounter += 1; const share: ShareRecord = { id: `share${String(shareCounter).padStart(4, "0")}`, fileId: input.fileId ?? null, folderPath: input.folderPath ?? null, password: input.password?.trim() || null, maxDownloads: input.maxDownloads ?? null, downloadCount: 0, expiresAt: input.expiresAt ?? null, createdAt: nowIso() };
     shares.unshift(share); return { share: toShareLink(share) };
+  },
+  async getShareStats(shareId: string): Promise<ShareStats> {
+    const share = shares.find((entry) => entry.id === shareId);
+    if (!share) throw new DriveApiError("Share not found", 404, "SHARE_NOT_FOUND");
+    const shareLink = toShareLink(share);
+    if (share.fileId) {
+      const file = findFile(share.fileId);
+      return {
+        share: shareLink,
+        totalDownloads: share.downloadCount,
+        totalAccesses: Math.max(share.downloadCount, 1),
+        firstAccessed: share.createdAt,
+        lastAccessed: share.createdAt,
+        lastDownload: share.downloadCount > 0 ? share.createdAt : null,
+        fileBreakdown: file ? [{ fileId: file.id, filename: file.name, downloads: share.downloadCount }] : [],
+      };
+    }
+    const folderFiles = files.filter((entry) => !entry.isFolder && entry.parentPath.startsWith(normalizePath(share.folderPath ?? "/")));
+    return {
+      share: shareLink,
+      totalDownloads: share.downloadCount,
+      totalAccesses: Math.max(share.downloadCount + 1, 1),
+      firstAccessed: share.createdAt,
+      lastAccessed: share.createdAt,
+      lastDownload: share.downloadCount > 0 ? share.createdAt : null,
+      fileBreakdown: folderFiles.slice(0, 5).map((file, index) => ({
+        fileId: file.id,
+        filename: file.name,
+        downloads: Math.max(share.downloadCount - index, 0),
+      })).filter((item) => item.downloads > 0),
+    };
   },
   async getShareInfo(shareId: string): Promise<ShareInfo> { return resolveShare(shareId); },
   async accessShare(shareId: string, password?: string): Promise<ShareAccessResult> {

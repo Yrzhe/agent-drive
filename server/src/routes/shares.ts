@@ -2,7 +2,7 @@ import { and, desc, eq, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { nanoid } from "nanoid";
 
-import { files, shares } from "@defs";
+import { activityLog, files, shares } from "@defs";
 
 import { getRequestActor, logEvent } from "../lib/activity";
 import { sha256Hex } from "../lib/crypto";
@@ -162,6 +162,71 @@ sharesRoutes.get(
     const { db } = await import("edgespark");
     const share = await getShareById(db, getShareId(c));
     return c.json({ share: await toShareObject(db, share, new URL(c.req.url).origin) });
+  })
+);
+
+sharesRoutes.get(
+  "/shares/:id/stats",
+  withErrorHandling(async (c) => {
+    const { db } = await import("edgespark");
+    const share = await getShareById(db, getShareId(c));
+    const shareObject = await toShareObject(db, share, new URL(c.req.url).origin);
+    const rows = await db
+      .select()
+      .from(activityLog)
+      .where(
+        and(
+          eq(activityLog.targetId, share.id),
+          sql`${activityLog.eventType} in ('share.downloaded', 'share.accessed')`
+        )
+      )
+      .orderBy(desc(activityLog.createdAt));
+
+    let totalDownloads = 0;
+    let totalAccesses = 0;
+    let firstAccessed: string | null = null;
+    let lastAccessed: string | null = null;
+    let lastDownload: string | null = null;
+    const fileBreakdownMap = new Map<string, { fileId: string; filename: string; downloads: number }>();
+
+    for (const row of rows) {
+      if (row.eventType === "share.accessed") {
+        totalAccesses += 1;
+        if (!lastAccessed) lastAccessed = row.createdAt;
+        firstAccessed = row.createdAt;
+        continue;
+      }
+
+      if (row.eventType === "share.downloaded") {
+        totalDownloads += 1;
+        if (!lastDownload) lastDownload = row.createdAt;
+
+        if (share.fileId || !row.metadata) continue;
+        try {
+          const metadata = JSON.parse(row.metadata) as { fileId?: unknown; filename?: unknown };
+          if (typeof metadata.fileId !== "string" || !metadata.fileId.trim()) continue;
+          const filename = typeof metadata.filename === "string" && metadata.filename.trim() ? metadata.filename : metadata.fileId;
+          const existing = fileBreakdownMap.get(metadata.fileId);
+          if (existing) {
+            existing.downloads += 1;
+          } else {
+            fileBreakdownMap.set(metadata.fileId, { fileId: metadata.fileId, filename, downloads: 1 });
+          }
+        } catch {
+          // Ignore malformed activity metadata in historical rows.
+        }
+      }
+    }
+
+    return c.json({
+      share: shareObject,
+      totalDownloads,
+      totalAccesses,
+      firstAccessed,
+      lastAccessed,
+      lastDownload,
+      fileBreakdown: Array.from(fileBreakdownMap.values()).sort((a, b) => b.downloads - a.downloads || a.filename.localeCompare(b.filename)),
+    });
   })
 );
 

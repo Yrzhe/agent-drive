@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, like, ne, or } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, like, ne, or, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { nanoid } from "nanoid";
 import { buckets, files, shares } from "@defs";
@@ -37,6 +37,10 @@ function getIdParam(c: { req: { param: (name: string) => string | undefined } })
   const id = c.req.param("id");
   if (!id) throw new ApiError(400, "validation_error", "Missing path param: id");
   return id;
+}
+
+function escapeLikeQuery(input: string): string {
+  return input.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_");
 }
 
 filesRoutes.post(
@@ -178,6 +182,34 @@ filesRoutes.get(
       : await db.select().from(files).where(eq(files.parentPath, path)).orderBy(desc(files.isFolder), asc(files.name));
 
     return c.json({ files: result.map(toFileObject), path });
+  })
+);
+
+filesRoutes.get(
+  "/search",
+  withErrorHandling(async (c) => {
+    const query = (c.req.query("q") ?? "").trim();
+    const limitRaw = Number(c.req.query("limit") ?? "50");
+    const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(200, Math.trunc(limitRaw))) : 50;
+    if (query.length < 1) {
+      return c.json({ files: [], query, count: 0 });
+    }
+
+    const pattern = `%${escapeLikeQuery(query)}%`;
+    const { db } = await import("edgespark");
+    const result = await db
+      .select()
+      .from(files)
+      .where(
+        or(
+          sql`${files.name} LIKE ${pattern} ESCAPE '\\'`,
+          sql`${files.path} LIKE ${pattern} ESCAPE '\\'`
+        )
+      )
+      .orderBy(desc(files.isFolder), asc(files.name))
+      .limit(limit);
+
+    return c.json({ files: result.map(toFileObject), query, count: result.length });
   })
 );
 

@@ -31,6 +31,20 @@ export interface ShareLink {
   createdAt: string;
 }
 
+export interface ShareStats {
+  share: ShareLink;
+  totalDownloads: number;
+  totalAccesses: number;
+  firstAccessed: string | null;
+  lastAccessed: string | null;
+  lastDownload: string | null;
+  fileBreakdown: Array<{
+    fileId: string;
+    filename: string;
+    downloads: number;
+  }>;
+}
+
 export type ShareStatus = "active" | "expired" | "depleted" | "not_found";
 
 export interface ShareInfo {
