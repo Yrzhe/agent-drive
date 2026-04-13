@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 import { AuthLoginPanel } from "@/components/AuthLoginPanel";
 import { Breadcrumbs } from "@/components/Breadcrumbs";
 import { FileTable } from "@/components/FileTable";
@@ -8,6 +8,7 @@ import { UploadZone, type UploadProgress } from "@/components/UploadZone";
 import { useAuth } from "@/hooks/useAuth";
 import { DriveApiError } from "@/lib/api-client";
 import { driveApi } from "@/lib/drive-api";
+import { normalizePath } from "@/lib/path-utils";
 import type { DriveFile, ShareLink } from "@/types/drive";
 
 const formatDate = (value: string) => new Date(value).toLocaleString();
@@ -16,7 +17,12 @@ const shareTargetLabel = (share: ShareLink) => `${share.type === "folder" ? "Fol
 
 export default function DashboardPage() {
   const { user, loading: authLoading, isAuthenticated, signOut } = useAuth();
-  const [currentPath, setCurrentPath] = useState("/");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const currentPath = useMemo(() => normalizePath(searchParams.get("path") ?? "/"), [searchParams]);
+  const setCurrentPath = useCallback((path: string) => {
+    const normalized = normalizePath(path);
+    setSearchParams(normalized === "/" ? {} : { path: normalized }, { replace: false });
+  }, [setSearchParams]);
   const [entries, setEntries] = useState<DriveFile[]>([]);
   const [shares, setShares] = useState<ShareLink[]>([]);
   const [loadingFiles, setLoadingFiles] = useState(false);
