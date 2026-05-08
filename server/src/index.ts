@@ -14,9 +14,9 @@ import { webhooksRoutes } from "./routes/webhooks";
 
 const app = new Hono();
 
-app.route("/.well-known", oauthDiscoveryRoutes);
-app.route("/mcp", mcpRoutes);
-app.route("/oauth", oauthRoutes);
+app.route("/api/public/.well-known", oauthDiscoveryRoutes);
+app.route("/api/public/mcp", mcpRoutes);
+app.route("/api/public/oauth", oauthRoutes);
 app.use("/api/public/v1/*", requireDualAuth);
 app.route("/api/public/v1/activity", activityRoutes);
 app.route("/api/public/v1/files", filesRoutes);

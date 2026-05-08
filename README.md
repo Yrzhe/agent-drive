@@ -166,6 +166,7 @@ agent-drive/
 ### Management (requires `Authorization: Bearer {TOKEN}`)
 
 For MCP, the legacy `AGENT_TOKEN` bearer is accepted with `FULL_MCP_SCOPES` for backward-compatible automation. OAuth MCP tokens remain scoped and revocable.
+Use `/api/public/mcp` as the remote MCP URL. OAuth/MCP discovery is served from `/api/public/.well-known/*` because EdgeSpark requires server routes to live under `/api/*`.
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|

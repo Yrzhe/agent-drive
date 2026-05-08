@@ -87,7 +87,7 @@ export default function ConnectAuthorizePage() {
       setErrorMessage(null);
       try {
         if (!clientId) throw new DriveApiError("Missing OAuth client_id", 400, "MISSING_CLIENT_ID");
-        const payload = await apiFetchJson<OAuthClientInfoResponse>(`/api/public/v1/oauth/clients/${encodeURIComponent(clientId)}`);
+        const payload = await apiFetchJson<OAuthClientInfoResponse>(`/api/public/oauth/clients/${encodeURIComponent(clientId)}`);
         if (cancelled) return;
         setClientInfo({
           clientId: readClientId(payload, clientId),
@@ -174,7 +174,7 @@ export default function ConnectAuthorizePage() {
           >
             拒绝 / Deny
           </button>
-          <form action={`/oauth/authorize/consent${search}`} method="post">
+          <form action={`/api/public/oauth/authorize/consent${search}`} method="post">
             {hiddenParams.map(([key, value], index) => (
               <input key={`${key}-${index}`} name={key} type="hidden" value={value} />
             ))}

@@ -25,7 +25,7 @@ function unauthorized(origin: string): Response {
     status: 401,
     headers: {
       "Content-Type": "application/json",
-      "WWW-Authenticate": `Bearer resource_metadata="${origin}/.well-known/oauth-protected-resource"`,
+      "WWW-Authenticate": `Bearer resource_metadata="${origin}/api/public/.well-known/oauth-protected-resource"`,
     },
   });
 }

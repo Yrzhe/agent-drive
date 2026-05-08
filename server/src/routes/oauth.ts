@@ -20,9 +20,15 @@ const OAUTH_TOKEN_RATE_LIMIT_MS = 15 * 60 * 1000;
 const AUTHORIZATION_CODE_TTL_MS = 10 * 60 * 1000;
 const ACCESS_TOKEN_TTL_MS = 30 * 60 * 1000;
 const REFRESH_TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const OAUTH_BASE_PATH = "/api/public/oauth";
 
 function requestIp(c: { req: { header: (name: string) => string | undefined } }): string {
   return c.req.header("cf-connecting-ip") ?? "unknown";
+}
+
+async function publicOrigin(url: string): Promise<string> {
+  const { vars } = await import("edgespark");
+  return (vars.get("ALLOWED_ORIGIN") ?? new URL(url).origin).replace(/\/+$/u, "");
 }
 
 function parseRedirectUris(value: unknown): string[] {
@@ -185,7 +191,7 @@ oauthRoutes.post(
       throw error;
     }
 
-    const origin = new URL(c.req.url).origin;
+    const origin = await publicOrigin(c.req.url);
     return c.json({
       client_id: clientId,
       ...(clientSecret ? { client_secret: clientSecret } : {}),
@@ -196,8 +202,8 @@ oauthRoutes.post(
       token_endpoint_auth_method: tokenEndpointAuthMethod,
       grant_types: ["authorization_code", "refresh_token"],
       response_types: ["code"],
-      authorization_endpoint: `${origin}/oauth/authorize`,
-      token_endpoint: `${origin}/oauth/token`,
+      authorization_endpoint: `${origin}${OAUTH_BASE_PATH}/authorize`,
+      token_endpoint: `${origin}${OAUTH_BASE_PATH}/token`,
     }, 201);
   })
 );
