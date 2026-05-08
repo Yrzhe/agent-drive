@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { ConnectorUrlBlock } from "@/components/ConnectorUrlBlock";
 import { PlatformTabs } from "@/components/PlatformTabs";
@@ -7,6 +7,20 @@ import { OAUTH_SCOPE_DESCRIPTIONS } from "@/lib/oauth-scopes";
 const ALL_SCOPES = ["read:drive", "write:drive", "share:create", "read:memory", "write:memory", "read:skills", "write:skills"] as const;
 const DEFAULT_SCOPES = new Set<string>(["read:drive", "write:drive", "share:create"]);
 const API_DOCS_URL = "https://github.com/Yrzhe/agent-drive/tree/main/docs/api";
+const SCOPE_STORAGE_KEY = "agent-drive:connect:selected-scopes";
+
+function loadStoredScopes(): string[] | null {
+  try {
+    const raw = window.localStorage.getItem(SCOPE_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return null;
+    const allowed = new Set<string>(ALL_SCOPES);
+    return parsed.filter((value): value is string => typeof value === "string" && allowed.has(value));
+  } catch {
+    return null;
+  }
+}
 
 type TestStatus =
   | { kind: "idle"; message: string }
@@ -71,9 +85,17 @@ export default function ConnectSetupPage() {
   const connectorUrl = `${origin}/api/public/mcp`;
   const protectedResourceUrl = `${origin}/api/public/.well-known/oauth-protected-resource`;
   const authorizationServerUrl = `${origin}/api/public/.well-known/oauth-authorization-server`;
-  const [selectedScopes, setSelectedScopes] = useState<string[]>(() => ALL_SCOPES.filter((scope) => DEFAULT_SCOPES.has(scope)));
+  const [selectedScopes, setSelectedScopes] = useState<string[]>(() => loadStoredScopes() ?? ALL_SCOPES.filter((scope) => DEFAULT_SCOPES.has(scope)));
   const [testStatus, setTestStatus] = useState<TestStatus>({ kind: "idle", message: "Run a quick probe to confirm the MCP endpoint is reachable." });
   const scopeString = useMemo(() => selectedScopes.join(" "), [selectedScopes]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(SCOPE_STORAGE_KEY, JSON.stringify(selectedScopes));
+    } catch {
+      // localStorage disabled (private mode); ignore.
+    }
+  }, [selectedScopes]);
 
   const toggleScope = (scope: string) => {
     setSelectedScopes((current) => current.includes(scope) ? current.filter((item) => item !== scope) : [...current, scope]);
