@@ -113,21 +113,24 @@ export async function hmacSha256Hex(key: string, value: string): Promise<string>
   return toHex(signature);
 }
 
-export async function createAccessToken(shareId: string, secret: string): Promise<{ token: string; expiresAt: string }> {
+export async function createAccessToken(shareId: string, secret: string, passwordVersion: number): Promise<{ token: string; expiresAt: string }> {
   const issuedAt = Date.now();
-  const signature = await hmacSha256Hex(secret, `${shareId}:${issuedAt}`);
+  const signature = await hmacSha256Hex(secret, `${shareId}:${passwordVersion}:${issuedAt}`);
   return {
-    token: `${issuedAt}.${signature}`,
+    token: `${passwordVersion}.${issuedAt}.${signature}`,
     expiresAt: new Date(issuedAt + ACCESS_TOKEN_TTL_MS).toISOString(),
   };
 }
 
-export async function verifyAccessToken(token: string | undefined, shareId: string, secret: string): Promise<boolean> {
+export async function verifyAccessToken(token: string | undefined, shareId: string, secret: string, passwordVersion: number): Promise<boolean> {
   if (!token) return false;
   const tokenParts = token.split(".");
-  if (tokenParts.length !== 2) return false;
-  const [timestampPart, signature] = tokenParts;
-  if (!timestampPart || !signature) return false;
+  if (tokenParts.length !== 3) return false;
+  const [versionPart, timestampPart, signature] = tokenParts;
+  if (!versionPart || !timestampPart || !signature) return false;
+
+  const tokenPasswordVersion = Number(versionPart);
+  if (!Number.isInteger(tokenPasswordVersion) || tokenPasswordVersion !== passwordVersion) return false;
 
   const issuedAt = Number(timestampPart);
   if (!Number.isFinite(issuedAt)) return false;
@@ -137,6 +140,6 @@ export async function verifyAccessToken(token: string | undefined, shareId: stri
   if (now - issuedAt > ACCESS_TOKEN_TTL_MS) return false;
 
   // shareId is part of the signed payload, so a token can only validate for the exact requested shareId.
-  const expected = await hmacSha256Hex(secret, `${shareId}:${issuedAt}`);
+  const expected = await hmacSha256Hex(secret, `${shareId}:${passwordVersion}:${issuedAt}`);
   return timingSafeEqualStrings(expected, signature);
 }

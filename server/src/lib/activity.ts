@@ -1,10 +1,13 @@
-import { and, desc, eq, gte } from "drizzle-orm";
+import { and, desc, eq, gte, lt } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
 import { activityLog } from "@defs";
 
 import { nowIso } from "./files";
 import type { ActivityEventInput, ActivityLogRow, AppDb } from "../types";
+
+const ACTIVITY_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+const PRUNE_SAMPLE_RATE = 0.01;
 
 function serializeMetadata(metadata: ActivityEventInput["metadata"]): string | null {
   if (metadata == null) return null;
@@ -28,6 +31,10 @@ export async function getRequestActor(): Promise<ActivityEventInput["actor"]> {
 export async function logEvent(db: AppDb, event: ActivityEventInput): Promise<void> {
   try {
     const createdAt = nowIso();
+    if (Math.random() < PRUNE_SAMPLE_RATE) {
+      const cutoff = new Date(Date.now() - ACTIVITY_RETENTION_MS).toISOString();
+      await db.delete(activityLog).where(lt(activityLog.createdAt, cutoff));
+    }
     await db.insert(activityLog).values({
       id: nanoid(),
       eventType: event.eventType,

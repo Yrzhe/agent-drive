@@ -1,8 +1,11 @@
-import { eq, sql } from "drizzle-orm";
+import { eq, lt, sql } from "drizzle-orm";
 
 import { rateLimits } from "@defs";
 
 import type { AppDb } from "../types";
+
+const CLEANUP_SAMPLE_RATE = 0.01;
+const STALE_RATE_LIMIT_MS = 24 * 60 * 60 * 1000;
 
 export async function checkRateLimit(
   db: AppDb,
@@ -10,6 +13,10 @@ export async function checkRateLimit(
   maxAttempts: number,
   windowMs: number
 ): Promise<{ allowed: boolean; retryAfterMs?: number }> {
+  if (Math.random() < CLEANUP_SAMPLE_RATE) {
+    await db.delete(rateLimits).where(lt(rateLimits.updatedAt, Date.now() - STALE_RATE_LIMIT_MS));
+  }
+
   const [entry] = await db.select().from(rateLimits).where(eq(rateLimits.key, key)).limit(1);
   if (!entry) return { allowed: true };
 

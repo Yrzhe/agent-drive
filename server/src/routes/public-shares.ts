@@ -71,7 +71,7 @@ async function resolveShareAndToken(
 
   const tokenSecret = secret.get("AGENT_TOKEN");
   if (!tokenSecret) throw new ApiError(500, "internal_error", "AGENT_TOKEN is not configured");
-  const valid = await verifyAccessToken(c.req.header("x-access-token"), share.id, tokenSecret);
+  const valid = await verifyAccessToken(c.req.header("x-access-token"), share.id, tokenSecret, share.passwordVersion ?? 1);
   if (!valid) throw new ApiError(401, "invalid_access_token", "Invalid access token");
 
   return { share, db, tokenSecret };
@@ -225,7 +225,7 @@ publicSharesRoutes.post(
     const tokenSecret = secret.get("AGENT_TOKEN");
     if (!tokenSecret) throw new ApiError(500, "internal_error", "AGENT_TOKEN is not configured");
 
-    const token = await createAccessToken(share.id, tokenSecret);
+    const token = await createAccessToken(share.id, tokenSecret, share.passwordVersion ?? 1);
     return c.json({ accessToken: token.token, expiresAt: token.expiresAt });
   })
 );

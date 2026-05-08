@@ -8,6 +8,7 @@ import { nowIso } from "./files";
 import type { AppDb, WebhookRow } from "../types";
 
 const MAX_WEBHOOK_FAILURES = 5;
+const WEBHOOK_RETRY_DELAY_MS = 2_000;
 
 function parseEventTypes(raw: string): string[] {
   try {
@@ -20,6 +21,22 @@ function parseEventTypes(raw: string): string[] {
 
 export function createWebhookSecret(): string {
   return nanoid(32);
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function postWebhook(url: string, eventType: string, payload: string, signature: string): Promise<Response> {
+  return fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Signature": `sha256=${signature}`,
+      "X-Agent-Drive-Event": eventType,
+    },
+    body: payload,
+  });
 }
 
 export async function deliverWebhook(
@@ -38,15 +55,11 @@ export async function deliverWebhook(
   let status = 0;
   let failed = false;
   try {
-    const response = await fetch(webhook.url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Agent-Drive-Signature": `sha256=${signature}`,
-        "X-Agent-Drive-Event": event.eventType,
-      },
-      body: payload,
-    });
+    let response = await postWebhook(webhook.url, event.eventType, payload, signature);
+    if (response.status >= 500) {
+      await sleep(WEBHOOK_RETRY_DELAY_MS);
+      response = await postWebhook(webhook.url, event.eventType, payload, signature);
+    }
     status = response.status;
     failed = !response.ok;
   } catch (error) {

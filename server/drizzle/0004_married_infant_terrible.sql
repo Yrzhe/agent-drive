@@ -1,0 +1,1 @@
+ALTER TABLE `shares` ADD `password_version` integer;

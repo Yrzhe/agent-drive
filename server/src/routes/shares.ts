@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { nanoid } from "nanoid";
 
@@ -145,6 +145,7 @@ sharesRoutes.post(
         fileId,
         folderPath,
         passwordHash: password ? await sha256Hex(password) : null,
+        passwordVersion: 1,
         maxDownloads: body.maxDownloads ?? null,
         downloadCount: 0,
         expiresAt: body.expiresIn ? new Date(Date.now() + body.expiresIn * 1000).toISOString() : null,
@@ -207,74 +208,56 @@ sharesRoutes.get(
     const { db } = await import("edgespark");
     const share = await getShareById(db, getShareId(c));
     const shareObject = await toShareObject(db, share, new URL(c.req.url).origin);
-    const rows = await db
-      .select()
+    const [summary] = await db
+      .select({
+        totalDownloads: sql<number>`sum(case when ${activityLog.eventType} = 'share.downloaded' then 1 else 0 end)`,
+        totalAccesses: sql<number>`sum(case when ${activityLog.eventType} = 'share.accessed' then 1 else 0 end)`,
+        firstAccessed: sql<string | null>`min(case when ${activityLog.eventType} = 'share.accessed' then ${activityLog.createdAt} else null end)`,
+        lastAccessed: sql<string | null>`max(case when ${activityLog.eventType} = 'share.accessed' then ${activityLog.createdAt} else null end)`,
+        lastDownload: sql<string | null>`max(case when ${activityLog.eventType} = 'share.downloaded' then ${activityLog.createdAt} else null end)`,
+      })
       .from(activityLog)
       .where(
         and(
           eq(activityLog.targetId, share.id),
           sql`${activityLog.eventType} in ('share.downloaded', 'share.accessed')`
         )
-      )
-      .orderBy(desc(activityLog.createdAt));
-
-    let totalDownloads = 0;
-    let totalAccesses = 0;
-    let firstAccessed: string | null = null;
-    let lastAccessed: string | null = null;
-    let lastDownload: string | null = null;
-    const fileBreakdownMap = new Map<string, { fileId: string; filename: string; downloads: number }>();
-    const ipStatsMap = new Map<string, number>();
-    const userAgentStatsMap = new Map<string, number>();
-
-    for (const row of rows) {
-      if (row.ip) ipStatsMap.set(row.ip, (ipStatsMap.get(row.ip) ?? 0) + 1);
-      if (row.userAgent) userAgentStatsMap.set(row.userAgent, (userAgentStatsMap.get(row.userAgent) ?? 0) + 1);
-
-      if (row.eventType === "share.accessed") {
-        totalAccesses += 1;
-        if (!lastAccessed) lastAccessed = row.createdAt;
-        firstAccessed = row.createdAt;
-        continue;
-      }
-
-      if (row.eventType === "share.downloaded") {
-        totalDownloads += 1;
-        if (!lastDownload) lastDownload = row.createdAt;
-
-        if (!row.metadata) continue;
-        try {
-          const metadata = JSON.parse(row.metadata) as { fileId?: unknown; filename?: unknown };
-          if (typeof metadata.fileId !== "string" || !metadata.fileId.trim()) continue;
-          const filename = typeof metadata.filename === "string" && metadata.filename.trim() ? metadata.filename : metadata.fileId;
-          const existing = fileBreakdownMap.get(metadata.fileId);
-          if (existing) {
-            existing.downloads += 1;
-          } else {
-            fileBreakdownMap.set(metadata.fileId, { fileId: metadata.fileId, filename, downloads: 1 });
-          }
-        } catch {
-          // Ignore malformed activity metadata in historical rows.
-        }
-      }
-    }
-
-    const topStats = <TKey extends string>(stats: Map<TKey, number>, keyName: "ip" | "userAgent") =>
-      Array.from(stats.entries())
-        .sort(([leftKey, leftCount], [rightKey, rightCount]) => rightCount - leftCount || leftKey.localeCompare(rightKey))
-        .slice(0, 5)
-        .map(([key, count]) => ({ [keyName]: key, count }));
+      );
+    const fileBreakdownRows = await db
+      .select({
+        fileId: sql<string>`json_extract(${activityLog.metadata}, '$.fileId')`,
+        filename: sql<string>`coalesce(json_extract(${activityLog.metadata}, '$.filename'), json_extract(${activityLog.metadata}, '$.fileId'))`,
+        downloads: sql<number>`count(*)`,
+      })
+      .from(activityLog)
+      .where(and(eq(activityLog.targetId, share.id), eq(activityLog.eventType, "share.downloaded"), sql`json_extract(${activityLog.metadata}, '$.fileId') is not null`))
+      .groupBy(sql`json_extract(${activityLog.metadata}, '$.fileId')`, sql`coalesce(json_extract(${activityLog.metadata}, '$.filename'), json_extract(${activityLog.metadata}, '$.fileId'))`)
+      .orderBy(desc(sql<number>`count(*)`), asc(sql<string>`coalesce(json_extract(${activityLog.metadata}, '$.filename'), json_extract(${activityLog.metadata}, '$.fileId'))`));
+    const ipStats = await db
+      .select({ ip: activityLog.ip, count: sql<number>`count(*)` })
+      .from(activityLog)
+      .where(and(eq(activityLog.targetId, share.id), sql`${activityLog.eventType} in ('share.downloaded', 'share.accessed')`, sql`${activityLog.ip} is not null`))
+      .groupBy(activityLog.ip)
+      .orderBy(desc(sql<number>`count(*)`))
+      .limit(5);
+    const userAgentStats = await db
+      .select({ userAgent: activityLog.userAgent, count: sql<number>`count(*)` })
+      .from(activityLog)
+      .where(and(eq(activityLog.targetId, share.id), sql`${activityLog.eventType} in ('share.downloaded', 'share.accessed')`, sql`${activityLog.userAgent} is not null`))
+      .groupBy(activityLog.userAgent)
+      .orderBy(desc(sql<number>`count(*)`))
+      .limit(5);
 
     return c.json({
       share: shareObject,
-      totalDownloads,
-      totalAccesses,
-      firstAccessed,
-      lastAccessed,
-      lastDownload,
-      fileBreakdown: Array.from(fileBreakdownMap.values()).sort((a, b) => b.downloads - a.downloads || a.filename.localeCompare(b.filename)),
-      ipStats: topStats(ipStatsMap, "ip"),
-      userAgentStats: topStats(userAgentStatsMap, "userAgent"),
+      totalDownloads: Number(summary?.totalDownloads ?? 0),
+      totalAccesses: Number(summary?.totalAccesses ?? 0),
+      firstAccessed: summary?.firstAccessed ?? null,
+      lastAccessed: summary?.lastAccessed ?? null,
+      lastDownload: summary?.lastDownload ?? null,
+      fileBreakdown: fileBreakdownRows.map((row) => ({ fileId: row.fileId, filename: row.filename, downloads: Number(row.downloads) })),
+      ipStats: ipStats.map((row) => ({ ip: row.ip, count: Number(row.count) })),
+      userAgentStats: userAgentStats.map((row) => ({ userAgent: row.userAgent, count: Number(row.count) })),
     });
   })
 );

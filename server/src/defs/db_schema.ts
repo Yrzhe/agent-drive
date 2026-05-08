@@ -25,6 +25,7 @@ export const shares = sqliteTable(
     fileId: text("file_id").references(() => files.id, { onDelete: "cascade" }),
     folderPath: text("folder_path"),
     passwordHash: text("password_hash"),
+    passwordVersion: integer("password_version"),
     maxDownloads: integer("max_downloads"),
     downloadCount: integer("download_count").notNull().default(0),
     expiresAt: text("expires_at"),

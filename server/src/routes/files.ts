@@ -177,15 +177,19 @@ filesRoutes.get(
   withErrorHandling(async (c) => {
     const path = normalizePath(c.req.query("path") ?? "/");
     const recursive = c.req.query("recursive") === "true";
+    const limitRaw = Number(c.req.query("limit") ?? "100");
+    const offsetRaw = Number(c.req.query("offset") ?? "0");
+    const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(500, Math.trunc(limitRaw))) : 100;
+    const offset = Number.isFinite(offsetRaw) ? Math.max(0, Math.trunc(offsetRaw)) : 0;
     const { db } = await import("edgespark");
 
     const result = recursive
       ? path === "/"
-        ? await db.select().from(files).orderBy(asc(files.path))
-        : await db.select().from(files).where(like(files.path, descendantPattern(path))).orderBy(asc(files.path))
-      : await db.select().from(files).where(eq(files.parentPath, path)).orderBy(desc(files.isFolder), asc(files.name));
+        ? await db.select().from(files).orderBy(asc(files.path)).limit(limit).offset(offset)
+        : await db.select().from(files).where(like(files.path, descendantPattern(path))).orderBy(asc(files.path)).limit(limit).offset(offset)
+      : await db.select().from(files).where(eq(files.parentPath, path)).orderBy(desc(files.isFolder), asc(files.name)).limit(limit).offset(offset);
 
-    return c.json({ files: result.map(toFileObject), path });
+    return c.json({ files: result.map(toFileObject), path, limit, offset });
   })
 );
 
@@ -195,7 +199,7 @@ filesRoutes.get(
     const query = (c.req.query("q") ?? "").trim();
     const limitRaw = Number(c.req.query("limit") ?? "50");
     const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(200, Math.trunc(limitRaw))) : 50;
-    if (query.length < 1) {
+    if (query.length < 2) {
       return c.json({ files: [], query, count: 0 });
     }
 
