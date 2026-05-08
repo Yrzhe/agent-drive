@@ -76,7 +76,7 @@ async function derivePbkdf2Hex(value: string, salt: Uint8Array, iterations: numb
   return toHex(derived);
 }
 
-export async function sha256Hex(value: string): Promise<string> {
+export async function hashPassword(value: string): Promise<string> {
   const salt = crypto.getRandomValues(new Uint8Array(PBKDF2_SALT_BYTES));
   const derivedHex = await derivePbkdf2Hex(value, salt, PBKDF2_ITERATIONS);
   return `${PBKDF2_PREFIX}$${PBKDF2_ITERATIONS}$${toHex(salt)}$${derivedHex}`;

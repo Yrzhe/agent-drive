@@ -80,3 +80,54 @@ export const rateLimits = sqliteTable("rate_limits", {
   firstAt: integer("first_at").notNull(),
   updatedAt: integer("updated_at").notNull(),
 });
+
+export const oauthClients = sqliteTable("oauth_clients", {
+  id: text("id").primaryKey(),
+  clientSecretHash: text("client_secret_hash"),
+  redirectUris: text("redirect_uris").notNull(),
+  clientName: text("client_name"),
+  scopeDefault: text("scope_default"),
+  registeredAt: text("registered_at").notNull(),
+  lastUsedAt: text("last_used_at"),
+});
+
+export const oauthAuthorizationCodes = sqliteTable(
+  "oauth_authorization_codes",
+  {
+    codeHash: text("code_hash").primaryKey(),
+    clientId: text("client_id").notNull(),
+    userId: text("user_id").notNull(),
+    scope: text("scope").notNull(),
+    pkceChallenge: text("pkce_challenge").notNull(),
+    pkceMethod: text("pkce_method").notNull(),
+    redirectUri: text("redirect_uri").notNull(),
+    expiresAt: text("expires_at").notNull(),
+    usedAt: text("used_at"),
+  },
+  (table) => [
+    index("idx_oauth_codes_client").on(table.clientId),
+    index("idx_oauth_codes_expires").on(table.expiresAt),
+  ]
+);
+
+export const oauthTokens = sqliteTable(
+  "oauth_tokens",
+  {
+    id: text("id").primaryKey(),
+    accessTokenHash: text("access_token_hash").notNull().unique(),
+    refreshTokenHash: text("refresh_token_hash").unique(),
+    clientId: text("client_id").notNull(),
+    userId: text("user_id").notNull(),
+    scope: text("scope").notNull(),
+    expiresAt: text("expires_at").notNull(),
+    refreshExpiresAt: text("refresh_expires_at"),
+    createdAt: text("created_at").notNull(),
+    revokedAt: text("revoked_at"),
+  },
+  (table) => [
+    index("idx_oauth_tokens_access").on(table.accessTokenHash),
+    index("idx_oauth_tokens_refresh").on(table.refreshTokenHash),
+    index("idx_oauth_tokens_client").on(table.clientId),
+    index("idx_oauth_tokens_user").on(table.userId),
+  ]
+);

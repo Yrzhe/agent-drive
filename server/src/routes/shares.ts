@@ -5,7 +5,7 @@ import { nanoid } from "nanoid";
 import { activityLog, files, shares } from "@defs";
 
 import { getRequestActor, logEvent } from "../lib/activity";
-import { sha256Hex } from "../lib/crypto";
+import { hashPassword } from "../lib/crypto";
 import { nowIso } from "../lib/files";
 import { ApiError, withErrorHandling } from "../lib/errors";
 import { normalizePath } from "../lib/paths";
@@ -144,7 +144,7 @@ sharesRoutes.post(
         id: nanoid(8),
         fileId,
         folderPath,
-        passwordHash: password ? await sha256Hex(password) : null,
+        passwordHash: password ? await hashPassword(password) : null,
         passwordVersion: 1,
         maxDownloads: body.maxDownloads ?? null,
         downloadCount: 0,
