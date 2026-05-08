@@ -1,0 +1,22 @@
+{
+  "name": "agent-drive",
+  "created_at": "2026-04-09",
+  "description": "Personal AI agent file drive on EdgeSpark (Cloudflare Workers + D1 + R2). Sync skills, memory, profiles across Claude/Codex/Cursor.",
+  "code": {
+    "folder": "agent-drive",
+    "github": {
+      "synced": true,
+      "visibility": "public",
+      "url": "https://github.com/Yrzhe/agent-drive"
+    }
+  },
+  "linear": {
+    "project_url": null
+  },
+  "deployment": {
+    "platform": "edgespark",
+    "production_url": "https://large-gator-9215.edgespark.app",
+    "staging_url": null
+  },
+  "notes": "EdgeSpark monorepo — server/ (Hono on Workers) + web/ (Vite React) in root, not a single inner code folder. Linear project URL pending — add when convenient."
+}
