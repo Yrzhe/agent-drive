@@ -21,6 +21,16 @@ interface JsonRpcResponse<T> {
   };
 }
 
+export class McpToolError extends Error {
+  readonly code?: number;
+
+  constructor(message: string, code?: number) {
+    super(message);
+    this.name = "McpToolError";
+    this.code = code;
+  }
+}
+
 export function normalizeBaseUrl(value: string): string {
   const parsed = new URL(value);
   parsed.pathname = parsed.pathname.replace(/\/+$/u, "");
@@ -31,6 +41,10 @@ export function normalizeBaseUrl(value: string): string {
 
 function mcpEndpoint(url: string): string {
   return `${normalizeBaseUrl(url)}/api/public/mcp`;
+}
+
+export function apiUrl(options: McpClientOptions, path: string): string {
+  return `${normalizeBaseUrl(options.url)}${path}`;
 }
 
 async function postJsonRpc<T>(options: McpClientOptions, method: string, params?: unknown): Promise<T> {
@@ -59,6 +73,9 @@ async function postJsonRpc<T>(options: McpClientOptions, method: string, params?
   if (!response.ok) {
     throw new Error(`MCP ${method} failed: HTTP ${response.status}${payload?.error?.message ? ` ${payload.error.message}` : ""}`);
   }
+  if (payload?.error) {
+    throw new McpToolError(payload.error.message ?? `MCP ${method} failed`, payload.error.code);
+  }
   if (!payload?.result) {
     throw new Error(`MCP ${method} failed: missing result`);
   }
@@ -78,10 +95,14 @@ export async function initializeMcp(options: McpClientOptions): Promise<McpIniti
   return result;
 }
 
+export async function callTool<T = unknown>(options: McpClientOptions, name: string, args: Record<string, unknown>): Promise<T> {
+  return postJsonRpc<T>(options, "tools/call", { name, arguments: args });
+}
+
 export async function readFileTool(options: McpClientOptions, path: string): Promise<unknown> {
-  return postJsonRpc(options, "tools/call", { name: "read_file", arguments: { path } });
+  return callTool(options, "read_file", { path });
 }
 
 export async function writeFileTool(options: McpClientOptions, path: string, content: string): Promise<unknown> {
-  return postJsonRpc(options, "tools/call", { name: "write_file", arguments: { path, content } });
+  return callTool(options, "write_file", { path, content });
 }

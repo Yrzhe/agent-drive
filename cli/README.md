@@ -54,3 +54,45 @@ adrive logout
 ```
 
 Deletes `~/.agent-drive/config.json`.
+
+## Sync Push
+
+Push a local text bundle to Agent Drive:
+
+```bash
+adrive sync push --from ~/.claude/skills/learn --to /skills/learn
+```
+
+Preview changes without writing:
+
+```bash
+adrive sync push --from ~/.claude/skills/learn --to /skills/learn --dry-run
+```
+
+Overwrite a bundle last pushed by another machine:
+
+```bash
+adrive sync push --from ~/.claude/skills/learn --to /skills/learn --force
+```
+
+Limit safety defaults:
+
+- Max single file: `10MB`
+- Max bundle size: `100MB`
+- Max files: `5000`
+
+Override examples:
+
+```bash
+adrive sync push --from ./skill --to /skills/my-skill --max-size 20MB --max-files 10000
+```
+
+Default excludes:
+
+```text
+.git/ node_modules/ .DS_Store .venv/ venv/ __pycache__/ *.pyc *.pyo .next/ dist/ build/
+```
+
+Add project-specific excludes in `<local>/.agent-drive-ignore`.
+
+Binary files are skipped in this MVP because the Week 1 MCP `write_file` tool accepts text content only. The CLI logs each skipped binary file and continues.

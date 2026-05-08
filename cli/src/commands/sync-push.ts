@@ -1,0 +1,276 @@
+import { createInterface } from "node:readline/promises";
+import { stdin as input, stdout as output } from "node:process";
+import { basename, posix } from "node:path";
+
+import { readConfig } from "../lib/config.js";
+import { bundleHash, sha256Hex, type ManifestFile } from "../lib/hash.js";
+import { apiUrl, callTool, McpToolError, type McpClientOptions } from "../lib/mcp-client.js";
+import { formatBytes, parseSize } from "../lib/size-parser.js";
+import { type FileEntry, walkBundle } from "../lib/walker.js";
+
+const DEFAULT_MAX_FILE_SIZE = 10 * 1024 * 1024;
+const DEFAULT_MAX_BUNDLE_SIZE = 100 * 1024 * 1024;
+const DEFAULT_MAX_FILES = 5000;
+
+interface SyncPushOptions {
+  from: string;
+  to: string;
+  force?: boolean;
+  dryRun?: boolean;
+  maxSize?: string;
+  maxFiles?: string;
+}
+
+interface RemoteManifest {
+  version: 1;
+  name: string;
+  hash: string;
+  machineId: string;
+  pushedAt: string;
+  fileCount: number;
+  totalSize: number;
+  files: ManifestFile[];
+}
+
+interface ToolTextResult {
+  content?: Array<{ type?: string; text?: string }>;
+}
+
+interface RemoteFile {
+  id: string;
+  path: string;
+  isFolder: boolean;
+}
+
+interface BundlePlan {
+  cloudPath: string;
+  files: FileEntry[];
+  textFiles: FileEntry[];
+  skippedBinary: FileEntry[];
+  manifestFiles: ManifestFile[];
+  hash: string;
+  totalSize: number;
+}
+
+function normalizeCloudPath(value: string): string {
+  const normalized = posix.normalize(`/${value}`).replace(/\/+$/u, "");
+  return normalized === "" ? "/" : normalized;
+}
+
+function cloudFilePath(cloudPath: string, relPath: string): string {
+  return posix.join(cloudPath, relPath);
+}
+
+function contentTypeFor(path: string): string {
+  if (path.endsWith(".json")) return "application/json";
+  if (path.endsWith(".md") || path.endsWith(".markdown")) return "text/markdown";
+  if (path.endsWith(".html")) return "text/html";
+  if (path.endsWith(".css")) return "text/css";
+  if (path.endsWith(".js") || path.endsWith(".mjs") || path.endsWith(".ts")) return "text/plain";
+  return "text/plain";
+}
+
+function isUtf8(buffer: Buffer): boolean {
+  return Buffer.from(buffer.toString("utf8"), "utf8").equals(buffer);
+}
+
+function parseToolJson<T>(result: unknown): T {
+  const text = (result as ToolTextResult).content?.find((item) => item.type === "text" && typeof item.text === "string")?.text;
+  if (!text) throw new Error("MCP tool response did not include text JSON");
+  return JSON.parse(text) as T;
+}
+
+function parseMaxFiles(value: string | undefined): number {
+  if (value === undefined) return DEFAULT_MAX_FILES;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed <= 0) throw new Error("--max-files must be a positive integer");
+  return parsed;
+}
+
+function validateLimits(files: FileEntry[], maxFileSize: number, maxFiles: number): void {
+  if (files.length > maxFiles) {
+    throw new Error(`Bundle has ${files.length} files, exceeding --max-files (${maxFiles}). Add files to .agent-drive-ignore or raise --max-files.`);
+  }
+
+  const totalSize = files.reduce((sum, file) => sum + file.size, 0);
+  if (totalSize > DEFAULT_MAX_BUNDLE_SIZE) {
+    throw new Error(`Bundle size (${formatBytes(totalSize)}) exceeds limit (${formatBytes(DEFAULT_MAX_BUNDLE_SIZE)}). Add files to .agent-drive-ignore.`);
+  }
+
+  const tooLarge = files.find((file) => file.size > maxFileSize);
+  if (tooLarge) {
+    throw new Error(`./${tooLarge.relPath} (${formatBytes(tooLarge.size)}) exceeds --max-size (${formatBytes(maxFileSize)}). Add to .agent-drive-ignore or use --max-size ${formatBytes(tooLarge.size)}.`);
+  }
+}
+
+function buildPlan(from: string, to: string, files: FileEntry[], maxFileSize: number, maxFiles: number): BundlePlan {
+  validateLimits(files, maxFileSize, maxFiles);
+  const textFiles = files.filter((file) => isUtf8(file.contentBuffer));
+  const skippedBinary = files.filter((file) => !isUtf8(file.contentBuffer));
+  const manifestFiles = textFiles.map((file) => ({
+    path: file.relPath,
+    size: file.size,
+    hash: sha256Hex(file.contentBuffer),
+  }));
+  const totalSize = manifestFiles.reduce((sum, file) => sum + file.size, 0);
+  return {
+    cloudPath: normalizeCloudPath(to),
+    files,
+    textFiles,
+    skippedBinary,
+    manifestFiles,
+    hash: bundleHash(manifestFiles),
+    totalSize,
+  };
+}
+
+async function readRemoteManifest(client: McpClientOptions, cloudPath: string): Promise<RemoteManifest | null> {
+  try {
+    const result = await callTool(client, "read_file", { path: cloudFilePath(cloudPath, "manifest.json") });
+    const file = parseToolJson<{ content: string }>(result);
+    return JSON.parse(file.content) as RemoteManifest;
+  } catch (error) {
+    if (error instanceof McpToolError && error.message.includes("file_not_found")) return null;
+    if (error instanceof Error && error.message.includes("file_not_found")) return null;
+    throw error;
+  }
+}
+
+async function confirmOverwrite(remote: RemoteManifest, cloudPath: string): Promise<boolean> {
+  const rl = createInterface({ input, output });
+  try {
+    const answer = await rl.question(`Bundle ${cloudPath} was last pushed by machine ${remote.machineId.slice(0, 8)} at ${remote.pushedAt}.\nOverwrite? [y/N]: `);
+    return answer.trim().toLowerCase() === "y" || answer.trim().toLowerCase() === "yes";
+  } finally {
+    rl.close();
+  }
+}
+
+function diffManifest(local: ManifestFile[], remote: RemoteManifest | null): { newFiles: ManifestFile[]; changed: ManifestFile[]; deleted: ManifestFile[]; unchanged: number } {
+  const remoteByPath = new Map((remote?.files ?? []).map((file) => [file.path, file]));
+  const localByPath = new Map(local.map((file) => [file.path, file]));
+  const newFiles = local.filter((file) => !remoteByPath.has(file.path));
+  const changed = local.filter((file) => {
+    const remoteFile = remoteByPath.get(file.path);
+    return remoteFile && remoteFile.hash !== file.hash;
+  });
+  const deleted = [...remoteByPath.values()].filter((file) => !localByPath.has(file.path));
+  const unchanged = local.filter((file) => remoteByPath.get(file.path)?.hash === file.hash).length;
+  return { newFiles, changed, deleted, unchanged };
+}
+
+function printDryRun(plan: BundlePlan, remote: RemoteManifest | null): void {
+  const diff = diffManifest(plan.manifestFiles, remote);
+  console.log(`Push preview: ${plan.cloudPath}`);
+  for (const file of diff.newFiles) console.log(`  NEW       ${file.path} (${formatBytes(file.size)})`);
+  for (const file of diff.changed) console.log(`  CHANGED   ${file.path} (${formatBytes(file.size)})`);
+  for (const file of diff.deleted) console.log(`  DELETED   ${file.path}`);
+  console.log(`  UNCHANGED ${diff.unchanged} files`);
+  if (plan.skippedBinary.length > 0) {
+    for (const file of plan.skippedBinary) console.log(`  SKIPPED   ${file.relPath} (binary)`);
+  }
+  console.log(`Total: ${plan.manifestFiles.length} files, ${formatBytes(plan.totalSize)}. Would update manifest pushedAt.`);
+}
+
+async function uploadFiles(client: McpClientOptions, plan: BundlePlan): Promise<void> {
+  for (let index = 0; index < plan.textFiles.length; index += 1) {
+    const file = plan.textFiles[index];
+    console.log(`[${index + 1}/${plan.textFiles.length}] uploading ${file.relPath}...`);
+    await callTool(client, "write_file", {
+      path: cloudFilePath(plan.cloudPath, file.relPath),
+      content: file.contentBuffer.toString("utf8"),
+      content_type: contentTypeFor(file.relPath),
+      overwrite: true,
+    });
+  }
+}
+
+async function listRemoteFiles(client: McpClientOptions, cloudPath: string): Promise<RemoteFile[]> {
+  const result = await callTool(client, "list_files", { path: cloudPath, recursive: true, limit: 200 });
+  const parsed = parseToolJson<{ files: RemoteFile[] }>(result);
+  return parsed.files ?? [];
+}
+
+async function deleteRemoteFile(client: McpClientOptions, id: string): Promise<void> {
+  const response = await fetch(apiUrl(client, `/api/public/v1/files/${encodeURIComponent(id)}`), {
+    method: "DELETE",
+    headers: {
+      "authorization": `Bearer ${client.token}`,
+    },
+  });
+  if (!response.ok) throw new Error(`DELETE /api/public/v1/files/${id} failed: HTTP ${response.status}`);
+}
+
+async function deleteOrphans(client: McpClientOptions, plan: BundlePlan): Promise<void> {
+  const remoteFiles = await listRemoteFiles(client, plan.cloudPath);
+  const expected = new Set([
+    ...plan.manifestFiles.map((file) => cloudFilePath(plan.cloudPath, file.path)),
+    cloudFilePath(plan.cloudPath, "manifest.json"),
+  ]);
+  const orphans = remoteFiles.filter((file) => !file.isFolder && !expected.has(file.path));
+  if (orphans.length === 0) return;
+
+  console.log(`Deleting ${orphans.length} orphan file(s)...`);
+  for (const orphan of orphans) {
+    console.log(`  deleting ${orphan.path}`);
+    await deleteRemoteFile(client, orphan.id);
+  }
+}
+
+async function writeManifest(client: McpClientOptions, plan: BundlePlan, machineId: string): Promise<void> {
+  const manifest: RemoteManifest = {
+    version: 1,
+    name: basename(plan.cloudPath),
+    hash: plan.hash,
+    machineId,
+    pushedAt: new Date().toISOString(),
+    fileCount: plan.manifestFiles.length,
+    totalSize: plan.totalSize,
+    files: plan.manifestFiles,
+  };
+  await callTool(client, "write_file", {
+    path: cloudFilePath(plan.cloudPath, "manifest.json"),
+    content: JSON.stringify(manifest, null, 2),
+    content_type: "application/json",
+    overwrite: true,
+  });
+}
+
+export async function syncPushCommand(options: SyncPushOptions): Promise<void> {
+  const config = await readConfig();
+  if (!config) throw new Error("Not logged in. Run: adrive login --url <URL> --token <TOKEN>");
+
+  const maxFileSize = parseSize(options.maxSize, DEFAULT_MAX_FILE_SIZE);
+  const maxFiles = parseMaxFiles(options.maxFiles);
+  const files = await walkBundle(options.from);
+  const plan = buildPlan(options.from, options.to, files, maxFileSize, maxFiles);
+  const client = { url: config.url, token: config.token };
+  const remote = await readRemoteManifest(client, plan.cloudPath);
+
+  if (remote && remote.machineId !== config.machineId && !options.force) {
+    const confirmed = await confirmOverwrite(remote, plan.cloudPath);
+    if (!confirmed) throw new Error("Aborted.");
+  }
+
+  if (options.dryRun) {
+    printDryRun(plan, remote);
+    return;
+  }
+
+  for (const file of plan.skippedBinary) {
+    console.warn(`skipping binary file: ${file.relPath}`);
+  }
+
+  if (remote?.hash === plan.hash) {
+    console.log("Bundle is up to date (no file changes), updating manifest pushedAt only.");
+    await writeManifest(client, plan, config.machineId);
+    console.log(`Pushed ${plan.cloudPath}: ${plan.manifestFiles.length} files, ${formatBytes(plan.totalSize)}, hash ${plan.hash}`);
+    return;
+  }
+
+  if (!remote) console.log(`Fresh push: ${plan.cloudPath}`);
+  await uploadFiles(client, plan);
+  await deleteOrphans(client, plan);
+  await writeManifest(client, plan, config.machineId);
+  console.log(`Pushed ${plan.cloudPath}: ${plan.manifestFiles.length} files, ${formatBytes(plan.totalSize)}, hash ${plan.hash}`);
+}
