@@ -16,7 +16,12 @@ export class DriveApiError extends Error {
 
 async function readJson<T>(response: Response): Promise<T> {
   const text = await response.text();
-  return (text ? (JSON.parse(text) as T) : ({} as T));
+  if (!text) return {} as T;
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    throw new DriveApiError("Invalid JSON response", response.status, "INVALID_JSON_RESPONSE");
+  }
 }
 
 export async function apiFetchJson<T>(input: string, init?: RequestInit): Promise<T> {

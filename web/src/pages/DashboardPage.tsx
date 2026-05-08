@@ -39,10 +39,16 @@ export default function DashboardPage() {
   const [shareStatsById, setShareStatsById] = useState<Record<string, ShareStats | undefined>>({});
   const [loadingShareStats, setLoadingShareStats] = useState<Record<string, boolean>>({});
   const [shareStatsErrors, setShareStatsErrors] = useState<Record<string, string | undefined>>({});
+  const expandedShareStatsRef = useRef(expandedShareStats);
+  const shareStatsByIdRef = useRef(shareStatsById);
+  const loadingShareStatsRef = useRef(loadingShareStats);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const folderInputRef = useRef<HTMLInputElement | null>(null);
   const isSearchActive = debouncedSearchQuery.trim().length > 0;
   const displayedEntries = isSearchActive ? searchResults : entries;
+  expandedShareStatsRef.current = expandedShareStats;
+  shareStatsByIdRef.current = shareStatsById;
+  loadingShareStatsRef.current = loadingShareStats;
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
@@ -264,9 +270,9 @@ export default function DashboardPage() {
   }, [setCurrentPath]);
 
   const handleToggleShareStats = useCallback(async (shareId: string) => {
-    const nextExpanded = !expandedShareStats[shareId];
+    const nextExpanded = !expandedShareStatsRef.current[shareId];
     setExpandedShareStats((current) => ({ ...current, [shareId]: nextExpanded }));
-    if (!nextExpanded || shareStatsById[shareId] || loadingShareStats[shareId]) return;
+    if (!nextExpanded || shareStatsByIdRef.current[shareId] || loadingShareStatsRef.current[shareId]) return;
 
     setLoadingShareStats((current) => ({ ...current, [shareId]: true }));
     setShareStatsErrors((current) => ({ ...current, [shareId]: undefined }));
@@ -278,7 +284,7 @@ export default function DashboardPage() {
     } finally {
       setLoadingShareStats((current) => ({ ...current, [shareId]: false }));
     }
-  }, [expandedShareStats, loadingShareStats, shareStatsById]);
+  }, []);
 
   const handleCopy = async (url: string) => {
     try {
@@ -337,7 +343,10 @@ export default function DashboardPage() {
           <h2 className="mb-3 text-lg font-semibold text-slate-900">Share links</h2>
           {loadingShares ? <p className="text-sm text-slate-600">Loading share links...</p> : shares.length === 0 ? <p className="text-sm text-slate-500">No share links yet.</p> : (
             <div className="space-y-2">
-              {shares.map((share) => (
+              {shares.map((share) => {
+                const stats = shareStatsById[share.id];
+                const fileBreakdown = stats?.fileBreakdown ?? [];
+                return (
                 <div className="rounded-xl border border-slate-200 p-3" key={share.id}>
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div className="space-y-1 text-sm">
@@ -356,23 +365,23 @@ export default function DashboardPage() {
                   </div>
                   {expandedShareStats[share.id] ? (
                     <div className="mt-3 rounded-lg bg-slate-50 p-3 text-sm text-slate-700">
-                      {loadingShareStats[share.id] ? <div>Loading stats...</div> : shareStatsErrors[share.id] ? <div className="text-red-600">{shareStatsErrors[share.id]}</div> : shareStatsById[share.id] ? (
+                      {loadingShareStats[share.id] ? <div>Loading stats...</div> : shareStatsErrors[share.id] ? <div className="text-red-600">{shareStatsErrors[share.id]}</div> : stats ? (
                         <div className="space-y-2">
                           <div className="flex flex-wrap gap-x-6 gap-y-1">
-                            <span>Total downloads: <span className="font-medium text-slate-900">{shareStatsById[share.id]!.totalDownloads}</span></span>
-                            <span>Total accesses: <span className="font-medium text-slate-900">{shareStatsById[share.id]!.totalAccesses}</span></span>
-                            <span>First accessed: <span className="font-medium text-slate-900">{shareStatsById[share.id]!.firstAccessed ? formatDate(shareStatsById[share.id]!.firstAccessed!) : "Never"}</span></span>
-                            <span>Last accessed: <span className="font-medium text-slate-900">{shareStatsById[share.id]!.lastAccessed ? formatDate(shareStatsById[share.id]!.lastAccessed!) : "Never"}</span></span>
-                            <span>Last download: <span className="font-medium text-slate-900">{shareStatsById[share.id]!.lastDownload ? formatDate(shareStatsById[share.id]!.lastDownload!) : "Never"}</span></span>
+                            <span>Total downloads: <span className="font-medium text-slate-900">{stats?.totalDownloads ?? 0}</span></span>
+                            <span>Total accesses: <span className="font-medium text-slate-900">{stats?.totalAccesses ?? 0}</span></span>
+                            <span>First accessed: <span className="font-medium text-slate-900">{stats?.firstAccessed ? formatDate(stats.firstAccessed) : "Never"}</span></span>
+                            <span>Last accessed: <span className="font-medium text-slate-900">{stats?.lastAccessed ? formatDate(stats.lastAccessed) : "Never"}</span></span>
+                            <span>Last download: <span className="font-medium text-slate-900">{stats?.lastDownload ? formatDate(stats.lastDownload) : "Never"}</span></span>
                           </div>
-                          {shareStatsById[share.id]!.fileBreakdown.length > 0 ? (
+                          {fileBreakdown.length > 0 ? (
                             <div>
                               <div className="mb-1 text-xs font-medium uppercase tracking-wide text-slate-500">Popular files</div>
                               <div className="space-y-1">
-                                {shareStatsById[share.id]!.fileBreakdown.map((item) => (
+                                {fileBreakdown.map((item) => (
                                   <div className="flex items-center justify-between rounded border border-slate-200 bg-white px-2 py-1" key={`${share.id}-${item.fileId}`}>
                                     <span className="truncate text-slate-800">{item.filename}</span>
-                                    <span className="text-xs text-slate-500">{item.downloads} downloads</span>
+                                    <span className="text-xs text-slate-500">{item.downloads ?? 0} downloads</span>
                                   </div>
                                 ))}
                               </div>
@@ -383,7 +392,8 @@ export default function DashboardPage() {
                     </div>
                   ) : null}
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </section>
