@@ -4,6 +4,7 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 const DashboardPage = lazy(() => import("@/pages/DashboardPage"));
 const ShareDownloadPage = lazy(() => import("@/pages/ShareDownloadPage"));
 const GuidePage = lazy(() => import("@/pages/GuidePage"));
+const ConnectAuthorizePage = lazy(() => import("@/pages/ConnectAuthorizePage"));
 
 function RouteFallback() {
   return (
@@ -21,6 +22,7 @@ function App() {
           <Route element={<DashboardPage />} path="/" />
           <Route element={<ShareDownloadPage />} path="/s/:shareId" />
           <Route element={<GuidePage />} path="/guide" />
+          <Route element={<ConnectAuthorizePage />} path="/connect/authorize" />
           <Route element={<Navigate replace to="/" />} path="*" />
         </Routes>
       </Suspense>
