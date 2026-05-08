@@ -4,7 +4,7 @@ import { zipSync } from "fflate";
 
 import { buckets, files, shares } from "@defs";
 
-import { logEvent } from "../lib/activity";
+import { logEvent, logEventsBatch } from "../lib/activity";
 import { createAccessToken, verifyAccessToken, verifyPasswordHash } from "../lib/crypto";
 import { ApiError, withErrorHandling } from "../lib/errors";
 import { descendantPattern, normalizePath, relativePath } from "../lib/paths";
@@ -371,7 +371,8 @@ publicSharesRoutes.get(
 
     const zipped = zipSync(zipEntries);
     await incrementDownloadCountOrThrow(db, share.id);
-    await Promise.all(fileRows.map((row) => logEvent(db, {
+    const activityContext = requestActivityContext(c);
+    await logEventsBatch(db, fileRows.map((row) => ({
       eventType: "share.downloaded",
       targetType: "share",
       targetId: share.id,
@@ -383,8 +384,23 @@ publicSharesRoutes.get(
         mode: "zip",
         zipName,
       },
-      ...requestActivityContext(c),
-    })));
+      ...activityContext,
+    })), {
+      eventType: "share.downloaded",
+      data: {
+        targetType: "share",
+        targetId: share.id,
+        targetPath: basePath,
+        actor: "public",
+        metadata: {
+          mode: "zip",
+          zipName,
+          fileIds: fileRows.map((row) => row.id),
+          totalSize,
+          count: fileRows.length,
+        },
+      },
+    });
 
     return new Response(zipped, {
       headers: {

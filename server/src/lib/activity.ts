@@ -73,6 +73,50 @@ export async function logEvent(db: AppDb, event: ActivityEventInput): Promise<vo
   }
 }
 
+export async function logEventsBatch(
+  db: AppDb,
+  events: ActivityEventInput[],
+  webhookEvent?: { eventType: string; data: Record<string, unknown> | null }
+): Promise<void> {
+  if (events.length === 0) return;
+
+  try {
+    if (Math.random() < PRUNE_SAMPLE_RATE) {
+      const cutoff = new Date(Date.now() - ACTIVITY_RETENTION_MS).toISOString();
+      await db.delete(activityLog).where(lt(activityLog.createdAt, cutoff));
+    }
+
+    const inserts = events.map((event) => db.insert(activityLog).values({
+      id: nanoid(),
+      eventType: event.eventType,
+      targetType: event.targetType ?? null,
+      targetId: event.targetId ?? null,
+      targetPath: event.targetPath ?? null,
+      actor: event.actor,
+      metadata: serializeMetadata(event.metadata),
+      ip: event.ip ?? null,
+      userAgent: event.userAgent ?? null,
+      createdAt: nowIso(),
+    }));
+    await db.batch(inserts as [typeof inserts[number], ...Array<typeof inserts[number]>]);
+  } catch (error) {
+    console.error("Failed to write activity log batch", { count: events.length, error });
+  }
+
+  if (!webhookEvent) return;
+  try {
+    const { ctx } = await import("edgespark");
+    const { triggerWebhooks } = await import("./webhooks");
+    ctx.runInBackground(
+      triggerWebhooks(db, webhookEvent).catch((error) => {
+        console.error("Failed to trigger batch webhook", { eventType: webhookEvent.eventType, error });
+      })
+    );
+  } catch (error) {
+    console.error("Failed to schedule batch webhook", { eventType: webhookEvent.eventType, error });
+  }
+}
+
 export async function listActivities(
   db: AppDb,
   filters: { type?: string | null; limit: number; since?: string | null }
