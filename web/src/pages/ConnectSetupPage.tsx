@@ -6,6 +6,7 @@ import { OAUTH_SCOPE_DESCRIPTIONS } from "@/lib/oauth-scopes";
 
 const ALL_SCOPES = ["read:drive", "write:drive", "share:create", "read:memory", "write:memory", "read:skills", "write:skills"] as const;
 const DEFAULT_SCOPES = new Set<string>(["read:drive", "write:drive", "share:create"]);
+const UNIMPLEMENTED_SCOPES = new Set<string>(["read:memory", "write:memory", "read:skills", "write:skills"]);
 const API_DOCS_URL = "https://github.com/Yrzhe/agent-drive/tree/main/docs/api";
 const SCOPE_STORAGE_KEY = "agent-drive:connect:selected-scopes";
 
@@ -152,22 +153,32 @@ export default function ConnectSetupPage() {
 
         <section className="rounded-xl border border-slate-200 bg-white p-5">
           <h2 className="text-base font-semibold text-slate-900">Scope picker</h2>
+          <p className="mt-1 text-sm text-slate-600">Drive scopes are active today. Memory and skills scopes are reserved for upcoming sync features (use the <code>adrive</code> CLI for now).</p>
           <p className="mt-1 text-sm text-slate-600">These scopes are inserted into the Generic / JSON-RPC snippet for advanced OAuth setup.</p>
           <div className="mt-4 grid gap-2 md:grid-cols-2">
-            {ALL_SCOPES.map((scope) => (
-              <label className="flex items-start gap-3 rounded-lg border border-slate-200 px-3 py-2 text-sm" key={scope}>
-                <input
-                  checked={selectedScopes.includes(scope)}
-                  className="mt-1"
-                  onChange={() => toggleScope(scope)}
-                  type="checkbox"
-                />
-                <span>
-                  <span className="block font-medium text-slate-900">{scope}</span>
-                  <span className="text-slate-600">{OAUTH_SCOPE_DESCRIPTIONS[scope]?.description ?? "Custom MCP scope."}</span>
-                </span>
-              </label>
-            ))}
+            {ALL_SCOPES.map((scope) => {
+              const isPlanned = UNIMPLEMENTED_SCOPES.has(scope);
+              return (
+                <label className="flex items-start gap-3 rounded-lg border border-slate-200 px-3 py-2 text-sm" key={scope}>
+                  <input
+                    checked={selectedScopes.includes(scope)}
+                    className="mt-1"
+                    onChange={() => toggleScope(scope)}
+                    type="checkbox"
+                  />
+                  <span>
+                    <span className="block font-medium text-slate-900">
+                      {scope}
+                      {isPlanned ? <span className="ml-1 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-800">planned</span> : null}
+                    </span>
+                    <span className="text-slate-600">
+                      {OAUTH_SCOPE_DESCRIPTIONS[scope]?.description ?? "Custom MCP scope."}
+                      {isPlanned ? " No MCP tool consumes this scope yet — sync via the adrive CLI today." : ""}
+                    </span>
+                  </span>
+                </label>
+              );
+            })}
           </div>
         </section>
 
