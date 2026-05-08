@@ -21,28 +21,52 @@ OAuth + MCP collapses that into "paste URL → click consent in browser → call
 
 3-week MVP, broken into committable phases.
 
-### Week 1 — Remote MCP + OAuth closed loop
+### Week 1 — Remote MCP + OAuth closed loop ✅ SHIPPED 2026-05-08
 
-| ID | Task | Files / Surfaces |
-|---|---|---|
-| T1.1 | OAuth discovery docs at `/.well-known/oauth-protected-resource` and `/.well-known/oauth-authorization-server` | `server/src/routes/oauth-discovery.ts` (new) |
-| T1.2 | Dynamic client registration `POST /oauth/register` (RFC 7591 minimum) | `server/src/routes/oauth.ts` (new) |
-| T1.3 | Authorization code + PKCE: `GET /oauth/authorize` (consent UI, EdgeSpark session reused), `POST /oauth/token` | same `oauth.ts`; consent UI = small server-rendered HTML or SPA route `/connect/authorize` |
-| T1.4 | Token store: D1 tables `oauth_clients`, `oauth_authorization_codes`, `oauth_tokens` | `server/src/defs/db_schema.ts` + migration 0005/0006/0007 |
-| T1.5 | MCP endpoint `POST /mcp` Streamable HTTP JSON-RPC: `initialize`, `tools/list`, `tools/call`. Unauthorized → 401 with `WWW-Authenticate: Bearer resource_metadata="<origin>/.well-known/oauth-protected-resource"` | `server/src/routes/mcp.ts` (new) + `server/src/lib/mcp.ts` (handler) |
-| T1.6 | First-pass tools: `list_files`, `read_file`, `write_file`, `search_files`, `create_share` | `server/src/lib/mcp-tools.ts` (new) |
-| T1.7 | Scope model: `read:drive` / `write:drive` / `read:memory` / `write:memory` / `read:skills` / `write:skills` / `share:create`. `tools/list` filters by token scope; `tools/call` enforces. | `server/src/lib/mcp-scopes.ts` (new) |
-| T1.8 | Smoke test on Claude Custom Connector + Codex `codex mcp add --url` + Cursor remote MCP. Capture working configs in docs. | `docs/setup/mcp-claude.md`, `mcp-codex.md`, `mcp-cursor.md` |
+| ID | Task | Status | Commit | Linear |
+|---|---|---|---|---|
+| T1.1 | OAuth discovery docs at `/.well-known/oauth-protected-resource` and `/.well-known/oauth-authorization-server` (later relocated to `/api/public/.well-known/*` per EdgeSpark policy) | ✅ | `8ff7d4f` | YRZ-203 |
+| T1.2 | Dynamic client registration `POST /oauth/register` | ✅ | `e0f0bd5` | YRZ-204 |
+| T1.3 | Authorization code + PKCE: `GET /oauth/authorize` + `POST /oauth/authorize/consent` + `POST /oauth/token`. Consent UI is SPA route `/connect/authorize`. | ✅ | `a7800bf` (server), `e987615` (web) | YRZ-205 |
+| T1.4 | Token store: D1 tables `oauth_clients`, `oauth_authorization_codes`, `oauth_tokens` (migration 0005); `oauth_tokens.source_code_id` added in 0006 for chained revoke | ✅ | `54ce505` (initial), `60d2b05` (chained-revoke schema) | YRZ-206 |
+| T1.5 | MCP endpoint `POST /mcp` Streamable HTTP JSON-RPC: `initialize`, `tools/list`, `tools/call`. Unauthorized → 401 with `WWW-Authenticate: Bearer resource_metadata=...`. AGENT_TOKEN granted FULL_MCP_SCOPES for back-compat. | ✅ | `cb4f622` | YRZ-207 |
+| T1.6 | First-pass tools: `list_files`, `read_file`, `write_file`, `search_files`, `create_share` | ✅ | `c309f5a` | YRZ-208 |
+| T1.7 | Scope model and enforcement (`read:drive`/`write:drive`/`read:memory`/`write:memory`/`read:skills`/`write:skills`/`share:create`); `tools/list` filters; `tools/call` rejects with `invalid_scope`. | ✅ | `14d1f14` | YRZ-209 |
+| T1.8 | Setup guides for Claude / Codex / Cursor; API smoke test via curl with `AGENT_TOKEN` | ✅ docs + ✅ API smoke; ⏳ IDE smoke (CEO) | `c899e52` | YRZ-210 |
 
-### Week 2 — agent-native tools + one-sentence sync
+**Audit + hardening commits applied within Week 1:**
+- `60d2b05` `fix(server): OAuth security hardening (audit C1/C2/H1/H2/M4)` — token-exchange O(1) lookup via `<id>.<secret>` format, consent CSRF Origin check, code-reuse chained revoke, strict `approved="true"`
+- `75b2305` `chore(server): tighten OAuth registration constraints (M1/M2/M3/L1)` — global cap 100, client_name length+printable, `ALLOWED_ORIGIN` var, `protocolVersion` updated
+- `8e98535` `fix(server): move OAuth/MCP routes under /api/* to comply with EdgeSpark route policy` — all OAuth/MCP under `/api/public/*`
+- `7dab4e5` `fix(server): enforce OAuth register rate limit and https redirect_uri` — rate-limit counter records every allowed attempt; `https://` enforced (localhost dev exception kept)
 
-| ID | Task | Notes |
-|---|---|---|
-| T2.1 | Conventional folders: `/skills/`, `/memory/`, `/profiles/`, `/projects/`. Add markers in dashboard, document expected structure. | `docs/architecture/agent-native-folders.md` |
-| T2.2 | `sync_profile_memory_skills` tool. Internal: client-driven push of file blobs into convention folders, returns manifest. | enables "sync everything to agent-drive" UX |
-| T2.3 | `import_skill_archive` (zip / tar.gz upload) | reuses upload route under the hood |
-| T2.4 | `backup_agent_workspace_manifest` — read manifest of current logical workspace | optional convenience |
-| T2.5 | Dashboard `/connect` page: per-platform setup snippets (Claude / Codex / Cursor / Windsurf / Gemini) | `web/src/pages/ConnectPage.tsx` |
+**Reviewer audits passed:** Round 1 (initial code review, 2 CRITICAL + 2 HIGH found) → fixed in `60d2b05`/`75b2305`; Round 2 (verification of fixes, all PASS, no regression).
+
+**Live:** `https://large-gator-9215.edgespark.app/api/public/mcp` since 2026-05-08.
+
+### Week 2 — agent-native tools + one-sentence sync (planned)
+
+Goal: Cement the "Sync my AI skills, memory, and project context to Agent Drive" narrative. Convert from a generic file drive that *happens* to expose MCP into an opinionated AI-asset sync layer with first-class semantics for skills/memory/profiles.
+
+| ID | Task | Files / Surfaces | Owner |
+|---|---|---|---|
+| T2.1 | Convention folders + dashboard surfacing. Reserve top-level paths `/skills/`, `/memory/`, `/profiles/`, `/projects/`; the dashboard renders them with explicit icons + descriptions; agent guide endpoint mentions them; convention doc enumerates expected sub-structure (e.g. `/skills/<name>/SKILL.md` + supporting files). | `docs/architecture/agent-native-folders.md` (new); `web/src/components/FolderIcon.tsx` (new); guide endpoint update | 研发 1 (server/docs) + 研发 2 (web) |
+| T2.2 | `sync_profile_memory_skills` MCP tool. Accepts a manifest (paths + content) and writes into convention folders atomically. Returns a per-file outcome manifest (created/updated/skipped/conflict) so the calling LLM can summarize "synced 12 skills, 3 memories, 1 profile". | `server/src/lib/mcp-tools.ts` (extend); shared validator in `server/src/lib/sync-manifest.ts` (new) | 研发 1 |
+| T2.3 | `import_skill_archive` MCP tool. Accepts base64 zip; expands into `/skills/`, validates each skill has `SKILL.md`, rejects path traversal. | `server/src/lib/mcp-tools.ts` (extend); reuses `upload` complete path | 研发 1 |
+| T2.4 | `backup_agent_workspace_manifest` MCP tool. Read-only counterpart: returns a structured manifest of `/skills`, `/memory`, `/profiles` for restore on another machine. | `server/src/lib/mcp-tools.ts` (extend) | 研发 1 |
+| T2.5 | Dashboard `/connect` page. Per-platform copy-pasteable setup (Claude / Codex / Cursor / Windsurf / Gemini): connector URL, scope summary, expected first-call to verify. Stays accurate by referencing `docs/setup/mcp-*.md` content. | `web/src/pages/ConnectPage.tsx` (new); `web/src/lib/mcp-platforms.ts` (new) | 研发 2 |
+| T2.6 | Tool-error UX in MCP. Standardize JSON-RPC error codes: `invalid_scope` (-32603 with data), `not_found` (-32602), `conflict` (-32602), `quota_exceeded`. Documented in setup docs so connector tools render meaningful messages. | `server/src/lib/mcp-errors.ts` (new); existing tools updated | 研发 1 |
+| T2.7 | Active client list + revoke in dashboard. User can see connected MCP clients (client_name, granted scopes, last used) and revoke individually. | `server/src/routes/oauth.ts` (add `GET /api/public/oauth/clients/mine`, `POST /.../:id/revoke`); `web/src/pages/ConnectedClientsPage.tsx` (new) | 研发 1 (server) + 研发 2 (web) |
+
+**Schema migration 0007** (planned): no new tables; possibly add `oauth_clients.user_id` so users only see their own clients in T2.7. Currently every registered client is global to the project. Decide during T2.7 design.
+
+**Conventions decisions (must lock before T2.1 starts):**
+- Skill format compatibility: align with Claude Code skill manifest convention (`SKILL.md` + `references/`) so no transcoding is needed when syncing both ways. Reject other layouts at import time with explicit error.
+- Memory format: Markdown files; convention is `<topic>.md` plus optional `MEMORY.md` index, mirroring Claude Code's auto-memory layout.
+- Profiles: JSON or YAML (TBD). Used to capture user-style/preferences/work-context that can be replayed by other agents.
+- Projects: opaque per-project subdirectory; agents bring their own structure; we don't enforce.
+
+**Auditor reviewer pass after T2.1-T2.7 lands but before deploy.**
 
 ### Week 3 — CLI + docs + compatibility matrix
 
@@ -202,7 +226,53 @@ All three tables added in a single phase to keep migrations atomic; nullable whe
 
 ## Linear Tracking
 
-Create one epic for this plan; each `T#.#` row above maps to one ticket under it. Suggested epic title: `MCP MVP — Remote MCP + OAuth + agent-native tools`. Link this plan from the epic description.
+Epic **YRZ-202** `MCP MVP — Remote MCP + OAuth + agent-native tools`. Week 1 sub-tickets YRZ-203..YRZ-210 under it. Week 2 sub-tickets to be created when plan section is locked.
+
+## Week 1 Retrospective
+
+### What shipped (commits in chronological order, all on `main`)
+
+```
+417c36c  docs: add MCP MVP plan + workspace scaffolding (YRZ-202)
+54ce505  feat(server): token store schema (YRZ-206 T1.4)
+e987615  feat(web): OAuth consent UI for MCP (YRZ-205)
+14d1f14  feat(server): MCP scope model (YRZ-209 T1.7)
+8ff7d4f  feat(server): OAuth discovery endpoints (YRZ-203 T1.1)
+e0f0bd5  feat(server): dynamic client registration (YRZ-204 T1.2)
+a7800bf  feat(server): authorization code PKCE flow (YRZ-205 T1.3 server)
+cb4f622  feat(server): MCP streamable HTTP endpoint (YRZ-207 T1.5)
+c309f5a  feat(server): first-pass MCP tools (YRZ-208 T1.6)
+60d2b05  fix(server): OAuth security hardening (audit C1/C2/H1/H2/M4)
+75b2305  chore(server): tighten OAuth registration constraints (M1/M2/M3/L1)
+8e98535  fix(server): move OAuth/MCP routes under /api/* to comply with EdgeSpark route policy
+c899e52  docs(setup): MCP connector setup guides (YRZ-210)
+7dab4e5  fix(server): enforce OAuth register rate limit and https redirect_uri
+```
+
+13 commits across 8 implementation tickets + 4 audit/hardening + 1 docs. ~3000 LoC net. Delivered in a single working day with the multi-agent flow (研发 1 server + 研发 2 web + reviewer audit + CEO orchestration).
+
+### What changed vs. original plan
+
+1. **Routes moved to `/api/public/*`.** Original plan had `/.well-known/*`, `/mcp`, `/oauth/*` at origin root. EdgeSpark enforces `/api/*` prefix for all backend routes; root paths are reserved for the SPA. Mitigated by surfacing absolute URLs from the `oauth-protected-resource` discovery doc — clients still autodiscover correctly.
+2. **No SSE.** Held to A6 — Streamable HTTP only.
+3. **Audit added 2 schema migrations beyond the planned 0005.** Migration 0006 adds `oauth_tokens.source_code_id` (chained revoke) — discovered during reviewer Round 1.
+4. **AGENT_TOKEN given full MCP scopes.** Confirmed in audit; documented in `docs/setup/mcp-*.md`.
+5. **Public-IPv4 webhook URLs no longer accepted** (carryover side effect from the prior pre-MCP review pass; not scoped here).
+
+### Open issues to track
+
+- **Scope downgrade in consent UI** — current consent form is all-or-nothing approve. Allowing a user to drop some requested scopes before approving is a Week 2 enhancement (T2.7 candidate).
+- **Connected client revoke from dashboard** — listed as T2.7.
+- **Per-user oauth_clients ownership** — currently all clients are project-global. Need decision in T2.7 design.
+- **`oauth_clients` table grows under cap=100** — even with cap, reaching 100 prevents new connectors. Need cleanup admin action (deferred to Week 2 along with T2.7) or automatic prune of stale-unused clients.
+- **Smoke test cleanup** — 26 throwaway clients left from API smoke testing have been manually deleted via `edgespark db sql DELETE`. Future smoke runs should use a recognizable name prefix and self-cleanup.
+
+### Lessons
+
+- **EdgeSpark route policy** is enforced at deploy, not at dev/typecheck. Always run `edgespark deploy --dry-run` before declaring something "ready to deploy".
+- **Reviewer round 1 → fix → round 2** caught two CRITICAL issues that wouldn't have been visible in a single-pass review (token-exchange O(N) PBKDF2 DoS, consent CSRF). Keep this two-pass discipline.
+- **`db.batch()` and `<id>.<secret>` token format** are reusable patterns elsewhere — note in `server-patterns.md` if/when a project doc is created.
+- **Author identity:** `git config --global user.name` was set to a real Chinese name; rebased the 11 unpushed commits to author `Yrzhe` before push. Lesson: set `user.name` to a public handle on every fresh machine before first commit.
 
 ## References
 
