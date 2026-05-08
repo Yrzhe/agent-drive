@@ -5,12 +5,14 @@ import { activityRoutes } from "./routes/activity";
 import { filesRoutes } from "./routes/files";
 import { foldersRoutes } from "./routes/folders";
 import { guideRoutes } from "./routes/guide";
+import { oauthDiscoveryRoutes } from "./routes/oauth-discovery";
 import { publicSharesRoutes } from "./routes/public-shares";
 import { sharesRoutes } from "./routes/shares";
 import { webhooksRoutes } from "./routes/webhooks";
 
 const app = new Hono();
 
+app.route("/.well-known", oauthDiscoveryRoutes);
 app.use("/api/public/v1/*", requireDualAuth);
 app.route("/api/public/v1/activity", activityRoutes);
 app.route("/api/public/v1/files", filesRoutes);
