@@ -1,48 +1,66 @@
-# Cursor MCP Connector Setup
+# Cursor — Agent Drive MCP Setup
 
-Connector URL:
+This guide shows how to connect Cursor to your Agent Drive deployment via Remote MCP.
+
+> **Easiest path** — open `<YOUR_AGENT_DRIVE_URL>/connect` in your browser. The in-app wizard auto-detects your URL and gives you a copy-paste-ready JSON snippet for `~/.cursor/mcp.json`. The rest of this document is reference material.
+
+## Finding your Agent Drive URL
+
+`<YOUR_AGENT_DRIVE_URL>` is the origin of your EdgeSpark deployment, for example:
 
 ```text
-https://large-gator-9215.edgespark.app/api/public/mcp
+https://large-gator-9215.edgespark.app
 ```
 
-## Remote MCP Config
+To find yours:
 
-Add Agent Drive as a remote MCP server in Cursor settings. Use the full connector URL above as the server URL.
+- The dashboard URL bar shows it (open Agent Drive in a browser, copy the origin).
+- `edgespark deploy` prints it on first deploy.
+- The EdgeSpark dashboard at `https://dashboard.edgespark.app/projects` lists your assigned subdomain.
 
-Example shape:
+The MCP endpoint is always:
+
+```text
+<YOUR_AGENT_DRIVE_URL>/api/public/mcp
+```
+
+## Configure remote MCP
+
+Edit (or create) `~/.cursor/mcp.json`:
 
 ```json
 {
   "mcpServers": {
     "agent-drive": {
-      "url": "https://large-gator-9215.edgespark.app/api/public/mcp"
+      "url": "<YOUR_AGENT_DRIVE_URL>/api/public/mcp",
+      "type": "http"
     }
   }
 }
 ```
 
-Complete the browser OAuth authorization flow if Cursor opens one.
+Restart Cursor. On first use, Cursor opens an OAuth consent flow in your browser. Approve the requested scopes.
 
 ## Scopes
 
-Request:
+| Use case | Scopes |
+|---|---|
+| Full drive automation | `read:drive write:drive share:create` |
+| Read-only inspection | `read:drive` |
+| Memory sync (planned) | `read:memory write:memory` |
+| Skill sync (planned) | `read:skills write:skills` |
 
-```text
-read:drive write:drive share:create
-```
-
-Use `read:drive` only for read-only setups.
+Full scope vocabulary lives in [`docs/api/oauth.md`](../api/oauth.md).
 
 ## Verify
 
-From Cursor, ask the agent to:
+From Cursor, ask the agent:
 
 ```text
 List files in Agent Drive at /
 ```
 
-Expected tools with full drive scopes:
+With full drive scopes you should have access to:
 
 ```text
 list_files
@@ -51,3 +69,14 @@ write_file
 search_files
 create_share
 ```
+
+## Self-hosted single-user mode
+
+If your deployment sets `AGENT_TOKEN`, you can use it as a Bearer token to skip OAuth. See [`docs/api/mcp.md`](../api/mcp.md#authentication).
+
+## Reference
+
+- **API reference**: [`docs/api/mcp.md`](../api/mcp.md)
+- **OAuth reference**: [`docs/api/oauth.md`](../api/oauth.md)
+- **In-app wizard**: `<YOUR_AGENT_DRIVE_URL>/connect`
+- **Discovery**: `<YOUR_AGENT_DRIVE_URL>/api/public/.well-known/oauth-protected-resource`

@@ -6,7 +6,7 @@ import { OAUTH_SCOPE_DESCRIPTIONS } from "@/lib/oauth-scopes";
 
 const ALL_SCOPES = ["read:drive", "write:drive", "share:create", "read:memory", "write:memory", "read:skills", "write:skills"] as const;
 const DEFAULT_SCOPES = new Set<string>(["read:drive", "write:drive", "share:create"]);
-const API_DOCS_URL = "/docs/api/";
+const API_DOCS_URL = "https://github.com/Yrzhe/agent-drive/tree/main/docs/api";
 
 type TestStatus =
   | { kind: "idle"; message: string }

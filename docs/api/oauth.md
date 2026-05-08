@@ -1,0 +1,247 @@
+# OAuth 2.1 Reference
+
+Agent Drive implements OAuth 2.1 for MCP clients. Public clients (no `client_secret`) are supported via mandatory PKCE S256.
+
+Endpoint base:
+
+```text
+<YOUR_AGENT_DRIVE_URL>/api/public
+```
+
+## Discovery
+
+### `GET /.well-known/oauth-protected-resource` (RFC 9728)
+
+Tells MCP clients which authorization server protects this resource.
+
+```bash
+curl <YOUR_AGENT_DRIVE_URL>/api/public/.well-known/oauth-protected-resource
+```
+
+Response:
+
+```json
+{
+  "resource": "<YOUR_AGENT_DRIVE_URL>/api/public/mcp",
+  "authorization_servers": [
+    "<YOUR_AGENT_DRIVE_URL>/api/public/.well-known/oauth-authorization-server"
+  ],
+  "bearer_methods_supported": ["header"],
+  "scopes_supported": [
+    "read:drive", "write:drive",
+    "read:memory", "write:memory",
+    "read:skills", "write:skills",
+    "share:create"
+  ]
+}
+```
+
+### `GET /.well-known/oauth-authorization-server` (RFC 8414)
+
+Authorization server metadata.
+
+Response:
+
+```json
+{
+  "issuer": "<YOUR_AGENT_DRIVE_URL>/api/public/.well-known/oauth-authorization-server",
+  "authorization_endpoint": "<YOUR_AGENT_DRIVE_URL>/api/public/oauth/authorize",
+  "token_endpoint": "<YOUR_AGENT_DRIVE_URL>/api/public/oauth/token",
+  "registration_endpoint": "<YOUR_AGENT_DRIVE_URL>/api/public/oauth/register",
+  "response_types_supported": ["code"],
+  "grant_types_supported": ["authorization_code", "refresh_token"],
+  "code_challenge_methods_supported": ["S256"],
+  "token_endpoint_auth_methods_supported": ["none", "client_secret_post"],
+  "scopes_supported": [...]
+}
+```
+
+## Endpoints
+
+### `POST /oauth/register` — Dynamic Client Registration (RFC 7591)
+
+Registers a public OAuth client. No authentication required. Rate-limited.
+
+Request:
+
+```json
+{
+  "client_name": "my-ide",
+  "redirect_uris": ["https://example.com/callback"],
+  "grant_types": ["authorization_code", "refresh_token"],
+  "response_types": ["code"],
+  "scope": "read:drive write:drive share:create"
+}
+```
+
+Validation rules:
+
+- `client_name`: 1–64 printable ASCII characters.
+- `redirect_uris`: array, 1–5 entries. Each must be `https://...` **except** `http://localhost:*` and `http://127.0.0.1:*` (allowed for local dev / desktop apps per IETF guidance).
+- `grant_types`: must be a subset of `["authorization_code", "refresh_token"]`.
+- `response_types`: must be `["code"]`.
+- `scope`: space-separated; unknown scopes are rejected.
+
+Rate limits:
+
+- 20 registrations per hour per IP.
+- Global cap of 100 registered clients (returns `403 registration_disabled` past the cap).
+
+Response (201):
+
+```json
+{
+  "client_id": "ad_xxxxxxxxxxxxxxxx",
+  "client_id_issued_at": 1746700000,
+  "client_name": "my-ide",
+  "redirect_uris": ["..."],
+  "grant_types": ["authorization_code", "refresh_token"],
+  "response_types": ["code"],
+  "scope": "read:drive write:drive share:create",
+  "token_endpoint_auth_method": "none"
+}
+```
+
+No `client_secret` is issued — public clients only.
+
+### `GET /oauth/authorize`
+
+Begins the authorization-code flow.
+
+Required query params:
+
+| Param | Notes |
+|---|---|
+| `client_id` | From `/oauth/register` |
+| `redirect_uri` | Must exactly match one of the registered URIs |
+| `response_type` | `code` |
+| `state` | Opaque CSRF token; echoed back |
+| `code_challenge` | PKCE S256 challenge (mandatory) |
+| `code_challenge_method` | `S256` |
+| `scope` | Space-separated; must be subset of registered scope |
+
+Behavior:
+
+1. If the user has no EdgeSpark session, redirects to login then back.
+2. Renders the consent UI (SPA route `/connect/authorize`) showing requested scopes.
+3. On `approved=true` consent submission, generates an authorization code bound to `code_challenge`, `redirect_uri`, `scope`, and the user.
+4. 302 redirects to `redirect_uri?code=...&state=...`.
+
+### `POST /oauth/authorize/consent`
+
+Internal endpoint hit by the consent UI when the user approves or denies. Origin-checked (CSRF). Body:
+
+```json
+{
+  "request_id": "<from authorize>",
+  "approved": "true",
+  "scope": "read:drive write:drive"
+}
+```
+
+- `Origin` header is required and must equal the deployment origin (or `ALLOWED_ORIGIN`). Missing/mismatched Origin → `403 csrf_error`.
+- `approved` must be the literal string `"true"` to grant. Any other value (including missing) denies.
+- `scope` may be a strict subset of what the client requested.
+
+### `POST /oauth/token`
+
+Exchanges a code or refresh token for an access token.
+
+#### Grant: `authorization_code`
+
+Request (form-encoded or JSON):
+
+```json
+{
+  "grant_type": "authorization_code",
+  "client_id": "ad_...",
+  "code": "<id>.<secret>",
+  "redirect_uri": "https://example.com/callback",
+  "code_verifier": "<PKCE verifier>"
+}
+```
+
+Behavior:
+
+- The code is validated by splitting on `.` — `<id>` does an O(1) lookup, the secret is verified against a PBKDF2 hash.
+- If the code has already been used, **all tokens issued from that code are revoked** (chained revocation per `oauth_tokens.source_code_id`). This deters replay attacks.
+- PKCE `code_verifier` must hash (SHA-256, base64url) to the stored `code_challenge`.
+
+Response:
+
+```json
+{
+  "access_token": "<id>.<secret>",
+  "token_type": "Bearer",
+  "expires_in": 3600,
+  "refresh_token": "<id>.<secret>",
+  "scope": "read:drive write:drive"
+}
+```
+
+#### Grant: `refresh_token`
+
+```json
+{
+  "grant_type": "refresh_token",
+  "client_id": "ad_...",
+  "refresh_token": "<id>.<secret>",
+  "scope": "read:drive"
+}
+```
+
+- New `access_token` (and rotated `refresh_token`) issued.
+- Optional `scope` parameter must be a subset of the original grant.
+
+#### Errors
+
+| `error` | When |
+|---|---|
+| `invalid_request` | Missing required field |
+| `invalid_grant` | Code not found, expired, already used, or PKCE mismatch |
+| `invalid_client` | `client_id` not registered |
+| `invalid_scope` | Requested scope exceeds prior grant |
+| `unsupported_grant_type` | Anything other than `authorization_code` or `refresh_token` |
+
+## Token format
+
+Both authorization codes and tokens use the `<id>.<secret>` format:
+
+- `<id>` is a non-secret short identifier used for O(1) DB lookup.
+- `<secret>` is hashed server-side via PBKDF2 (100k iterations).
+- The full string is sent on the wire — clients should treat it as opaque.
+
+This avoids the O(N) PBKDF2 scan that would be required if tokens were stored only by hash.
+
+## Scope vocabulary
+
+Authoritative list lives in `server/src/lib/mcp-scopes.ts`.
+
+| Scope | Description |
+|---|---|
+| `read:drive` | Read files and folders in Agent Drive |
+| `write:drive` | Create and update files and folders |
+| `read:memory` | Read memory files (planned) |
+| `write:memory` | Write memory files (planned) |
+| `read:skills` | Read skill files (planned) |
+| `write:skills` | Write skill files (planned) |
+| `share:create` | Create share links for files and folders |
+
+## Security notes
+
+- **Public clients only.** Anyone can register. Mitigations: rate-limit + global cap, scope strictly bound to user consent, dashboard-driven revoke (planned).
+- **PKCE S256 mandatory.** `plain` is rejected.
+- **Origin check on consent.** Prevents CSRF on `/oauth/authorize/consent` from third-party origins.
+- **HTTPS-only redirect_uris**, with localhost/127.0.0.1 exception for development.
+- **Chained revoke on code reuse.** Single-use codes; replay invalidates all derived tokens.
+- **Tokens are PBKDF2-hashed** server-side; the DB never stores plaintext secrets.
+
+## See also
+
+- [`mcp.md`](./mcp.md) — how to use the access token once you have one
+- [`README.md`](./README.md) — base URL, authentication overview, error format
+- [RFC 6749 — OAuth 2.0](https://datatracker.ietf.org/doc/html/rfc6749)
+- [RFC 7591 — Dynamic Client Registration](https://datatracker.ietf.org/doc/html/rfc7591)
+- [RFC 7636 — PKCE](https://datatracker.ietf.org/doc/html/rfc7636)
+- [RFC 8414 — Authorization Server Metadata](https://datatracker.ietf.org/doc/html/rfc8414)
+- [RFC 9728 — Protected Resource Metadata](https://datatracker.ietf.org/doc/html/rfc9728)

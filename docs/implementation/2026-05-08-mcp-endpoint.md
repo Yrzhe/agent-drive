@@ -203,7 +203,7 @@ All three tables added in a single phase to keep migrations atomic; nullable whe
 - Scope downgrade: request `read:drive write:drive`, user accepts only `read:drive`, write tools absent from `tools/list`
 
 ### Manual smoke
-- Claude desktop: add Custom Connector with URL `https://large-gator-9215.edgespark.app/mcp`, complete browser consent, list and read a file from Claude
+- Claude desktop: add Custom Connector with URL `<YOUR_AGENT_DRIVE_URL>/api/public/mcp`, complete browser consent, list and read a file from Claude
 - Codex: `codex mcp add agent-drive --url <…>` + `codex mcp login agent-drive`, run a tool
 - Cursor: add to remote MCP config, run a tool
 
