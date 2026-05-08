@@ -1,4 +1,4 @@
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { nanoid } from "nanoid";
 
@@ -64,6 +64,42 @@ async function toShareObject(db: AppDb, share: ShareRow, origin: string): Promis
     createdAt: share.createdAt,
     shareUrl: `${origin}/s/${share.id}`,
   };
+}
+
+function toShareObjectWithTarget(share: ShareRow, origin: string, targetName: string): ShareObject {
+  return {
+    id: share.id,
+    fileId: share.fileId,
+    folderPath: share.folderPath,
+    type: share.fileId ? "file" : "folder",
+    targetName,
+    hasPassword: Boolean(share.passwordHash),
+    maxDownloads: share.maxDownloads,
+    downloadCount: share.downloadCount,
+    expiresAt: share.expiresAt,
+    createdAt: share.createdAt,
+    shareUrl: `${origin}/s/${share.id}`,
+  };
+}
+
+async function toShareObjects(db: AppDb, shareRows: ShareRow[], origin: string): Promise<ShareObject[]> {
+  const fileIds = shareRows.map((share) => share.fileId).filter((id): id is string => Boolean(id));
+  const folderPaths = shareRows
+    .filter((share) => !share.fileId)
+    .map((share) => normalizePath(share.folderPath ?? "/"));
+
+  const [fileRows, folderRows] = await Promise.all([
+    fileIds.length > 0 ? db.select({ id: files.id, name: files.name }).from(files).where(inArray(files.id, fileIds)) : [],
+    folderPaths.length > 0 ? db.select({ path: files.path, name: files.name }).from(files).where(inArray(files.path, folderPaths)) : [],
+  ]);
+  const fileNameById = new Map(fileRows.map((file) => [file.id, file.name]));
+  const folderNameByPath = new Map(folderRows.map((folder) => [folder.path, folder.name]));
+
+  return shareRows.map((share) => {
+    if (share.fileId) return toShareObjectWithTarget(share, origin, fileNameById.get(share.fileId) ?? "(deleted file)");
+    const folderPath = normalizePath(share.folderPath ?? "/");
+    return toShareObjectWithTarget(share, origin, folderNameByPath.get(folderPath) ?? folderPath.split("/").filter(Boolean).pop() ?? "/");
+  });
 }
 
 sharesRoutes.post(
@@ -152,7 +188,7 @@ sharesRoutes.get(
       if (row.maxDownloads !== null && row.downloadCount >= row.maxDownloads) return false;
       return true;
     });
-    return c.json({ shares: await Promise.all(activeRows.map((row) => toShareObject(db, row, origin))) });
+    return c.json({ shares: await toShareObjects(db, activeRows, origin) });
   })
 );
 
@@ -188,8 +224,13 @@ sharesRoutes.get(
     let lastAccessed: string | null = null;
     let lastDownload: string | null = null;
     const fileBreakdownMap = new Map<string, { fileId: string; filename: string; downloads: number }>();
+    const ipStatsMap = new Map<string, number>();
+    const userAgentStatsMap = new Map<string, number>();
 
     for (const row of rows) {
+      if (row.ip) ipStatsMap.set(row.ip, (ipStatsMap.get(row.ip) ?? 0) + 1);
+      if (row.userAgent) userAgentStatsMap.set(row.userAgent, (userAgentStatsMap.get(row.userAgent) ?? 0) + 1);
+
       if (row.eventType === "share.accessed") {
         totalAccesses += 1;
         if (!lastAccessed) lastAccessed = row.createdAt;
@@ -201,7 +242,7 @@ sharesRoutes.get(
         totalDownloads += 1;
         if (!lastDownload) lastDownload = row.createdAt;
 
-        if (share.fileId || !row.metadata) continue;
+        if (!row.metadata) continue;
         try {
           const metadata = JSON.parse(row.metadata) as { fileId?: unknown; filename?: unknown };
           if (typeof metadata.fileId !== "string" || !metadata.fileId.trim()) continue;
@@ -218,6 +259,12 @@ sharesRoutes.get(
       }
     }
 
+    const topStats = <TKey extends string>(stats: Map<TKey, number>, keyName: "ip" | "userAgent") =>
+      Array.from(stats.entries())
+        .sort(([leftKey, leftCount], [rightKey, rightCount]) => rightCount - leftCount || leftKey.localeCompare(rightKey))
+        .slice(0, 5)
+        .map(([key, count]) => ({ [keyName]: key, count }));
+
     return c.json({
       share: shareObject,
       totalDownloads,
@@ -226,6 +273,8 @@ sharesRoutes.get(
       lastAccessed,
       lastDownload,
       fileBreakdown: Array.from(fileBreakdownMap.values()).sort((a, b) => b.downloads - a.downloads || a.filename.localeCompare(b.filename)),
+      ipStats: topStats(ipStatsMap, "ip"),
+      userAgentStats: topStats(userAgentStatsMap, "userAgent"),
     });
   })
 );

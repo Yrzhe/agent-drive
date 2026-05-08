@@ -36,6 +36,8 @@ export async function logEvent(db: AppDb, event: ActivityEventInput): Promise<vo
       targetPath: event.targetPath ?? null,
       actor: event.actor,
       metadata: serializeMetadata(event.metadata),
+      ip: event.ip ?? null,
+      userAgent: event.userAgent ?? null,
       createdAt,
     });
   } catch (error) {

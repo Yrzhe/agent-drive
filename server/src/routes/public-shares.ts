@@ -12,7 +12,7 @@ import { checkRateLimit, clearRateLimit, recordFailure } from "../lib/rate-limit
 import type { AppDb } from "../types";
 
 export const publicSharesRoutes = new Hono();
-const MAX_ZIP_DOWNLOAD_BYTES = 50 * 1024 * 1024;
+const MAX_ZIP_DOWNLOAD_BYTES = 30 * 1024 * 1024;
 
 function getShareId(c: { req: { param: (name: string) => string | undefined } }): string {
   const shareId = c.req.param("shareId");
@@ -40,6 +40,13 @@ function assertShareAccessible(share: typeof shares.$inferSelect): void {
   if (isExhausted(share.maxDownloads, share.downloadCount)) {
     throw new ApiError(429, "share_exhausted", "Share download limit reached");
   }
+}
+
+function requestActivityContext(c: { req: { header: (name: string) => string | undefined } }): { ip: string | null; userAgent: string | null } {
+  return {
+    ip: c.req.header("cf-connecting-ip") ?? null,
+    userAgent: c.req.header("user-agent") ?? null,
+  };
 }
 
 async function incrementDownloadCountOrThrow(db: AppDb, shareId: string): Promise<void> {
@@ -92,6 +99,7 @@ publicSharesRoutes.get(
           expired,
           exhausted,
         },
+        ...requestActivityContext(c),
       });
       return c.json({
         id: share.id,
@@ -116,6 +124,7 @@ publicSharesRoutes.get(
           shareType: "file",
           fileId: file.id,
         },
+        ...requestActivityContext(c),
       });
       return c.json({
         id: share.id,
@@ -152,6 +161,7 @@ publicSharesRoutes.get(
         folderPath,
         fileCount,
       },
+      ...requestActivityContext(c),
     });
 
     return c.json({
@@ -205,6 +215,7 @@ publicSharesRoutes.post(
           metadata: {
             fileId: share.fileId,
           },
+          ...requestActivityContext(c),
         });
         throw new ApiError(403, "wrong_password", "Wrong share password");
       }
@@ -284,6 +295,7 @@ publicSharesRoutes.get(
         filename: target.name,
         mode: "single",
       },
+      ...requestActivityContext(c),
     });
 
     return c.json({
@@ -332,7 +344,7 @@ publicSharesRoutes.get(
       return c.json({
         error: {
           code: "zip_too_large",
-          message: `ZIP download is limited to 50MB. This folder is ${Math.ceil(totalSize / (1024 * 1024))}MB.`,
+          message: `ZIP download is limited to 30MB. This folder is ${Math.ceil(totalSize / (1024 * 1024))}MB.`,
           hint: "Use GET /files to list all files, then GET /download?fileId=<id> to download each file individually. Preserve the relative path from the file list to maintain folder structure.",
           filesEndpoint: `/api/public/s/${getShareId(c)}/files`,
           fileCount: fileRows.length,
@@ -359,18 +371,20 @@ publicSharesRoutes.get(
 
     const zipped = zipSync(zipEntries);
     await incrementDownloadCountOrThrow(db, share.id);
-    await logEvent(db, {
+    await Promise.all(fileRows.map((row) => logEvent(db, {
       eventType: "share.downloaded",
       targetType: "share",
       targetId: share.id,
-      targetPath: basePath,
+      targetPath: row.path,
       actor: "public",
       metadata: {
+        fileId: row.id,
+        filename: row.name,
         mode: "zip",
-        fileCount: Object.keys(zipEntries).length,
         zipName,
       },
-    });
+      ...requestActivityContext(c),
+    })));
 
     return new Response(zipped, {
       headers: {

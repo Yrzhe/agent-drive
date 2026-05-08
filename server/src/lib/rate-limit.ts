@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 
 import { rateLimits } from "@defs";
 
@@ -55,7 +55,7 @@ export async function recordFailure(db: AppDb, key: string, windowMs: number): P
   await db
     .update(rateLimits)
     .set({
-      count: entry.count + 1,
+      count: sql`${rateLimits.count} + 1`,
       updatedAt: now,
     })
     .where(eq(rateLimits.key, key));

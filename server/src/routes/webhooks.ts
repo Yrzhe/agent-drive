@@ -41,6 +41,32 @@ function toWebhookObject(row: typeof webhooks.$inferSelect) {
   };
 }
 
+function isPrivateUrl(rawUrl: string): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    throw new ApiError(400, "validation_error", "url must be a valid URL");
+  }
+
+  if (parsed.protocol !== "https:") return true;
+  const hostname = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  if (hostname === "localhost" || hostname.endsWith(".localhost") || hostname.endsWith(".internal")) return true;
+
+  const parts = hostname.split(".");
+  if (parts.length === 4 && parts.every((part) => /^\d+$/.test(part))) {
+    const octets = parts.map(Number);
+    if (octets.some((octet) => !Number.isInteger(octet) || octet < 0 || octet > 255)) return true;
+    const [first, second] = octets;
+    if (first === 0 || first === 10 || first === 127) return true;
+    if (first === 169 && second === 254) return true;
+    if (first === 192 && second === 168) return true;
+    if (first === 172 && second >= 16 && second <= 31) return true;
+  }
+
+  return false;
+}
+
 webhooksRoutes.post(
   "/",
   withErrorHandling(async (c) => {
@@ -48,10 +74,8 @@ webhooksRoutes.post(
     const url = (body.url ?? "").trim();
     if (!url) throw new ApiError(400, "validation_error", "url is required");
 
-    try {
-      new URL(url);
-    } catch {
-      throw new ApiError(400, "validation_error", "url must be a valid URL");
+    if (isPrivateUrl(url)) {
+      throw new ApiError(400, "validation_error", "url must be public https and cannot target private, loopback, link-local, localhost, or .internal hosts");
     }
 
     const secret = body.secret?.trim() || createWebhookSecret();

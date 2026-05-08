@@ -43,6 +43,10 @@ function escapeLikeQuery(input: string): string {
   return input.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_");
 }
 
+function objectPathForUpload(fileId: string, filename: string): string {
+  return `${fileId}/${encodeURIComponent(filename)}`;
+}
+
 filesRoutes.post(
   "/upload",
   withErrorHandling(async (c) => {
@@ -64,7 +68,7 @@ filesRoutes.post(
     if (conflict) throw new ApiError(409, "path_conflict", "Path already exists");
 
     const fileId = nanoid();
-    const objectPath = `${fileId}/${filename}`;
+    const objectPath = objectPathForUpload(fileId, filename);
     const timestamp = nowIso();
     try {
       await db.insert(files).values({
@@ -130,7 +134,7 @@ filesRoutes.post(
       throw new ApiError(400, "invalid_upload_ticket", "Upload ticket metadata is invalid");
     }
 
-    const objectPath = `${fileId}/${filename}`;
+    const objectPath = objectPathForUpload(fileId, filename);
     const metadata = await storage.from(buckets.drive).head(objectPath);
     if (!metadata) throw new ApiError(404, "upload_not_found", "Uploaded file not found in storage");
 
@@ -258,23 +262,26 @@ filesRoutes.patch(
 
     if (existing.isFolder === 1 && nextPath !== existing.path) {
       const descendants = await db.select().from(files).where(like(files.path, descendantPattern(existing.path))).orderBy(asc(files.path));
-      for (const item of descendants) {
+      const descendantUpdates = descendants.map((item) => {
         const path = `${nextPath}${item.path.slice(existing.path.length)}`;
-        await db.update(files).set({ path, parentPath: parentOfPath(path), updatedAt }).where(eq(files.id, item.id));
-      }
+        return db.update(files).set({ path, parentPath: parentOfPath(path), updatedAt }).where(eq(files.id, item.id));
+      });
 
       const linkedShares = await db
         .select({ id: shares.id, folderPath: shares.folderPath })
         .from(shares)
         .where(or(eq(shares.folderPath, existing.path), like(shares.folderPath, descendantPattern(existing.path))));
-      for (const linkedShare of linkedShares) {
-        if (!linkedShare.folderPath) continue;
+      const shareUpdates = linkedShares.flatMap((linkedShare) => {
+        if (!linkedShare.folderPath) return [];
         const updatedFolderPath =
           linkedShare.folderPath === existing.path
             ? nextPath
             : `${nextPath}${linkedShare.folderPath.slice(existing.path.length)}`;
-        await db.update(shares).set({ folderPath: updatedFolderPath }).where(eq(shares.id, linkedShare.id));
-      }
+        return [db.update(shares).set({ folderPath: updatedFolderPath }).where(eq(shares.id, linkedShare.id))];
+      });
+
+      const updates = [...descendantUpdates, ...shareUpdates];
+      if (updates.length > 0) await db.batch(updates as [typeof updates[number], ...Array<typeof updates[number]>]);
     }
 
     const [updated] = await db.select().from(files).where(eq(files.id, existing.id)).limit(1);

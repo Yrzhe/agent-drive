@@ -52,6 +52,8 @@ export interface ActivityEventInput {
   targetPath?: string | null;
   actor: ActivityActor;
   metadata?: Record<string, unknown> | null;
+  ip?: string | null;
+  userAgent?: string | null;
 }
 
 export const ACCESS_TOKEN_TTL_MS = 15 * 60 * 1000;

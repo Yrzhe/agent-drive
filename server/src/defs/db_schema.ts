@@ -46,6 +46,8 @@ export const activityLog = sqliteTable(
     targetPath: text("target_path"),
     actor: text("actor").notNull(),
     metadata: text("metadata"),
+    ip: text("ip"),
+    userAgent: text("user_agent"),
     createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
   },
   (table) => [
