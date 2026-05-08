@@ -43,6 +43,14 @@ export interface ShareStats {
     filename: string;
     downloads: number;
   }>;
+  ipBreakdown: Array<{
+    ip: string;
+    count: number;
+  }>;
+  userAgentBreakdown: Array<{
+    userAgent: string;
+    count: number;
+  }>;
 }
 
 export type ShareStatus = "active" | "expired" | "depleted" | "not_found";

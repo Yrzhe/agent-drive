@@ -16,6 +16,20 @@ import type {
 
 const toQuery = (path: string) => new URLSearchParams({ path: normalizePath(path) }).toString();
 
+type ShareStatsResponse = Omit<ShareStats, "ipBreakdown" | "userAgentBreakdown"> & {
+  ipBreakdown?: ShareStats["ipBreakdown"];
+  userAgentBreakdown?: ShareStats["userAgentBreakdown"];
+  ipStats?: ShareStats["ipBreakdown"];
+  userAgentStats?: ShareStats["userAgentBreakdown"];
+};
+
+const normalizeShareStats = (stats: ShareStatsResponse): ShareStats => ({
+  ...stats,
+  fileBreakdown: stats.fileBreakdown ?? [],
+  ipBreakdown: stats.ipBreakdown ?? stats.ipStats ?? [],
+  userAgentBreakdown: stats.userAgentBreakdown ?? stats.userAgentStats ?? [],
+});
+
 const asGuideData = (value: unknown): GuideData | null => {
   if (!value || typeof value !== "object") return null;
   const candidate = value as Partial<GuideData>;
@@ -74,7 +88,7 @@ export const driveApi = {
     ),
   getShareStats: (shareId: string) =>
     withMockFallback(
-      () => apiFetchJson<ShareStats>(`/api/public/v1/shares/${shareId}/stats`),
+      async () => normalizeShareStats(await apiFetchJson<ShareStatsResponse>(`/api/public/v1/shares/${shareId}/stats`)),
       () => mockDriveApi.getShareStats(shareId),
     ),
   getShareInfo: (shareId: string) =>

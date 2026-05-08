@@ -346,6 +346,8 @@ export default function DashboardPage() {
               {shares.map((share) => {
                 const stats = shareStatsById[share.id];
                 const fileBreakdown = stats?.fileBreakdown ?? [];
+                const ipBreakdown = stats?.ipBreakdown ?? [];
+                const userAgentBreakdown = stats?.userAgentBreakdown ?? [];
                 return (
                 <div className="rounded-xl border border-slate-200 p-3" key={share.id}>
                   <div className="flex flex-wrap items-center justify-between gap-3">
@@ -374,19 +376,43 @@ export default function DashboardPage() {
                             <span>Last accessed: <span className="font-medium text-slate-900">{stats?.lastAccessed ? formatDate(stats.lastAccessed) : "Never"}</span></span>
                             <span>Last download: <span className="font-medium text-slate-900">{stats?.lastDownload ? formatDate(stats.lastDownload) : "Never"}</span></span>
                           </div>
-                          {fileBreakdown.length > 0 ? (
+                          <div className="grid gap-3 md:grid-cols-3">
                             <div>
-                              <div className="mb-1 text-xs font-medium uppercase tracking-wide text-slate-500">Popular files</div>
+                              <div className="mb-1 text-xs font-medium uppercase tracking-wide text-slate-500">Top IPs</div>
                               <div className="space-y-1">
-                                {fileBreakdown.map((item) => (
-                                  <div className="flex items-center justify-between rounded border border-slate-200 bg-white px-2 py-1" key={`${share.id}-${item.fileId}`}>
-                                    <span className="truncate text-slate-800">{item.filename}</span>
-                                    <span className="text-xs text-slate-500">{item.downloads ?? 0} downloads</span>
+                                {ipBreakdown.length > 0 ? ipBreakdown.map((item) => (
+                                  <div className="flex items-center justify-between rounded border border-slate-200 bg-white px-2 py-1" key={`${share.id}-ip-${item.ip}`}>
+                                    <span className="truncate text-slate-800">{item.ip}</span>
+                                    <span className="text-xs text-slate-500">{item.count ?? 0}</span>
                                   </div>
-                                ))}
+                                )) : <div className="rounded border border-slate-200 bg-white px-2 py-1 text-xs text-slate-500">No IP data</div>}
                               </div>
                             </div>
-                          ) : null}
+                            <div>
+                              <div className="mb-1 text-xs font-medium uppercase tracking-wide text-slate-500">Top User Agents</div>
+                              <div className="space-y-1">
+                                {userAgentBreakdown.length > 0 ? userAgentBreakdown.map((item) => (
+                                  <div className="flex items-center justify-between gap-2 rounded border border-slate-200 bg-white px-2 py-1" key={`${share.id}-ua-${item.userAgent}`}>
+                                    <span className="min-w-0 truncate text-slate-800" title={item.userAgent}>{item.userAgent}</span>
+                                    <span className="shrink-0 text-xs text-slate-500">{item.count ?? 0}</span>
+                                  </div>
+                                )) : <div className="rounded border border-slate-200 bg-white px-2 py-1 text-xs text-slate-500">No user agent data</div>}
+                              </div>
+                            </div>
+                            {share.type === "folder" ? (
+                              <div>
+                                <div className="mb-1 text-xs font-medium uppercase tracking-wide text-slate-500">File Downloads</div>
+                                <div className="space-y-1">
+                                  {fileBreakdown.length > 0 ? fileBreakdown.map((item) => (
+                                    <div className="flex items-center justify-between gap-2 rounded border border-slate-200 bg-white px-2 py-1" key={`${share.id}-file-${item.fileId}`}>
+                                      <span className="min-w-0 truncate text-slate-800">{item.filename}</span>
+                                      <span className="shrink-0 text-xs text-slate-500">{item.downloads ?? 0}</span>
+                                    </div>
+                                  )) : <div className="rounded border border-slate-200 bg-white px-2 py-1 text-xs text-slate-500">No file download data</div>}
+                                </div>
+                              </div>
+                            ) : null}
+                          </div>
                         </div>
                       ) : <div>No stats yet.</div>}
                     </div>

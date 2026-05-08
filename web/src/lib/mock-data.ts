@@ -175,6 +175,8 @@ export const mockDriveApi = {
         lastAccessed: share.createdAt,
         lastDownload: share.downloadCount > 0 ? share.createdAt : null,
         fileBreakdown: file ? [{ fileId: file.id, filename: file.name, downloads: share.downloadCount }] : [],
+        ipBreakdown: [{ ip: "203.0.113.42", count: Math.max(share.downloadCount, 1) }],
+        userAgentBreakdown: [{ userAgent: "Mozilla/5.0 Mock Browser", count: Math.max(share.downloadCount, 1) }],
       };
     }
     const folderFiles = files.filter((entry) => !entry.isFolder && entry.parentPath.startsWith(normalizePath(share.folderPath ?? "/")));
@@ -190,6 +192,14 @@ export const mockDriveApi = {
         filename: file.name,
         downloads: Math.max(share.downloadCount - index, 0),
       })).filter((item) => item.downloads > 0),
+      ipBreakdown: [
+        { ip: "203.0.113.42", count: Math.max(share.downloadCount, 1) },
+        { ip: "198.51.100.8", count: 1 },
+      ],
+      userAgentBreakdown: [
+        { userAgent: "Mozilla/5.0 Mock Browser", count: Math.max(share.downloadCount, 1) },
+        { userAgent: "curl/8.7.1", count: 1 },
+      ],
     };
   },
   async getShareInfo(shareId: string): Promise<ShareInfo> { return resolveShare(shareId); },
