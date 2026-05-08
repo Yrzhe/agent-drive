@@ -3,6 +3,7 @@ import { Command } from "commander";
 
 import { loginCommand } from "./commands/login.js";
 import { logoutCommand } from "./commands/logout.js";
+import { syncListCommand } from "./commands/sync-list.js";
 import { syncPullCommand } from "./commands/sync-pull.js";
 import { syncPushCommand } from "./commands/sync-push.js";
 import { whoamiCommand } from "./commands/whoami.js";
@@ -35,6 +36,13 @@ program
 const sync = program
   .command("sync")
   .description("Sync local bundles with Agent Drive");
+
+sync
+  .command("list")
+  .argument("[cloud-prefix]", "Cloud prefix to search", "/")
+  .option("--json", "Output raw manifest JSON array")
+  .description("List synced bundles under a cloud prefix")
+  .action((prefix: string | undefined, options: { json?: boolean }) => run(() => syncListCommand(prefix, options)));
 
 sync
   .command("pull")
