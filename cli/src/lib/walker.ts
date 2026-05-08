@@ -10,6 +10,11 @@ export interface FileEntry {
   contentBuffer: Buffer;
 }
 
+export interface BundleWalk {
+  files: FileEntry[];
+  directories: string[];
+}
+
 const DEFAULT_IGNORE_PATTERNS = [
   ".git/",
   "node_modules/",
@@ -38,13 +43,14 @@ async function readIgnorePatterns(root: string): Promise<string[]> {
   }
 }
 
-export async function walkBundle(inputPath: string): Promise<FileEntry[]> {
+export async function walkBundleTree(inputPath: string): Promise<BundleWalk> {
   const root = resolve(inputPath);
   const rootStat = await stat(root);
   if (!rootStat.isDirectory()) throw new Error(`--from must be a directory: ${inputPath}`);
 
   const matcher = ignore().add(DEFAULT_IGNORE_PATTERNS).add(await readIgnorePatterns(root));
   const files: FileEntry[] = [];
+  const directories: string[] = [];
 
   async function visit(absPath: string): Promise<void> {
     const rel = toPosixPath(relative(root, absPath));
@@ -52,6 +58,7 @@ export async function walkBundle(inputPath: string): Promise<FileEntry[]> {
 
     const item = await stat(absPath);
     if (item.isDirectory()) {
+      if (rel) directories.push(rel);
       const children = await readdir(absPath);
       for (const child of children) {
         await visit(resolve(absPath, child));
@@ -71,5 +78,12 @@ export async function walkBundle(inputPath: string): Promise<FileEntry[]> {
   }
 
   await visit(root);
-  return files.sort((a, b) => a.relPath.localeCompare(b.relPath));
+  return {
+    files: files.sort((a, b) => a.relPath.localeCompare(b.relPath)),
+    directories: directories.sort((a, b) => a.localeCompare(b)),
+  };
+}
+
+export async function walkBundle(inputPath: string): Promise<FileEntry[]> {
+  return (await walkBundleTree(inputPath)).files;
 }

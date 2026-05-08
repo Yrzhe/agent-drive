@@ -3,6 +3,7 @@ import { Command } from "commander";
 
 import { loginCommand } from "./commands/login.js";
 import { logoutCommand } from "./commands/logout.js";
+import { syncPullCommand } from "./commands/sync-pull.js";
 import { syncPushCommand } from "./commands/sync-push.js";
 import { whoamiCommand } from "./commands/whoami.js";
 
@@ -34,6 +35,15 @@ program
 const sync = program
   .command("sync")
   .description("Sync local bundles with Agent Drive");
+
+sync
+  .command("pull")
+  .requiredOption("--from <cloud>", "Cloud bundle path")
+  .requiredOption("--to <local>", "Local directory to restore into")
+  .option("--force", "Overwrite local changes without prompting")
+  .option("--dry-run", "Preview changes without downloading")
+  .description("Pull an Agent Drive bundle to a local directory")
+  .action((options: { from: string; to: string; force?: boolean; dryRun?: boolean }) => run(() => syncPullCommand(options)));
 
 sync
   .command("push")

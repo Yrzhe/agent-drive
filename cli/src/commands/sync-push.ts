@@ -6,7 +6,7 @@ import { readConfig } from "../lib/config.js";
 import { bundleHash, sha256Hex, type ManifestFile } from "../lib/hash.js";
 import { apiUrl, callTool, McpToolError, type McpClientOptions } from "../lib/mcp-client.js";
 import { formatBytes, parseSize } from "../lib/size-parser.js";
-import { type FileEntry, walkBundle } from "../lib/walker.js";
+import { type FileEntry, walkBundleTree } from "../lib/walker.js";
 
 const DEFAULT_MAX_FILE_SIZE = 10 * 1024 * 1024;
 const DEFAULT_MAX_BUNDLE_SIZE = 100 * 1024 * 1024;
@@ -30,6 +30,7 @@ interface RemoteManifest {
   fileCount: number;
   totalSize: number;
   files: ManifestFile[];
+  directories?: string[];
 }
 
 interface ToolTextResult {
@@ -50,6 +51,7 @@ interface BundlePlan {
   manifestFiles: ManifestFile[];
   hash: string;
   totalSize: number;
+  directories: string[];
 }
 
 function normalizeCloudPath(value: string): string {
@@ -103,7 +105,7 @@ function validateLimits(files: FileEntry[], maxFileSize: number, maxFiles: numbe
   }
 }
 
-function buildPlan(from: string, to: string, files: FileEntry[], maxFileSize: number, maxFiles: number): BundlePlan {
+function buildPlan(to: string, files: FileEntry[], directories: string[], maxFileSize: number, maxFiles: number): BundlePlan {
   validateLimits(files, maxFileSize, maxFiles);
   const textFiles = files.filter((file) => isUtf8(file.contentBuffer));
   const skippedBinary = files.filter((file) => !isUtf8(file.contentBuffer));
@@ -121,6 +123,7 @@ function buildPlan(from: string, to: string, files: FileEntry[], maxFileSize: nu
     manifestFiles,
     hash: bundleHash(manifestFiles),
     totalSize,
+    directories,
   };
 }
 
@@ -227,6 +230,7 @@ async function writeManifest(client: McpClientOptions, plan: BundlePlan, machine
     fileCount: plan.manifestFiles.length,
     totalSize: plan.totalSize,
     files: plan.manifestFiles,
+    directories: plan.directories,
   };
   await callTool(client, "write_file", {
     path: cloudFilePath(plan.cloudPath, "manifest.json"),
@@ -242,8 +246,8 @@ export async function syncPushCommand(options: SyncPushOptions): Promise<void> {
 
   const maxFileSize = parseSize(options.maxSize, DEFAULT_MAX_FILE_SIZE);
   const maxFiles = parseMaxFiles(options.maxFiles);
-  const files = await walkBundle(options.from);
-  const plan = buildPlan(options.from, options.to, files, maxFileSize, maxFiles);
+  const { files, directories } = await walkBundleTree(options.from);
+  const plan = buildPlan(options.to, files, directories, maxFileSize, maxFiles);
   const client = { url: config.url, token: config.token };
   const remote = await readRemoteManifest(client, plan.cloudPath);
 
