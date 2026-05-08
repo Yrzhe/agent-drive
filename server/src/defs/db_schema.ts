@@ -94,6 +94,7 @@ export const oauthClients = sqliteTable("oauth_clients", {
 export const oauthAuthorizationCodes = sqliteTable(
   "oauth_authorization_codes",
   {
+    id: text("id"),
     codeHash: text("code_hash").primaryKey(),
     clientId: text("client_id").notNull(),
     userId: text("user_id").notNull(),
@@ -105,6 +106,7 @@ export const oauthAuthorizationCodes = sqliteTable(
     usedAt: text("used_at"),
   },
   (table) => [
+    index("idx_oauth_codes_id").on(table.id),
     index("idx_oauth_codes_client").on(table.clientId),
     index("idx_oauth_codes_expires").on(table.expiresAt),
   ]
@@ -123,11 +125,13 @@ export const oauthTokens = sqliteTable(
     refreshExpiresAt: text("refresh_expires_at"),
     createdAt: text("created_at").notNull(),
     revokedAt: text("revoked_at"),
+    sourceCodeId: text("source_code_id"),
   },
   (table) => [
     index("idx_oauth_tokens_access").on(table.accessTokenHash),
     index("idx_oauth_tokens_refresh").on(table.refreshTokenHash),
     index("idx_oauth_tokens_client").on(table.clientId),
     index("idx_oauth_tokens_user").on(table.userId),
+    index("idx_oauth_tokens_source_code").on(table.sourceCodeId),
   ]
 );

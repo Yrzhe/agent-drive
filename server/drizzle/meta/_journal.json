@@ -43,6 +43,13 @@
       "when": 1778218209765,
       "tag": "0005_panoramic_paibok",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1778219642932,
+      "tag": "0006_vengeful_clea",
+      "breakpoints": true
     }
   ]
 }

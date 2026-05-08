@@ -100,16 +100,25 @@ async function assertClientSecret(client: typeof oauthClients.$inferSelect, clie
   }
 }
 
-async function issueTokenPair(input: { clientId: string; userId: string; scope: string }) {
-  const access = generateSecretToken("atk");
-  const refresh = generateSecretToken("rtk");
+function assertSameOrigin(c: { req: { header: (name: string) => string | undefined; url: string } }): void {
+  const origin = c.req.header("origin");
+  const expected = new URL(c.req.url).origin;
+  if (!origin || origin !== expected) {
+    throw new ApiError(403, "csrf_error", "Origin header missing or mismatch");
+  }
+}
+
+async function issueTokenPair(input: { clientId: string; userId: string; scope: string; sourceCodeId?: string | null }) {
+  const id = `tok_${nanoid(24)}`;
+  const accessSecret = nanoid(48);
+  const refreshSecret = nanoid(48);
   return {
-    access,
-    refresh,
+    access: { id, secret: accessSecret, token: `${id}.${accessSecret}` },
+    refresh: { id, secret: refreshSecret, token: `${id}.${refreshSecret}` },
     row: {
-      id: access.id,
-      accessTokenHash: await hashPassword(access.secret),
-      refreshTokenHash: await hashPassword(refresh.secret),
+      id,
+      accessTokenHash: await hashPassword(accessSecret),
+      refreshTokenHash: await hashPassword(refreshSecret),
       clientId: input.clientId,
       userId: input.userId,
       scope: input.scope,
@@ -117,6 +126,7 @@ async function issueTokenPair(input: { clientId: string; userId: string; scope: 
       refreshExpiresAt: new Date(Date.now() + REFRESH_TOKEN_TTL_MS).toISOString(),
       createdAt: nowIso(),
       revokedAt: null,
+      sourceCodeId: input.sourceCodeId ?? null,
     },
   };
 }
@@ -217,8 +227,9 @@ oauthRoutes.post(
     const { auth } = await import("edgespark/http");
     if (!auth.isAuthenticated()) throw new ApiError(401, "unauthorized", "Sign in before authorizing this client");
 
+    assertSameOrigin(c);
     const body = await readBody(c);
-    if (body.approved === "false") throw new ApiError(403, "access_denied", "User denied consent");
+    if (body.approved !== "true") throw new ApiError(403, "access_denied", "User denied consent");
     assertPkceS256(body.code_challenge_method ?? null, body.code_challenge ?? null);
 
     const { db } = await import("edgespark");
@@ -231,7 +242,8 @@ oauthRoutes.post(
     const grantedScopes = filterAllowedScopes(parseScopeParam(body.scope ?? client.scopeDefault), allowedScopes.length > 0 ? allowedScopes : FULL_MCP_SCOPES);
     const code = generateSecretToken("code");
     await db.insert(oauthAuthorizationCodes).values({
-      codeHash: `${code.id}:${await hashPassword(code.secret)}`,
+      id: code.id,
+      codeHash: await hashPassword(code.secret),
       clientId: client.id,
       userId: auth.user.id,
       scope: serializeScopes(grantedScopes),
@@ -270,12 +282,19 @@ oauthRoutes.post(
     if (body.grant_type === "authorization_code") {
       const codeToken = splitSecretToken(body.code);
       if (!codeToken) throw new ApiError(400, "invalid_grant", "Invalid authorization code");
-      const codeRows = await db.select().from(oauthAuthorizationCodes).where(and(eq(oauthAuthorizationCodes.clientId, client.id), isNull(oauthAuthorizationCodes.usedAt)));
-      const codeRow = (await Promise.all(codeRows.map(async (row) => ({ row, tokenId: row.codeHash.split(":")[0], valid: row.codeHash.startsWith(`${codeToken.id}:`) && await verifyPasswordHash(codeToken.secret, row.codeHash.slice(row.codeHash.indexOf(":") + 1)) }))))
-        .find((candidate) => candidate.tokenId === codeToken.id && candidate.valid)?.row;
-      if (!codeRow || Date.parse(codeRow.expiresAt) <= Date.now()) {
+      const [codeRow] = await db.select().from(oauthAuthorizationCodes).where(and(eq(oauthAuthorizationCodes.id, codeToken.id), eq(oauthAuthorizationCodes.clientId, client.id))).limit(1);
+      if (!codeRow) {
         await recordFailure(db, rateLimitKey, OAUTH_TOKEN_RATE_LIMIT_MS);
         throw new ApiError(400, "invalid_grant", "Authorization code is invalid or expired");
+      }
+      if (Date.parse(codeRow.expiresAt) <= Date.now() || !(await verifyPasswordHash(codeToken.secret, codeRow.codeHash))) {
+        await recordFailure(db, rateLimitKey, OAUTH_TOKEN_RATE_LIMIT_MS);
+        throw new ApiError(400, "invalid_grant", "Authorization code is invalid or expired");
+      }
+      if (codeRow.usedAt) {
+        await db.update(oauthTokens).set({ revokedAt: nowIso() }).where(eq(oauthTokens.sourceCodeId, codeToken.id)).returning({ id: oauthTokens.id });
+        await recordFailure(db, rateLimitKey, OAUTH_TOKEN_RATE_LIMIT_MS);
+        throw new ApiError(400, "invalid_grant", "Authorization code has already been used");
       }
       if (codeRow.redirectUri !== body.redirect_uri) throw new ApiError(400, "invalid_grant", "redirect_uri mismatch");
       if (!body.code_verifier || !(await verifyPkceS256(body.code_verifier, codeRow.pkceChallenge))) {
@@ -283,7 +302,7 @@ oauthRoutes.post(
         throw new ApiError(400, "invalid_grant", "PKCE verification failed");
       }
 
-      const issued = await issueTokenPair({ clientId: client.id, userId: codeRow.userId, scope: codeRow.scope });
+      const issued = await issueTokenPair({ clientId: client.id, userId: codeRow.userId, scope: codeRow.scope, sourceCodeId: codeToken.id });
       await db.batch([
         db.update(oauthAuthorizationCodes).set({ usedAt: nowIso() }).where(eq(oauthAuthorizationCodes.codeHash, codeRow.codeHash)),
         db.insert(oauthTokens).values(issued.row),
@@ -301,16 +320,12 @@ oauthRoutes.post(
     if (body.grant_type === "refresh_token") {
       const refreshToken = splitSecretToken(body.refresh_token);
       if (!refreshToken) throw new ApiError(400, "invalid_grant", "Invalid refresh token");
-      const tokenRows = await db.select().from(oauthTokens).where(and(eq(oauthTokens.clientId, client.id), isNull(oauthTokens.revokedAt)));
-      const tokenRow = (await Promise.all(tokenRows.map(async (row) => ({
-        row,
-        valid: row.refreshTokenHash ? await verifyPasswordHash(refreshToken.secret, row.refreshTokenHash) : false,
-      })))).find((candidate) => candidate.valid)?.row;
+      const [tokenRow] = await db.select().from(oauthTokens).where(and(eq(oauthTokens.id, refreshToken.id), eq(oauthTokens.clientId, client.id), isNull(oauthTokens.revokedAt))).limit(1);
       if (!tokenRow?.refreshTokenHash || !tokenRow.refreshExpiresAt || Date.parse(tokenRow.refreshExpiresAt) <= Date.now() || !(await verifyPasswordHash(refreshToken.secret, tokenRow.refreshTokenHash))) {
         await recordFailure(db, rateLimitKey, OAUTH_TOKEN_RATE_LIMIT_MS);
         throw new ApiError(400, "invalid_grant", "Refresh token is invalid or expired");
       }
-      const issued = await issueTokenPair({ clientId: client.id, userId: tokenRow.userId, scope: tokenRow.scope });
+      const issued = await issueTokenPair({ clientId: client.id, userId: tokenRow.userId, scope: tokenRow.scope, sourceCodeId: tokenRow.sourceCodeId });
       await db.batch([
         db.update(oauthTokens).set({ revokedAt: nowIso() }).where(eq(oauthTokens.id, tokenRow.id)),
         db.insert(oauthTokens).values(issued.row),

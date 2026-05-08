@@ -178,6 +178,7 @@ export default function ConnectAuthorizePage() {
             {hiddenParams.map(([key, value], index) => (
               <input key={`${key}-${index}`} name={key} type="hidden" value={value} />
             ))}
+            <input name="approved" type="hidden" value="true" />
             <input name="csrf_token" type="hidden" value={csrfToken} />
             <input name="csrfToken" type="hidden" value={csrfToken} />
             <button
