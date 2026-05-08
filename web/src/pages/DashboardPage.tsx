@@ -311,6 +311,7 @@ export default function DashboardPage() {
               type="search"
               value={searchQuery}
             />
+            <Link className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700" to="/connect"><span aria-hidden="true">+</span> Connect AI Agent</Link>
             <Link className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-700" to="/guide">Open Guide</Link>
             <button className="rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-medium text-white" onClick={() => { void signOut(); }} type="button">Sign out</button>
           </div>
@@ -331,6 +332,11 @@ export default function DashboardPage() {
 
           <UploadZone uploading={uploading} progress={uploadProgress} onFilesSelected={(f) => { void handleUploadFiles(f); }} onFolderSelected={(f) => { void handleUploadFolder(f); }} />
           {errorMessage ? <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{errorMessage}</div> : null}
+          {!loadingFiles && !isSearchActive && entries.length === 0 ? (
+            <div className="mb-4 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-sm text-blue-800">
+              First time? <Link className="font-medium underline underline-offset-2" to="/connect">Connect your AI agent →</Link>
+            </div>
+          ) : null}
           {isSearchActive ? (
             <div className="mb-4 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-sm text-blue-800">
               Showing search results for <span className="font-medium">{debouncedSearchQuery}</span>. Clear the search box to return to <span className="font-medium">{currentPath}</span>.
@@ -341,7 +347,14 @@ export default function DashboardPage() {
 
         <section className="rounded-2xl border border-slate-200 bg-white p-4">
           <h2 className="mb-3 text-lg font-semibold text-slate-900">Share links</h2>
-          {loadingShares ? <p className="text-sm text-slate-600">Loading share links...</p> : shares.length === 0 ? <p className="text-sm text-slate-500">No share links yet.</p> : (
+          {loadingShares ? <p className="text-sm text-slate-600">Loading share links...</p> : shares.length === 0 ? (
+            <div className="space-y-3">
+              <p className="text-sm text-slate-500">No share links yet.</p>
+              <div className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-sm text-blue-800">
+                First time? <Link className="font-medium underline underline-offset-2" to="/connect">Connect your AI agent →</Link>
+              </div>
+            </div>
+          ) : (
             <div className="space-y-2">
               {shares.map((share) => {
                 const stats = shareStatsById[share.id];
