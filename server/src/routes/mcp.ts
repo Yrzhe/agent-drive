@@ -32,7 +32,7 @@ function unauthorized(origin: string): Response {
 
 function initializeResult(origin: string, auth: McpAuthContext) {
   return {
-    protocolVersion: "2025-03-26",
+    protocolVersion: "2024-11-05",
     serverInfo: {
       name: "agent-drive",
       version: "0.1.0",

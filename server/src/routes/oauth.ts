@@ -1,4 +1,4 @@
-import { and, eq, isNull, lt } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { nanoid } from "nanoid";
 
@@ -14,6 +14,7 @@ export const oauthRoutes = new Hono();
 
 const OAUTH_REGISTER_RATE_LIMIT_MAX = 20;
 const OAUTH_REGISTER_RATE_LIMIT_MS = 60 * 60 * 1000;
+const OAUTH_CLIENT_GLOBAL_CAP = 100;
 const OAUTH_TOKEN_RATE_LIMIT_MAX = 20;
 const OAUTH_TOKEN_RATE_LIMIT_MS = 15 * 60 * 1000;
 const AUTHORIZATION_CODE_TTL_MS = 10 * 60 * 1000;
@@ -45,6 +46,15 @@ function parseStoredRedirectUris(value: string): string[] {
   } catch {
     return [];
   }
+}
+
+function parseClientName(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const clientName = value.trim();
+  if (!clientName) return null;
+  if (clientName.length > 64) throw new ApiError(400, "invalid_client_metadata", "client_name must be 64 characters or fewer");
+  if (!/^[\x20-\x7E]+$/u.test(clientName)) throw new ApiError(400, "invalid_client_metadata", "client_name must contain printable ASCII characters only");
+  return clientName;
 }
 
 function assertExactRedirectUri(client: typeof oauthClients.$inferSelect, redirectUri: string): void {
@@ -149,7 +159,7 @@ oauthRoutes.post(
     };
 
     const redirectUris = parseRedirectUris(body.redirect_uris);
-    const clientName = typeof body.client_name === "string" && body.client_name.trim() ? body.client_name.trim() : null;
+    const clientName = parseClientName(body.client_name);
     const requestedScopes = parseScopeParam(typeof body.scope === "string" ? body.scope : null);
     const allowedScopes = filterAllowedScopes(requestedScopes.length > 0 ? requestedScopes : DEFAULT_MCP_SCOPES, FULL_MCP_SCOPES);
     const tokenEndpointAuthMethod = body.token_endpoint_auth_method === "client_secret_post" ? "client_secret_post" : "none";
@@ -157,6 +167,10 @@ oauthRoutes.post(
     const clientSecret = tokenEndpointAuthMethod === "client_secret_post" ? `ads_${nanoid(40)}` : null;
 
     try {
+      const [clientCount] = await db.select({ count: sql<number>`count(*)` }).from(oauthClients);
+      if (Number(clientCount?.count ?? 0) >= OAUTH_CLIENT_GLOBAL_CAP) {
+        throw new ApiError(429, "client_limit_exceeded", "OAuth client registration cap reached");
+      }
       await db.insert(oauthClients).values({
         id: clientId,
         clientSecretHash: clientSecret ? await hashPassword(clientSecret) : null,

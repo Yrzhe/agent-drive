@@ -165,6 +165,8 @@ agent-drive/
 
 ### Management (requires `Authorization: Bearer {TOKEN}`)
 
+For MCP, the legacy `AGENT_TOKEN` bearer is accepted with `FULL_MCP_SCOPES` for backward-compatible automation. OAuth MCP tokens remain scoped and revocable.
+
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | POST | `/api/public/v1/files/upload` | Request presigned upload URL |

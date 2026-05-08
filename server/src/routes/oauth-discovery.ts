@@ -4,12 +4,13 @@ import { MCP_SCOPES } from "../lib/mcp-scopes";
 
 export const oauthDiscoveryRoutes = new Hono();
 
-function originFromUrl(url: string): string {
-  return new URL(url).origin;
+async function originFromRequest(url: string): Promise<string> {
+  const { vars } = await import("edgespark");
+  return vars.get("ALLOWED_ORIGIN") ?? new URL(url).origin;
 }
 
-oauthDiscoveryRoutes.get("/oauth-protected-resource", (c) => {
-  const origin = originFromUrl(c.req.url);
+oauthDiscoveryRoutes.get("/oauth-protected-resource", async (c) => {
+  const origin = await originFromRequest(c.req.url);
   return c.json({
     resource: `${origin}/mcp`,
     authorization_servers: [origin],
@@ -18,8 +19,8 @@ oauthDiscoveryRoutes.get("/oauth-protected-resource", (c) => {
   });
 });
 
-oauthDiscoveryRoutes.get("/oauth-authorization-server", (c) => {
-  const origin = originFromUrl(c.req.url);
+oauthDiscoveryRoutes.get("/oauth-authorization-server", async (c) => {
+  const origin = await originFromRequest(c.req.url);
   return c.json({
     issuer: origin,
     authorization_endpoint: `${origin}/oauth/authorize`,
