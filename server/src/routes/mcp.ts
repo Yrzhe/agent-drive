@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 
 import { authenticateMcpBearer, type McpAuthContext } from "../lib/mcp-auth";
+import { callMcpTool, listMcpTools } from "../lib/mcp-tools";
 
 export const mcpRoutes = new Hono();
 
@@ -59,11 +60,21 @@ mcpRoutes.post("/", async (c) => {
   }
 
   if (request.method === "tools/list") {
-    return jsonRpcResult(request.id, { tools: [] });
+    return jsonRpcResult(request.id, { tools: listMcpTools(auth.scopes) });
   }
 
   if (request.method === "tools/call") {
-    return jsonRpcError(request.id, -32601, "No MCP tools are registered yet");
+    const params = (request.params ?? {}) as { name?: unknown; arguments?: unknown };
+    if (typeof params.name !== "string") return jsonRpcError(request.id, -32602, "Tool name is required");
+    try {
+      const args = params.arguments && typeof params.arguments === "object" ? params.arguments as Record<string, unknown> : {};
+      const result = await callMcpTool(db, origin, auth.scopes, params.name, args);
+      return jsonRpcResult(request.id, result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Tool call failed";
+      const code = message.startsWith("invalid_scope:") ? -32001 : message.startsWith("invalid_params:") ? -32602 : -32000;
+      return jsonRpcError(request.id, code, message);
+    }
   }
 
   return jsonRpcError(request.id, -32601, `Method not found: ${request.method}`);
