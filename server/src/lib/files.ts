@@ -53,8 +53,11 @@ export async function ensureFolderChain(db: AppDb, targetPath: string): Promise<
     }
 
     const timestamp = nowIso();
-    const segment = segments[index]!;
-    const parentPath = index === 0 ? "/" : folderPaths[index - 1]!;
+    const segment = segments[index];
+    const parentPath = index === 0 ? "/" : folderPaths[index - 1];
+    if (!segment || !parentPath) {
+      throw new ApiError(400, "validation_error", "Folder path is invalid");
+    }
     await db.insert(files).values({
       id: nanoid(),
       name: segment,

@@ -97,7 +97,7 @@ webhooksRoutes.post(
       })
       .returning();
 
-    return c.json({ webhook: { ...toWebhookObject(created), secret } }, 201);
+    return c.json({ webhook: { ...toWebhookObject(created), secret }, hint: "This secret is shown once. Save it now." }, 201);
   })
 );
 

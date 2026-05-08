@@ -267,16 +267,17 @@ sharesRoutes.delete(
   withErrorHandling(async (c) => {
     const { db } = await import("edgespark");
     const deleted = await db.delete(shares).where(eq(shares.id, getShareId(c))).returning();
-    if (deleted.length === 0) throw new ApiError(404, "share_not_found", "Share link not found");
+    const deletedShare = deleted[0];
+    if (!deletedShare) throw new ApiError(404, "share_not_found", "Share link not found");
     await logEvent(db, {
       eventType: "share.deleted",
       targetType: "share",
-      targetId: deleted[0]!.id,
-      targetPath: deleted[0]!.folderPath,
+      targetId: deletedShare.id,
+      targetPath: deletedShare.folderPath,
       actor: await getRequestActor(),
       metadata: {
-        fileId: deleted[0]!.fileId,
-        folderPath: deleted[0]!.folderPath,
+        fileId: deletedShare.fileId,
+        folderPath: deletedShare.folderPath,
       },
     });
     return c.json({ success: true });
