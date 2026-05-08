@@ -29,6 +29,13 @@ const stringArg = (input: Record<string, unknown>, key: string, required = true)
   return null;
 };
 
+const rawStringArg = (input: Record<string, unknown>, key: string, required = true): string | null => {
+  const value = input[key];
+  if (typeof value === "string") return value;
+  if (required) throw new Error(`invalid_params:${key} is required`);
+  return null;
+};
+
 const numberArg = (input: Record<string, unknown>, key: string, fallback: number): number => {
   const value = input[key];
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
@@ -153,7 +160,7 @@ export async function callMcpTool(db: AppDb, origin: string, scopes: readonly st
 
   if (name === "write_file") {
     const path = normalizePath(stringArg(input, "path")!);
-    const content = stringArg(input, "content")!;
+    const content = rawStringArg(input, "content")!;
     const contentType = stringArg(input, "content_type", false) ?? "text/plain";
     const overwrite = input.overwrite !== false;
     const parentPath = parentOfPath(path);
