@@ -6,6 +6,7 @@ const ShareDownloadPage = lazy(() => import("@/pages/ShareDownloadPage"));
 const GuidePage = lazy(() => import("@/pages/GuidePage"));
 const ConnectAuthorizePage = lazy(() => import("@/pages/ConnectAuthorizePage"));
 const ConnectSetupPage = lazy(() => import("@/pages/ConnectSetupPage"));
+const BundlesPage = lazy(() => import("@/pages/BundlesPage"));
 
 function RouteFallback() {
   return (
@@ -25,6 +26,7 @@ function App() {
           <Route element={<GuidePage />} path="/guide" />
           <Route element={<ConnectSetupPage />} path="/connect" />
           <Route element={<ConnectAuthorizePage />} path="/connect/authorize" />
+          <Route element={<BundlesPage />} path="/bundles" />
           <Route element={<Navigate replace to="/" />} path="*" />
         </Routes>
       </Suspense>

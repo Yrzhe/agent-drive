@@ -1,4 +1,4 @@
-import { apiFetchJson, isMockMode, withMockFallback } from "@/lib/api-client";
+import { apiFetchJson, DriveApiError, isMockMode, withMockFallback } from "@/lib/api-client";
 import { mockDriveApi } from "@/lib/mock-data";
 import { normalizePath } from "@/lib/path-utils";
 import type {
@@ -14,7 +14,13 @@ import type {
   UploadTicket,
 } from "@/types/drive";
 
-const toQuery = (path: string) => new URLSearchParams({ path: normalizePath(path) }).toString();
+const toQuery = (path: string, options?: { recursive?: boolean; limit?: number; offset?: number }) => {
+  const params = new URLSearchParams({ path: normalizePath(path) });
+  if (options?.recursive) params.set("recursive", "true");
+  if (options?.limit !== undefined) params.set("limit", String(options.limit));
+  if (options?.offset !== undefined) params.set("offset", String(options.offset));
+  return params.toString();
+};
 
 type ShareStatsResponse = Omit<ShareStats, "ipBreakdown" | "userAgentBreakdown"> & {
   ipBreakdown?: ShareStats["ipBreakdown"];
@@ -40,11 +46,22 @@ const asGuideData = (value: unknown): GuideData | null => {
 
 export const driveApi = {
   isMockMode,
-  listFiles: (path: string) =>
+  listFiles: (path: string, options?: { recursive?: boolean; limit?: number; offset?: number }) =>
     withMockFallback(
-      () => apiFetchJson<{ files: DriveFile[]; path: string }>(`/api/public/v1/files?${toQuery(path)}`),
-      () => mockDriveApi.listFiles(path),
+      () => apiFetchJson<{ files: DriveFile[]; path: string; limit?: number; offset?: number }>(`/api/public/v1/files?${toQuery(path, options)}`),
+      () => mockDriveApi.listFiles(path, options),
     ),
+  readFileText: async (path: string) => {
+    const query = new URLSearchParams({ path: normalizePath(path) }).toString();
+    try {
+      return await apiFetchJson<{ content: string }>(`/api/public/v1/files/read?${query}`);
+    } catch (error) {
+      if (error instanceof DriveApiError && error.status === 404) {
+        return apiFetchJson<{ content: string }>(`/api/files/read?${query}`);
+      }
+      throw error;
+    }
+  },
   searchFiles: (query: string, limit = 50) =>
     withMockFallback(
       () => apiFetchJson<{ files: DriveFile[]; query: string; count: number }>(`/api/public/v1/files/search?${new URLSearchParams({ q: query, limit: String(limit) }).toString()}`),

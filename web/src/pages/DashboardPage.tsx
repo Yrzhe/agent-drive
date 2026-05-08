@@ -312,6 +312,7 @@ export default function DashboardPage() {
               value={searchQuery}
             />
             <Link className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700" to="/connect"><span aria-hidden="true">+</span> Connect AI Agent</Link>
+            <Link className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-700" to="/bundles">Synced bundles</Link>
             <Link className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-700" to="/guide">Open Guide</Link>
             <button className="rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-medium text-white" onClick={() => { void signOut(); }} type="button">Sign out</button>
           </div>

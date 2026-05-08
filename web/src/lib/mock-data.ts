@@ -115,9 +115,19 @@ function resolveShare(shareId: string): ShareInfo {
 }
 
 export const mockDriveApi = {
-  async listFiles(path: string): Promise<{ files: DriveFile[]; path: string }> {
+  async listFiles(path: string, options?: { recursive?: boolean; limit?: number; offset?: number }): Promise<{ files: DriveFile[]; path: string }> {
     const normalized = normalizePath(path);
-    return { files: files.filter((entry) => entry.parentPath === normalized).sort((a, b) => (a.isFolder === b.isFolder ? a.name.localeCompare(b.name) : a.isFolder ? -1 : 1)), path: normalized };
+    const matched = options?.recursive
+      ? files.filter((entry) => normalized === "/" || entry.path.startsWith(`${normalized}/`))
+      : files.filter((entry) => entry.parentPath === normalized);
+    const offset = options?.offset ?? 0;
+    const limit = options?.limit ?? matched.length;
+    return {
+      files: matched
+        .sort((a, b) => (options?.recursive ? a.path.localeCompare(b.path) : a.isFolder === b.isFolder ? a.name.localeCompare(b.name) : a.isFolder ? -1 : 1))
+        .slice(offset, offset + limit),
+      path: normalized,
+    };
   },
   async searchFiles(query: string, limit = 50): Promise<{ files: DriveFile[]; query: string; count: number }> {
     const trimmed = query.trim();
