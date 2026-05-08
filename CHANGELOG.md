@@ -1,0 +1,60 @@
+# Changelog
+
+All notable changes to this project will be documented here.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+
+## [Unreleased]
+
+This release closes a full code-review pass (21 findings) and a follow-up audit (3 regressions, all addressed). Full review and audit history lives in the Maestri canvas note `review` / `reviewer-code-review`.
+
+### Security
+
+- **Rate limiter TOCTOU race fixed** — share password attempts now use atomic SQL increment (`count = count + 1`) instead of read-modify-write, preventing concurrent bypass of the 5/15min limit.
+- **Webhook SSRF hardened** — webhook URLs are now restricted to HTTPS with a public DNS hostname. **All IP literals are rejected**: every IPv4 dotted-quad (private, loopback, link-local, *and public*) and every IPv6 literal (including `[::1]`, `[fe80::]`, `[::ffff:169.254.169.254]`, ULA `fd00::`). `localhost`, `*.localhost`, and `*.internal` are also rejected. Rationale: forcing DNS resolution closes off direct-IP SSRF vectors and future RFC additions; if you previously used a raw IPv4 webhook URL, switch to a hostname.
+- **Share access tokens are now revocable** — `shares` table gained a `password_version` column; tokens are bound to the version at issue time so rotating a share's password invalidates outstanding tokens.
+- **Filename encoding for upload presigned URLs** — filenames containing `%` (and other URL-reserved characters) no longer fail PUT 400; the R2 object key path is properly encoded.
+- **Webhook secret hint added** — `POST /api/public/v1/webhooks` response now includes a `hint` reminding clients the secret is shown only once.
+- **Share metadata leak reduced** — exhausted/expired shares return minimal information to unauthenticated callers.
+
+### Added
+
+- **Share stats IP/UA breakdown** — `GET /api/public/v1/shares/:id/stats` now returns `ipBreakdown` (top 5) and `userAgentBreakdown` (top 5) alongside the existing aggregates. Folder ZIP downloads correctly populate `fileBreakdown` (per-file download counts).
+- **File list pagination** — `GET /api/public/v1/files` accepts `limit` (default 100, max 500) and `offset` query params; response echoes both for client-side paging.
+- **Activity Log retention** — entries older than 30 days are pruned probabilistically (1% sample on each write).
+- **Rate Limit table cleanup** — keys with `updatedAt` older than 24h are pruned probabilistically.
+- **Webhook 5xx delivery retry** — failed webhook deliveries with 5xx response are retried once after 2s before counting as failed.
+- **Dashboard Share Stats UI** — expand/collapse panel shows IP top 5, User-Agent top 5, and per-file download breakdown for folder shares.
+
+### Changed
+
+- **⚠️ BREAKING: Webhook signature header renamed** from `X-Agent-Drive-Signature` to `X-Signature`. Existing webhook consumers must update their verification code. The HMAC-SHA256 signature value format is unchanged: `sha256=<hex>`.
+- **ZIP download memory limit lowered** from 50MB to 30MB to keep peak memory well below the Workers 128MB cap.
+- **Folder rename and delete are now atomic** via `db.batch()` — eliminates partial-failure inconsistency where some descendant paths were updated and others not.
+- **`GET /shares` no longer N+1** — file/folder lookups batched via `inArray`, then in-memory join.
+- **Share Stats query rewritten as SQL GROUP BY** instead of JS-side aggregation over all activity rows.
+- **Search requires minimum 2 characters** — short-circuits sub-2-char queries with a clear validation error to avoid full-table LIKE scans.
+- **ZIP per-file activity logging batched** — N file-download rows insert as a single `db.batch()`; webhook fires once per ZIP rather than per-file (downstream storage and webhook traffic dropped from O(N) to O(1)).
+- **⚠️ ZIP webhook payload schema changed** — for folder ZIP downloads, the `share.downloaded` webhook event payload is now a *summary* (`fileIds: string[]`, `totalSize: number`, `count: number`) rather than one event per file. Per-file breakdown remains visible via `GET /api/public/v1/shares/:id/stats` `fileBreakdown` (driven by N activity rows still written via `db.batch`). Single-file share downloads are unchanged.
+
+### Fixed
+
+- Persistent rate limiting now actually works across Workers isolates (moved from in-process Map to D1 `rate_limits` table).
+- Folder rename now propagates to linked share `folder_path` rows; share links survive renames.
+- Folder delete cleans up linked shares atomically alongside DB metadata; orphaned shares no longer left behind.
+- Upload race condition returns clean 409 instead of 500 on duplicate concurrent uploads.
+- ZIP download size error returns informative 413 with `hint`, `filesEndpoint`, `fileCount`, `totalSizeMB` instead of an opaque failure.
+- File size validation tolerates 10% deviation between client-reported size and stored object size.
+- Removed unsafe non-null assertions (`!`) in `server/src/routes/shares.ts`, `server/src/lib/files.ts`, and `web/src/pages/DashboardPage.tsx`; code now uses optional chaining and early returns.
+- `web/src/lib/api-client.ts` wraps `JSON.parse` in try/catch and throws `DriveApiError("Invalid JSON response", status, "INVALID_JSON_RESPONSE")` on malformed responses (e.g. Cloudflare challenge HTML returned as 200).
+- `useCallback` dependency thrash in `DashboardPage` replaced with `useRef` for `expandedShareStats` / `loadingShareStats` / `shareStatsById`.
+- `web/package.json` gained a `typecheck` script.
+
+### Migrations
+
+- `0003`: `activity_log` adds nullable `ip` and `user_agent` columns.
+- `0004`: `shares` adds nullable `password_version` column (code defaults to `1` for legacy rows).
+
+### Migration Notes for Webhook Consumers
+
+If you have any active webhook consumers verifying signatures against the previous `X-Agent-Drive-Signature` header, update your verification code to read `X-Signature` instead. The HMAC value format (`sha256=<hex>`) and computation (HMAC-SHA256 over the raw request body, keyed with the per-webhook secret) are unchanged.
