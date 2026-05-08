@@ -17,8 +17,9 @@ export function parseSize(value: string | number | undefined, fallback: number):
 }
 
 export function formatBytes(bytes: number): string {
-  if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
-  if (bytes >= 1024 ** 2) return `${(bytes / 1024 ** 2).toFixed(1)} MB`;
-  if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  const format = (value: number, unit: string) => `${Number.isInteger(value) ? String(value) : value.toFixed(1)} ${unit}`;
+  if (bytes >= 1024 ** 3) return format(bytes / 1024 ** 3, "GB");
+  if (bytes >= 1024 ** 2) return format(bytes / 1024 ** 2, "MB");
+  if (bytes >= 1024) return format(bytes / 1024, "KB");
   return `${bytes} B`;
 }

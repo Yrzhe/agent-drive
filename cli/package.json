@@ -9,7 +9,8 @@
   "scripts": {
     "build": "tsc",
     "check": "tsc --noEmit",
-    "prepare": "npm run build"
+    "prepare": "npm run build",
+    "test": "vitest run"
   },
   "dependencies": {
     "commander": "^12.1.0",
@@ -17,7 +18,8 @@
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.5"
   },
   "engines": {
     "node": ">=18"

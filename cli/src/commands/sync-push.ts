@@ -6,7 +6,7 @@ import { readConfig } from "../lib/config.js";
 import { bundleHash, sha256Hex, type ManifestFile } from "../lib/hash.js";
 import { apiUrl, callTool, McpToolError, type McpClientOptions } from "../lib/mcp-client.js";
 import { formatBytes, parseSize } from "../lib/size-parser.js";
-import { type FileEntry, walkBundleTree } from "../lib/walker.js";
+import { type FileEntry, type SkipEntry, walkBundle } from "../lib/walker.js";
 
 const DEFAULT_MAX_FILE_SIZE = 10 * 1024 * 1024;
 const DEFAULT_MAX_BUNDLE_SIZE = 100 * 1024 * 1024;
@@ -47,7 +47,7 @@ interface BundlePlan {
   cloudPath: string;
   files: FileEntry[];
   textFiles: FileEntry[];
-  skippedBinary: FileEntry[];
+  skipped: SkipEntry[];
   manifestFiles: ManifestFile[];
   hash: string;
   totalSize: number;
@@ -72,10 +72,6 @@ function contentTypeFor(path: string): string {
   return "text/plain";
 }
 
-function isUtf8(buffer: Buffer): boolean {
-  return Buffer.from(buffer.toString("utf8"), "utf8").equals(buffer);
-}
-
 function parseToolJson<T>(result: unknown): T {
   const text = (result as ToolTextResult).content?.find((item) => item.type === "text" && typeof item.text === "string")?.text;
   if (!text) throw new Error("MCP tool response did not include text JSON");
@@ -89,37 +85,31 @@ function parseMaxFiles(value: string | undefined): number {
   return parsed;
 }
 
-function validateLimits(files: FileEntry[], maxFileSize: number, maxFiles: number): void {
-  if (files.length > maxFiles) {
-    throw new Error(`Bundle has ${files.length} files, exceeding --max-files (${maxFiles}). Add files to .agent-drive-ignore or raise --max-files.`);
-  }
-
+function validateBundleSize(files: FileEntry[]): void {
   const totalSize = files.reduce((sum, file) => sum + file.size, 0);
   if (totalSize > DEFAULT_MAX_BUNDLE_SIZE) {
-    throw new Error(`Bundle size (${formatBytes(totalSize)}) exceeds limit (${formatBytes(DEFAULT_MAX_BUNDLE_SIZE)}). Add files to .agent-drive-ignore.`);
-  }
-
-  const tooLarge = files.find((file) => file.size > maxFileSize);
-  if (tooLarge) {
-    throw new Error(`./${tooLarge.relPath} (${formatBytes(tooLarge.size)}) exceeds --max-size (${formatBytes(maxFileSize)}). Add to .agent-drive-ignore or use --max-size ${formatBytes(tooLarge.size)}.`);
+    throw new Error(`bundle size (${formatBytes(totalSize)}) exceeds limit (${formatBytes(DEFAULT_MAX_BUNDLE_SIZE)}).\nHint: add patterns to .agent-drive-ignore.`);
   }
 }
 
-function buildPlan(to: string, files: FileEntry[], directories: string[], maxFileSize: number, maxFiles: number): BundlePlan {
-  validateLimits(files, maxFileSize, maxFiles);
-  const textFiles = files.filter((file) => isUtf8(file.contentBuffer));
-  const skippedBinary = files.filter((file) => !isUtf8(file.contentBuffer));
-  const manifestFiles = textFiles.map((file) => ({
+function requireContent(file: FileEntry): Buffer {
+  if (!file.contentBuffer) throw new Error(`Internal error: missing file content for ${file.relPath}`);
+  return file.contentBuffer;
+}
+
+function buildPlan(to: string, files: FileEntry[], directories: string[], skipped: SkipEntry[]): BundlePlan {
+  validateBundleSize(files);
+  const manifestFiles = files.map((file) => ({
     path: file.relPath,
     size: file.size,
-    hash: sha256Hex(file.contentBuffer),
+    hash: sha256Hex(requireContent(file)),
   }));
   const totalSize = manifestFiles.reduce((sum, file) => sum + file.size, 0);
   return {
     cloudPath: normalizeCloudPath(to),
     files,
-    textFiles,
-    skippedBinary,
+    textFiles: files,
+    skipped,
     manifestFiles,
     hash: bundleHash(manifestFiles),
     totalSize,
@@ -169,8 +159,12 @@ function printDryRun(plan: BundlePlan, remote: RemoteManifest | null): void {
   for (const file of diff.changed) console.log(`  CHANGED   ${file.path} (${formatBytes(file.size)})`);
   for (const file of diff.deleted) console.log(`  DELETED   ${file.path}`);
   console.log(`  UNCHANGED ${diff.unchanged} files`);
-  if (plan.skippedBinary.length > 0) {
-    for (const file of plan.skippedBinary) console.log(`  SKIPPED   ${file.relPath} (binary)`);
+  if (plan.skipped.length > 0) {
+    for (const item of plan.skipped) {
+      console.log(`  SKIPPED   ${item.path} (${item.reason})`);
+      if (item.reason === "binary") console.warn(`skipping binary file: ${item.path}. Hint: add it to .agent-drive-ignore.`);
+      if (item.reason === "symlink-outside") console.warn(`skipping symlink ${item.path} -> outside bundle root`);
+    }
   }
   console.log(`Total: ${plan.manifestFiles.length} files, ${formatBytes(plan.totalSize)}. Would update manifest pushedAt.`);
 }
@@ -181,7 +175,7 @@ async function uploadFiles(client: McpClientOptions, plan: BundlePlan): Promise<
     console.log(`[${index + 1}/${plan.textFiles.length}] uploading ${file.relPath}...`);
     await callTool(client, "write_file", {
       path: cloudFilePath(plan.cloudPath, file.relPath),
-      content: file.contentBuffer.toString("utf8"),
+      content: requireContent(file).toString("utf8"),
       content_type: contentTypeFor(file.relPath),
       overwrite: true,
     });
@@ -246,8 +240,13 @@ export async function syncPushCommand(options: SyncPushOptions): Promise<void> {
 
   const maxFileSize = parseSize(options.maxSize, DEFAULT_MAX_FILE_SIZE);
   const maxFiles = parseMaxFiles(options.maxFiles);
-  const { files, directories } = await walkBundleTree(options.from);
-  const plan = buildPlan(options.to, files, directories, maxFileSize, maxFiles);
+  const { files, directories, skipped } = await walkBundle(options.from, {
+    loadContent: true,
+    skipBinary: true,
+    maxFileSize,
+    maxFiles,
+  });
+  const plan = buildPlan(options.to, files, directories, skipped);
   const client = { url: config.url, token: config.token };
   const remote = await readRemoteManifest(client, plan.cloudPath);
 
@@ -261,8 +260,12 @@ export async function syncPushCommand(options: SyncPushOptions): Promise<void> {
     return;
   }
 
-  for (const file of plan.skippedBinary) {
-    console.warn(`skipping binary file: ${file.relPath}`);
+  for (const item of plan.skipped) {
+    if (item.reason === "binary") {
+      console.warn(`skipping binary file: ${item.path}. Hint: add it to .agent-drive-ignore.`);
+    } else if (item.reason === "symlink-outside") {
+      console.warn(`skipping symlink ${item.path} -> outside bundle root`);
+    }
   }
 
   if (remote?.hash === plan.hash) {

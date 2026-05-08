@@ -84,8 +84,13 @@ function localManifestFiles(entries: FileEntry[], remote: RemoteManifest): Manif
     .map((entry) => ({
       path: entry.relPath,
       size: entry.size,
-      hash: sha256Hex(entry.contentBuffer),
+      hash: sha256Hex(requireContent(entry)),
     }));
+}
+
+function requireContent(file: FileEntry): Buffer {
+  if (!file.contentBuffer) throw new Error(`Internal error: missing file content for ${file.relPath}`);
+  return file.contentBuffer;
 }
 
 function diffManifest(remote: RemoteManifest, localEntries: FileEntry[]): { newFiles: ManifestFile[]; changed: ManifestFile[]; deleted: FileEntry[]; unchanged: number } {
@@ -94,12 +99,12 @@ function diffManifest(remote: RemoteManifest, localEntries: FileEntry[]): { newF
   const newFiles = remote.files.filter((file) => !localByPath.has(file.path));
   const changed = remote.files.filter((file) => {
     const local = localByPath.get(file.path);
-    return local && sha256Hex(local.contentBuffer) !== file.hash;
+    return local && sha256Hex(requireContent(local)) !== file.hash;
   });
   const deleted = localEntries.filter((entry) => !remoteByPath.has(entry.relPath));
   const unchanged = remote.files.filter((file) => {
     const local = localByPath.get(file.path);
-    return local && sha256Hex(local.contentBuffer) === file.hash;
+    return local && sha256Hex(requireContent(local)) === file.hash;
   }).length;
   return { newFiles, changed, deleted, unchanged };
 }
@@ -146,7 +151,7 @@ async function downloadFiles(client: McpClientOptions, cloudPath: string, localP
 async function deleteLocalOrphans(localPath: string, remote: RemoteManifest): Promise<void> {
   if (!(await directoryExists(localPath))) return;
   const remotePaths = new Set(remote.files.map((file) => file.path));
-  const localEntries = await walkBundle(localPath);
+  const localEntries = (await walkBundle(localPath, { loadContent: true })).files;
   const orphans = localEntries.filter((entry) => !remotePaths.has(entry.relPath));
   for (const orphan of orphans) {
     await rm(orphan.absPath, { force: true });
@@ -161,7 +166,7 @@ export async function syncPullCommand(options: SyncPullOptions): Promise<void> {
   const cloudPath = normalizeCloudPath(options.from);
   const localPath = resolve(options.to);
   const remote = await readRemoteManifest(client, cloudPath);
-  const localEntries = await isNonEmptyDirectory(localPath) ? await walkBundle(localPath) : [];
+  const localEntries = await isNonEmptyDirectory(localPath) ? (await walkBundle(localPath, { loadContent: true })).files : [];
   const localHash = bundleHash(localManifestFiles(localEntries, remote));
 
   if (options.dryRun) {

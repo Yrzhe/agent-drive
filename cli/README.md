@@ -13,6 +13,12 @@ npm run build
 npm link
 ```
 
+Run tests:
+
+```bash
+npm test
+```
+
 ## Login
 
 ```bash
@@ -94,5 +100,19 @@ Default excludes:
 ```
 
 Add project-specific excludes in `<local>/.agent-drive-ignore`.
+
+Example `.agent-drive-ignore`:
+
+```gitignore
+# Generated assets
+coverage/
+*.log
+
+# Local secrets
+.env
+secrets/**
+```
+
+Patterns use gitignore syntax and are added on top of the default excludes.
 
 Binary files are skipped in this MVP because the Week 1 MCP `write_file` tool accepts text content only. The CLI logs each skipped binary file and continues.
