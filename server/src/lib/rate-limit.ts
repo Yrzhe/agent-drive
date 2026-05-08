@@ -35,7 +35,7 @@ export async function checkRateLimit(
   return { allowed: true };
 }
 
-export async function recordFailure(db: AppDb, key: string, windowMs: number): Promise<void> {
+export async function recordRateLimitAttempt(db: AppDb, key: string, windowMs: number): Promise<void> {
   const now = Date.now();
   const [entry] = await db.select().from(rateLimits).where(eq(rateLimits.key, key)).limit(1);
 
@@ -67,6 +67,8 @@ export async function recordFailure(db: AppDb, key: string, windowMs: number): P
     })
     .where(eq(rateLimits.key, key));
 }
+
+export const recordFailure = recordRateLimitAttempt;
 
 export async function clearRateLimit(db: AppDb, key: string): Promise<void> {
   await db.delete(rateLimits).where(eq(rateLimits.key, key));

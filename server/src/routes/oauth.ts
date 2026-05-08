@@ -7,7 +7,7 @@ import { oauthAuthorizationCodes, oauthClients, oauthTokens } from "@defs";
 import { hashPassword, verifyPasswordHash } from "../lib/crypto";
 import { nowIso } from "../lib/files";
 import { DEFAULT_MCP_SCOPES, filterAllowedScopes, FULL_MCP_SCOPES, normalizeScopes, parseScopeParam, scopeDescriptions, serializeScopes } from "../lib/mcp-scopes";
-import { checkRateLimit, recordFailure } from "../lib/rate-limit";
+import { checkRateLimit, recordFailure, recordRateLimitAttempt } from "../lib/rate-limit";
 import { ApiError, withErrorHandling } from "../lib/errors";
 
 export const oauthRoutes = new Hono();
@@ -36,10 +36,17 @@ function parseRedirectUris(value: unknown): string[] {
   const redirectUris = value.filter((item): item is string => typeof item === "string").map((item) => item.trim()).filter(Boolean);
   if (redirectUris.length === 0) throw new ApiError(400, "invalid_client_metadata", "redirect_uris must contain at least one URI");
   for (const redirectUri of redirectUris) {
+    let parsed: URL;
     try {
-      new URL(redirectUri);
+      parsed = new URL(redirectUri);
     } catch {
       throw new ApiError(400, "invalid_redirect_uri", "redirect_uris must contain valid absolute URIs");
+    }
+    const isLocalHttpRedirect =
+      parsed.protocol === "http:" &&
+      (parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1" || parsed.hostname === "[::1]" || parsed.hostname === "::1");
+    if (parsed.protocol !== "https:" && !isLocalHttpRedirect) {
+      throw new ApiError(400, "invalid_redirect_uri", "redirect_uris must use https, except localhost development redirects");
     }
   }
   return [...new Set(redirectUris)];
@@ -156,6 +163,7 @@ oauthRoutes.post(
     if (!limitState.allowed) {
       throw new ApiError(429, "too_many_attempts", "Too many client registration attempts");
     }
+    await recordRateLimitAttempt(db, rateLimitKey, OAUTH_REGISTER_RATE_LIMIT_MS);
 
     const body = (await c.req.json().catch(() => ({}))) as {
       redirect_uris?: unknown;
@@ -172,24 +180,19 @@ oauthRoutes.post(
     const clientId = `ad_${nanoid(24)}`;
     const clientSecret = tokenEndpointAuthMethod === "client_secret_post" ? `ads_${nanoid(40)}` : null;
 
-    try {
-      const [clientCount] = await db.select({ count: sql<number>`count(*)` }).from(oauthClients);
-      if (Number(clientCount?.count ?? 0) >= OAUTH_CLIENT_GLOBAL_CAP) {
-        throw new ApiError(429, "client_limit_exceeded", "OAuth client registration cap reached");
-      }
-      await db.insert(oauthClients).values({
-        id: clientId,
-        clientSecretHash: clientSecret ? await hashPassword(clientSecret) : null,
-        redirectUris: JSON.stringify(redirectUris),
-        clientName,
-        scopeDefault: serializeScopes(allowedScopes),
-        registeredAt: nowIso(),
-        lastUsedAt: null,
-      });
-    } catch (error) {
-      await recordFailure(db, rateLimitKey, OAUTH_REGISTER_RATE_LIMIT_MS);
-      throw error;
+    const [clientCount] = await db.select({ count: sql<number>`count(*)` }).from(oauthClients);
+    if (Number(clientCount?.count ?? 0) >= OAUTH_CLIENT_GLOBAL_CAP) {
+      throw new ApiError(429, "client_limit_exceeded", "OAuth client registration cap reached");
     }
+    await db.insert(oauthClients).values({
+      id: clientId,
+      clientSecretHash: clientSecret ? await hashPassword(clientSecret) : null,
+      redirectUris: JSON.stringify(redirectUris),
+      clientName,
+      scopeDefault: serializeScopes(allowedScopes),
+      registeredAt: nowIso(),
+      lastUsedAt: null,
+    });
 
     const origin = await publicOrigin(c.req.url);
     return c.json({
