@@ -3,10 +3,12 @@ import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import { dirname, join, resolve } from "node:path";
 
+import { getBundleCurrent } from "../lib/bundles.js";
 import { readConfig } from "../lib/config.js";
 import { bundleHash, sha256Hex, type ManifestFile } from "../lib/hash.js";
 import { callTool, McpToolError, type McpClientOptions } from "../lib/mcp-client.js";
 import { formatBytes } from "../lib/size-parser.js";
+import { recordBundleSync } from "../lib/sync-state.js";
 import { type FileEntry, walkBundle } from "../lib/walker.js";
 
 interface SyncPullOptions {
@@ -186,5 +188,15 @@ export async function syncPullCommand(options: SyncPullOptions): Promise<void> {
 
   await downloadFiles(client, cloudPath, localPath, remote);
   await deleteLocalOrphans(localPath, remote);
-  console.log(`Pulled ${cloudPath} (${remote.fileCount} files, ${formatBytes(remote.totalSize)}) from machine ${remote.machineId.slice(0, 8)} @ ${remote.pushedAt}`);
+
+  const currentVersion = await getBundleCurrent(client, cloudPath).catch(() => null);
+  await recordBundleSync({
+    localPath,
+    cloudPrefix: cloudPath,
+    lastSeenVersionId: currentVersion?.currentVersion?.versionId ?? null,
+    lastSeenHash: remote.hash,
+  });
+
+  const versionTag = currentVersion?.currentVersion?.versionId ? ` versionId=${currentVersion.currentVersion.versionId}` : "";
+  console.log(`Pulled ${cloudPath} (${remote.fileCount} files, ${formatBytes(remote.totalSize)}) from machine ${remote.machineId.slice(0, 8)} @ ${remote.pushedAt}${versionTag}`);
 }

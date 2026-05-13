@@ -1,11 +1,11 @@
-import { createInterface } from "node:readline/promises";
-import { stdin as input, stdout as output } from "node:process";
-import { basename, posix } from "node:path";
+import { posix, resolve as resolvePath } from "node:path";
 
+import { BundleConflictError, commitBundle, type CommitManifestInput } from "../lib/bundles.js";
 import { readConfig } from "../lib/config.js";
 import { bundleHash, sha256Hex, type ManifestFile } from "../lib/hash.js";
 import { apiUrl, authorizationHeader, callTool, McpToolError, type McpClientOptions } from "../lib/mcp-client.js";
 import { formatBytes, parseSize } from "../lib/size-parser.js";
+import { readBundleSyncEntry, recordBundleSync } from "../lib/sync-state.js";
 import { type FileEntry, type SkipEntry, walkBundle } from "../lib/walker.js";
 
 const DEFAULT_MAX_FILE_SIZE = 10 * 1024 * 1024;
@@ -129,16 +129,6 @@ async function readRemoteManifest(client: McpClientOptions, cloudPath: string): 
   }
 }
 
-async function confirmOverwrite(remote: RemoteManifest, cloudPath: string): Promise<boolean> {
-  const rl = createInterface({ input, output });
-  try {
-    const answer = await rl.question(`Bundle ${cloudPath} was last pushed by machine ${remote.machineId.slice(0, 8)} at ${remote.pushedAt}.\nOverwrite? [y/N]: `);
-    return answer.trim().toLowerCase() === "y" || answer.trim().toLowerCase() === "yes";
-  } finally {
-    rl.close();
-  }
-}
-
 function diffManifest(local: ManifestFile[], remote: RemoteManifest | null): { newFiles: ManifestFile[]; changed: ManifestFile[]; deleted: ManifestFile[]; unchanged: number } {
   const remoteByPath = new Map((remote?.files ?? []).map((file) => [file.path, file]));
   const localByPath = new Map(local.map((file) => [file.path, file]));
@@ -214,24 +204,36 @@ async function deleteOrphans(client: McpClientOptions, plan: BundlePlan): Promis
   }
 }
 
-async function writeManifest(client: McpClientOptions, plan: BundlePlan, machineId: string): Promise<void> {
-  const manifest: RemoteManifest = {
+function buildCommitManifest(plan: BundlePlan, machineId: string): CommitManifestInput {
+  return {
     version: 1,
-    name: basename(plan.cloudPath),
+    name: plan.cloudPath.split("/").filter(Boolean).pop() ?? plan.cloudPath,
     hash: plan.hash,
     machineId,
-    pushedAt: new Date().toISOString(),
     fileCount: plan.manifestFiles.length,
     totalSize: plan.totalSize,
     files: plan.manifestFiles,
     directories: plan.directories,
   };
-  await callTool(client, "write_file", {
-    path: cloudFilePath(plan.cloudPath, "manifest.json"),
-    content: JSON.stringify(manifest, null, 2),
-    content_type: "application/json",
-    overwrite: true,
-  });
+}
+
+function describeIfMatch(value: string | null | "*"): string {
+  if (value === "*") return "force (--force)";
+  if (value === null) return "fresh push (no prior version)";
+  return value;
+}
+
+function formatConflictMessage(localPath: string, cloudPath: string, currentVersionId: string | null, lastSeen: string | null): string {
+  const lines: string[] = [];
+  lines.push(`Bundle ${cloudPath} has moved on the cloud.`);
+  if (currentVersionId) lines.push(`  Cloud is at: ${currentVersionId}`);
+  if (lastSeen) lines.push(`  You last saw: ${lastSeen}`);
+  else lines.push(`  You have no local sync record for this bundle.`);
+  lines.push("");
+  lines.push("Resolve by one of:");
+  lines.push(`  1) adrive sync pull --from ${cloudPath} --to ${localPath}    (merge cloud first)`);
+  lines.push(`  2) adrive sync push --from ${localPath} --to ${cloudPath} --force    (overwrite cloud)`);
+  return lines.join("\n");
 }
 
 export async function syncPushCommand(options: SyncPushOptions): Promise<void> {
@@ -248,12 +250,10 @@ export async function syncPushCommand(options: SyncPushOptions): Promise<void> {
   });
   const plan = buildPlan(options.to, files, directories, skipped);
   const client = config;
-  const remote = await readRemoteManifest(client, plan.cloudPath);
+  const localAbsPath = resolvePath(options.from);
 
-  if (remote && remote.machineId !== config.machineId && !options.force) {
-    const confirmed = await confirmOverwrite(remote, plan.cloudPath);
-    if (!confirmed) throw new Error("Aborted.");
-  }
+  const remote = await readRemoteManifest(client, plan.cloudPath);
+  const localSyncEntry = await readBundleSyncEntry(localAbsPath, plan.cloudPath);
 
   if (options.dryRun) {
     printDryRun(plan, remote);
@@ -268,16 +268,37 @@ export async function syncPushCommand(options: SyncPushOptions): Promise<void> {
     }
   }
 
-  if (remote?.hash === plan.hash) {
-    console.log("Bundle is up to date (no file changes), updating manifest pushedAt only.");
-    await writeManifest(client, plan, config.machineId);
-    console.log(`Pushed ${plan.cloudPath}: ${plan.manifestFiles.length} files, ${formatBytes(plan.totalSize)}, hash ${plan.hash}`);
-    return;
+  const ifMatch: string | null | "*" = options.force
+    ? "*"
+    : localSyncEntry?.lastSeenVersionId ?? null;
+  console.log(`Push ${plan.cloudPath} — ifMatch: ${describeIfMatch(ifMatch)}`);
+
+  if (remote?.hash === plan.hash && !options.force) {
+    console.log("Bundle is up to date (no file changes), committing manifest pushedAt only.");
+  } else {
+    if (!remote) console.log(`Fresh push: ${plan.cloudPath}`);
+    await uploadFiles(client, plan);
+    await deleteOrphans(client, plan);
   }
 
-  if (!remote) console.log(`Fresh push: ${plan.cloudPath}`);
-  await uploadFiles(client, plan);
-  await deleteOrphans(client, plan);
-  await writeManifest(client, plan, config.machineId);
-  console.log(`Pushed ${plan.cloudPath}: ${plan.manifestFiles.length} files, ${formatBytes(plan.totalSize)}, hash ${plan.hash}`);
+  try {
+    const result = await commitBundle(client, {
+      prefix: plan.cloudPath,
+      ifMatch,
+      manifest: buildCommitManifest(plan, config.machineId),
+    });
+    await recordBundleSync({
+      localPath: localAbsPath,
+      cloudPrefix: plan.cloudPath,
+      lastSeenVersionId: result.versionId,
+      lastSeenHash: result.hash,
+    });
+    console.log(`Pushed ${plan.cloudPath}: ${plan.manifestFiles.length} files, ${formatBytes(plan.totalSize)}, hash ${plan.hash}`);
+    console.log(`  versionId: ${result.versionId}${result.previousVersionId ? ` (previous: ${result.previousVersionId})` : ""}`);
+  } catch (error) {
+    if (error instanceof BundleConflictError) {
+      throw new Error(formatConflictMessage(localAbsPath, plan.cloudPath, error.currentVersionId, localSyncEntry?.lastSeenVersionId ?? null));
+    }
+    throw error;
+  }
 }
