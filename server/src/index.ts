@@ -2,6 +2,7 @@ import { Hono } from "hono";
 
 import { requireDualAuth } from "./middleware/auth";
 import { activityRoutes } from "./routes/activity";
+import { bundlesRoutes } from "./routes/bundles";
 import { filesRoutes } from "./routes/files";
 import { foldersRoutes } from "./routes/folders";
 import { guideRoutes } from "./routes/guide";
@@ -19,6 +20,7 @@ app.route("/api/public/mcp", mcpRoutes);
 app.route("/api/public/oauth", oauthRoutes);
 app.use("/api/public/v1/*", requireDualAuth);
 app.route("/api/public/v1/activity", activityRoutes);
+app.route("/api/public/v1/bundles", bundlesRoutes);
 app.route("/api/public/v1/files", filesRoutes);
 app.route("/api/public/v1/folders", foldersRoutes);
 app.route("/api/public/v1", sharesRoutes);

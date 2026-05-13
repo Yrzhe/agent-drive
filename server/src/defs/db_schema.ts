@@ -112,6 +112,25 @@ export const oauthAuthorizationCodes = sqliteTable(
   ]
 );
 
+export const bundleVersions = sqliteTable(
+  "bundle_versions",
+  {
+    prefix: text("prefix").primaryKey(),
+    currentVersionId: text("current_version_id").notNull(),
+    previousVersionId: text("previous_version_id"),
+    machineId: text("machine_id").notNull(),
+    hash: text("hash").notNull(),
+    fileCount: integer("file_count").notNull().default(0),
+    totalSize: integer("total_size").notNull().default(0),
+    pushedAt: text("pushed_at").notNull(),
+    updatedAt: text("updated_at").notNull().default(sql`(datetime('now'))`),
+  },
+  (table) => [
+    index("idx_bundle_versions_current").on(table.currentVersionId),
+    index("idx_bundle_versions_pushed_at").on(table.pushedAt),
+  ]
+);
+
 export const oauthTokens = sqliteTable(
   "oauth_tokens",
   {
