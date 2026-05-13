@@ -1,140 +1,207 @@
-# Agent Drive CLI
+# adrive
 
-`adrive` is the command-line client for Agent Drive.
+Command-line client for [Agent Drive](https://github.com/yrzhe/agent-drive) — a personal cloud drive for AI agents on Cloudflare Workers + D1 + R2.
 
-Week 2 starts with login and local machine identity. Sync commands will build on this config.
+`adrive` lets you push and pull local bundles (skills, memory files, scratch dirs) to your Agent Drive deployment, version them with optimistic-concurrency commits, and bridge stdio-only MCP clients to the remote HTTP MCP endpoint.
+
+Requires Node.js >= 18.
 
 ## Install
 
 ```bash
-cd cli
-npm install
-npm run build
-npm link
+npm install -g adrive
 ```
 
-Run tests:
+Verify:
 
 ```bash
-npm test
+adrive --version
 ```
 
 ## Login
 
-Browser OAuth flow:
+Browser OAuth flow (recommended):
 
 ```bash
-adrive login --url https://large-gator-9215.edgespark.app
+adrive login --url https://your-deployment.workers.dev
 ```
 
-The CLI opens a browser, starts a localhost callback listener, and stores an OAuth access token plus refresh token in `~/.agent-drive/config.json`.
+Opens a browser, starts a localhost callback listener, completes PKCE S256, and stores access + refresh tokens at `~/.agent-drive/config.json` (mode `600`). Refresh tokens are rotated automatically on expiry.
 
-Use a custom scope:
+Restrict the token to a subtree:
 
 ```bash
-adrive login --url https://large-gator-9215.edgespark.app --scope "read:drive write:drive"
+adrive login --url https://your-deployment.workers.dev \
+  --scope "read:drive write:drive path:/skills/*"
 ```
 
-Print the authorization URL without opening the browser:
+See [OAuth scope reference](https://github.com/yrzhe/agent-drive/blob/main/docs/api/oauth.md#scope-vocabulary) for the full vocabulary (`read:drive`, `write:drive`, `share:create`, `read:memory`, `write:memory`, `read:skills`, `write:skills`, `path:/<prefix>/*`).
+
+Print the authorization URL without opening a browser (useful on remote machines):
 
 ```bash
-adrive login --url https://large-gator-9215.edgespark.app --no-browser
+adrive login --url https://your-deployment.workers.dev --no-browser
 ```
 
-Non-interactive AGENT_TOKEN fallback for CI or owner-only automation:
+Non-interactive `AGENT_TOKEN` fallback for CI or owner-only automation:
 
 ```bash
-adrive login --url https://large-gator-9215.edgespark.app --token "$AGENT_TOKEN"
+adrive login --url https://your-deployment.workers.dev --token "$AGENT_TOKEN"
 ```
 
-`--token-type` defaults to `agent_token`. For future OAuth access tokens:
+## whoami / logout
 
 ```bash
-adrive login --url https://large-gator-9215.edgespark.app --token "$TOKEN" --token-type oauth_access_token
+adrive whoami    # show configured URL, machine ID, MCP server info
+adrive logout    # delete ~/.agent-drive/config.json
 ```
 
-Login validates the token by calling MCP `initialize` at:
+The first login generates a persistent `machineId`; later logins keep the same `machineId` and update the URL/token fields.
 
-```text
-<URL>/api/public/mcp
-```
+## Sync
 
-Config is written to:
+`adrive sync` mirrors a local directory to a cloud prefix. The manifest is versioned with `dv_<id>` versionIds and protected by If-Match optimistic concurrency.
 
-```text
-~/.agent-drive/config.json
-```
-
-The file is created with mode `600`. The first login generates a persistent `machineId`; later logins keep the same `machineId` and update the URL/token fields.
-
-## Whoami
-
-```bash
-adrive whoami
-```
-
-Prints the configured URL, machine ID, and MCP server info.
-
-## Logout
-
-```bash
-adrive logout
-```
-
-Deletes `~/.agent-drive/config.json`.
-
-## Sync Push
-
-Push a local text bundle to Agent Drive:
+### push
 
 ```bash
 adrive sync push --from ~/.claude/skills/learn --to /skills/learn
 ```
 
-Preview changes without writing:
+Flags:
+
+- `--dry-run` — preview without uploading
+- `--force` — bypass the version ETag check (`ifMatch: "*"`)
+- `--max-size <size>` — max single file (default `10MB`)
+- `--max-files <count>` — max files in the bundle (default `5000`)
+
+Safety defaults: single file ≤ 10 MB, bundle ≤ 100 MB, ≤ 5000 files.
+
+On a version conflict (412), push prints a two-option resolution:
+
+1. `adrive sync pull` to fetch the cloud state, then re-push.
+2. `adrive sync push --force` to overwrite.
+
+### pull
 
 ```bash
-adrive sync push --from ~/.claude/skills/learn --to /skills/learn --dry-run
+adrive sync pull --from /skills/learn --to ~/.claude/skills/learn
 ```
 
-Overwrite a bundle last pushed by another machine:
+Flags:
+
+- `--dry-run` — preview without downloading
+- `--force` — overwrite local changes without prompting
+
+After a successful pull, the cloud's current `versionId` is recorded in `~/.agent-drive/sync-state.json` so the next push has a fresh ETag anchor.
+
+### list
 
 ```bash
-adrive sync push --from ~/.claude/skills/learn --to /skills/learn --force
+adrive sync list /            # list bundles under root
+adrive sync list /skills      # list bundles under /skills
+adrive sync list / --json     # raw manifest JSON array
 ```
 
-Limit safety defaults:
+### history
 
-- Max single file: `10MB`
-- Max bundle size: `100MB`
-- Max files: `5000`
-
-Override examples:
+List historical versions of a bundle (newest first):
 
 ```bash
-adrive sync push --from ./skill --to /skills/my-skill --max-size 20MB --max-files 10000
+adrive sync history /skills/learn
+adrive sync history /skills/learn --limit 20 --json
 ```
+
+Each row shows `versionId`, `pushedAt`, `machine`, `fileCount`, `size`, and `hash`.
+
+### rollback
+
+Restore a prior manifest as the new version (pointer-only — file bodies at `${prefix}/<file>` are not touched):
+
+```bash
+adrive sync rollback /skills/learn --to dv_abc1234567
+```
+
+Flags: `--yes` / `--force` skip the interactive confirmation.
+
+After rolling back, other machines pointing at the prior version will need `adrive sync pull` to re-anchor before their next push.
+
+### Ignore patterns
 
 Default excludes:
 
 ```text
-.git/ node_modules/ .DS_Store .venv/ venv/ __pycache__/ *.pyc *.pyo .next/ dist/ build/
+.git/  node_modules/  .DS_Store  .venv/  venv/  __pycache__/  *.pyc  *.pyo
+.next/  dist/  build/
 ```
 
-Add project-specific excludes in `<local>/.agent-drive-ignore`.
-
-Example `.agent-drive-ignore`:
+Add project-specific excludes via `<local>/.agent-drive-ignore` (gitignore syntax). The file is layered on top of the defaults.
 
 ```gitignore
-# Generated assets
+# coverage and logs
 coverage/
 *.log
 
-# Local secrets
+# local secrets
 .env
 secrets/**
 ```
 
-Patterns use gitignore syntax and are added on top of the default excludes.
+Binary files are skipped in this MVP (the MCP `write_file` tool accepts text content only). The CLI logs each skipped binary and continues.
 
-Binary files are skipped in this MVP because the Week 1 MCP `write_file` tool accepts text content only. The CLI logs each skipped binary file and continues.
+## MCP stdio bridge
+
+For MCP clients that only speak stdio (e.g. older Claude Desktop, Gemini CLI), bridge them to the remote HTTP endpoint:
+
+```bash
+adrive mcp stdio
+```
+
+Reads `~/.agent-drive/config.json`, forwards newline-delimited JSON-RPC frames to `<URL>/api/public/mcp`, preserves request `id`, and refreshes OAuth tokens automatically on 401. Network and parse failures surface as proper JSON-RPC error objects instead of crashing the process.
+
+Example Claude Desktop config (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS):
+
+```json
+{
+  "mcpServers": {
+    "agent-drive": {
+      "command": "adrive",
+      "args": ["mcp", "stdio"]
+    }
+  }
+}
+```
+
+## Configuration files
+
+| Path | Mode | Purpose |
+|---|---|---|
+| `~/.agent-drive/config.json` | `600` | URL, machine ID, OAuth tokens |
+| `~/.agent-drive/sync-state.json` | `600` | Per-bundle last-seen `versionId` + hash, keyed by `<absolute-localPath>::<cloudPrefix>` |
+
+`sync-state.json` is per-machine and must never be checked into a bundle directory.
+
+## Troubleshooting
+
+**`Session expired (...)` on push / pull**
+The refresh token was revoked or expired. Re-run `adrive login --url <your URL>`.
+
+**`invalid_scope:path:/...` on push**
+Your token is path-restricted and the target is outside the granted prefix. Log in again with a wider scope or push to a path the token can see.
+
+**Push fails with version conflict (412)**
+Someone else (or another machine) pushed since your last pull. Either `adrive sync pull` then retry, or `--force` to overwrite.
+
+**`adrive` not found after install**
+Confirm npm's global `bin` is on `PATH`: `npm config get prefix` → ensure `<prefix>/bin` is in your shell `PATH`.
+
+## Links
+
+- Project: <https://github.com/yrzhe/agent-drive>
+- OAuth reference: <https://github.com/yrzhe/agent-drive/blob/main/docs/api/oauth.md>
+- Bundle versioning API: <https://github.com/yrzhe/agent-drive/blob/main/docs/api/drive-bundles.md>
+- Issues: <https://github.com/yrzhe/agent-drive/issues>
+
+## License
+
+MIT — see [LICENSE](./LICENSE).

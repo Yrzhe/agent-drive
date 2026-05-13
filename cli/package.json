@@ -1,16 +1,45 @@
 {
-  "name": "@agent-drive/cli",
+  "name": "adrive",
   "version": "0.1.0",
-  "private": true,
+  "description": "Command-line client for Agent Drive — push, pull, and version local bundles to your personal AI agent cloud drive.",
   "type": "module",
   "bin": {
     "adrive": "./dist/index.js"
   },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "build": "tsc",
     "check": "tsc --noEmit",
     "prepare": "npm run build",
     "test": "vitest run"
+  },
+  "keywords": [
+    "agent-drive",
+    "adrive",
+    "mcp",
+    "model-context-protocol",
+    "cli",
+    "cloudflare-workers",
+    "ai-agents",
+    "sync",
+    "oauth"
+  ],
+  "author": "yrzhe",
+  "license": "MIT",
+  "homepage": "https://github.com/yrzhe/agent-drive#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yrzhe/agent-drive.git",
+    "directory": "cli"
+  },
+  "bugs": {
+    "url": "https://github.com/yrzhe/agent-drive/issues"
   },
   "dependencies": {
     "commander": "^12.1.0",
@@ -23,5 +52,8 @@
   },
   "engines": {
     "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }
