@@ -34,6 +34,8 @@ export default function DashboardPage() {
   const [uploading, setUploading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [shareTarget, setShareTarget] = useState<DriveFile | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<UploadProgress | null>(null);
   const [expandedShareStats, setExpandedShareStats] = useState<Record<string, boolean>>({});
   const [shareStatsById, setShareStatsById] = useState<Record<string, ShareStats | undefined>>({});
@@ -95,6 +97,10 @@ export default function DashboardPage() {
     if (!isAuthenticated) return;
     void refreshFiles(currentPath);
   }, [isAuthenticated, currentPath, refreshFiles]);
+
+  useEffect(() => {
+    setSelectedIds(new Set());
+  }, [currentPath, debouncedSearchQuery]);
 
   useEffect(() => {
     if (!isAuthenticated) return;
@@ -217,9 +223,76 @@ export default function DashboardPage() {
     if (!window.confirm(confirmText)) return;
     try {
       await driveApi.deleteFile(entry.id);
+      setSelectedIds((current) => {
+        if (!current.has(entry.id)) return current;
+        const next = new Set(current);
+        next.delete(entry.id);
+        return next;
+      });
       await Promise.all([refreshVisibleEntries(), refreshShares()]);
     } catch (error) {
       setErrorMessage(getErrorMessage(error));
+    }
+  };
+
+  const handleToggleSelect = useCallback((id: string, next: boolean) => {
+    setSelectedIds((current) => {
+      const updated = new Set(current);
+      if (next) updated.add(id);
+      else updated.delete(id);
+      return updated;
+    });
+  }, []);
+
+  const handleToggleSelectAll = useCallback((next: boolean) => {
+    if (!next) {
+      setSelectedIds(new Set());
+      return;
+    }
+    setSelectedIds(new Set(displayedEntries.map((entry) => entry.id)));
+  }, [displayedEntries]);
+
+  const handleBulkDelete = async () => {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+    if (!window.confirm(`Delete ${ids.length} selected item${ids.length === 1 ? "" : "s"}? Folders include all their contents.`)) return;
+    setBulkBusy(true);
+    try {
+      const result = await driveApi.deleteFiles(ids);
+      setSelectedIds(new Set());
+      if (result.failures.length > 0) {
+        setErrorMessage(`${result.deletedFiles + result.deletedFolders} deleted, ${result.failures.length} failed: ${result.failures.map((f) => f.message).slice(0, 3).join("; ")}`);
+      } else {
+        setErrorMessage(null);
+      }
+      await Promise.all([refreshVisibleEntries(), refreshShares()]);
+    } catch (error) {
+      setErrorMessage(getErrorMessage(error));
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
+  const handleBulkMove = async () => {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+    const target = window.prompt(`Move ${ids.length} item${ids.length === 1 ? "" : "s"} to which folder path?`, currentPath);
+    if (target === null) return;
+    const parentPath = normalizePath(target.trim() || "/");
+    setBulkBusy(true);
+    try {
+      const result = await driveApi.moveFiles(ids, parentPath);
+      setSelectedIds(new Set());
+      if (result.failures.length > 0) {
+        setErrorMessage(`${result.moved} moved, ${result.failures.length} failed: ${result.failures.map((f) => f.message).slice(0, 3).join("; ")}`);
+      } else {
+        setErrorMessage(null);
+      }
+      await Promise.all([refreshVisibleEntries(), refreshShares()]);
+    } catch (error) {
+      setErrorMessage(getErrorMessage(error));
+    } finally {
+      setBulkBusy(false);
     }
   };
 
@@ -343,7 +416,48 @@ export default function DashboardPage() {
               Showing search results for <span className="font-medium">{debouncedSearchQuery}</span>. Clear the search box to return to <span className="font-medium">{currentPath}</span>.
             </div>
           ) : null}
-          <FileTable entries={displayedEntries} loading={isSearchActive ? searching : loadingFiles} onDelete={(entry) => { void handleDelete(entry); }} onOpenFolder={handleOpenFolder} onRename={(entry) => { void handleRename(entry); }} onShare={(entry) => setShareTarget(entry)} />
+          {selectedIds.size > 0 ? (
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900">
+              <div>{selectedIds.size} selected</div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  className="rounded border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 disabled:opacity-50"
+                  disabled={bulkBusy}
+                  onClick={() => { void handleBulkMove(); }}
+                  type="button"
+                >
+                  Move…
+                </button>
+                <button
+                  className="rounded border border-red-300 bg-white px-2 py-1 text-xs text-red-700 disabled:opacity-50"
+                  disabled={bulkBusy}
+                  onClick={() => { void handleBulkDelete(); }}
+                  type="button"
+                >
+                  Delete
+                </button>
+                <button
+                  className="rounded border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700"
+                  disabled={bulkBusy}
+                  onClick={() => setSelectedIds(new Set())}
+                  type="button"
+                >
+                  Clear
+                </button>
+              </div>
+            </div>
+          ) : null}
+          <FileTable
+            entries={displayedEntries}
+            loading={isSearchActive ? searching : loadingFiles}
+            onDelete={(entry) => { void handleDelete(entry); }}
+            onOpenFolder={handleOpenFolder}
+            onRename={(entry) => { void handleRename(entry); }}
+            onShare={(entry) => setShareTarget(entry)}
+            onToggleSelect={handleToggleSelect}
+            onToggleSelectAll={handleToggleSelectAll}
+            selectedIds={selectedIds}
+          />
         </section>
 
         <section className="rounded-2xl border border-slate-200 bg-white p-4">

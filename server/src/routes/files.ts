@@ -221,6 +221,231 @@ filesRoutes.get(
   })
 );
 
+const BATCH_MAX_IDS = 200;
+
+function normalizeBatchIds(input: unknown): string[] {
+  if (!Array.isArray(input)) {
+    throw new ApiError(400, "validation_error", "ids must be an array of strings");
+  }
+  const ids: string[] = [];
+  const seen = new Set<string>();
+  for (const value of input) {
+    if (typeof value !== "string") {
+      throw new ApiError(400, "validation_error", "ids must contain strings only");
+    }
+    const trimmed = value.trim();
+    if (!trimmed) continue;
+    if (seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    ids.push(trimmed);
+  }
+  if (ids.length === 0) {
+    throw new ApiError(400, "validation_error", "ids must include at least one identifier");
+  }
+  if (ids.length > BATCH_MAX_IDS) {
+    throw new ApiError(400, "validation_error", `Too many ids (max ${BATCH_MAX_IDS})`);
+  }
+  return ids;
+}
+
+interface BatchFailure {
+  id: string;
+  error: string;
+  message: string;
+}
+
+filesRoutes.delete(
+  "/batch",
+  withErrorHandling(async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { ids?: unknown };
+    const ids = normalizeBatchIds(body.ids);
+
+    const { db, storage } = await import("edgespark");
+    const targets = await db.select().from(files).where(inArray(files.id, ids));
+    const byId = new Map(targets.map((t) => [t.id, t]));
+    const failures: BatchFailure[] = [];
+    const deletedFileIds: string[] = [];
+    const deletedFolderIds: string[] = [];
+    const actor = await getRequestActor();
+
+    for (const id of ids) {
+      const target = byId.get(id);
+      if (!target) {
+        failures.push({ id, error: "file_not_found", message: "File not found" });
+        continue;
+      }
+      try {
+        const rows =
+          target.isFolder === 1
+            ? await db.select().from(files).where(or(eq(files.path, target.path), like(files.path, descendantPattern(target.path))))
+            : [target];
+
+        const storagePaths = rows
+          .filter((x) => x.isFolder === 0 && x.s3Uri)
+          .map((x) => storage.tryParseS3Uri(x.s3Uri!))
+          .filter((x): x is NonNullable<typeof x> => x !== null)
+          .map((x) => x.path);
+
+        if (storagePaths.length > 0) await storage.from(buckets.drive).delete(storagePaths);
+
+        const childFileIds = rows.filter((x) => x.isFolder === 0).map((x) => x.id);
+
+        if (target.isFolder === 1) {
+          await db.batch([
+            db.delete(shares).where(or(eq(shares.folderPath, target.path), like(shares.folderPath, descendantPattern(target.path)))),
+            ...(childFileIds.length > 0 ? [db.delete(shares).where(inArray(shares.fileId, childFileIds))] : []),
+            db.delete(files).where(or(eq(files.path, target.path), like(files.path, descendantPattern(target.path)))),
+          ]);
+          deletedFolderIds.push(target.id);
+          await logEvent(db, {
+            eventType: "file.deleted",
+            targetType: "folder",
+            targetId: target.id,
+            targetPath: target.path,
+            actor,
+            metadata: { deletedFiles: childFileIds.length, deletedPaths: rows.length, batch: true },
+          });
+        } else {
+          await db.batch([
+            db.delete(shares).where(eq(shares.fileId, target.id)),
+            db.delete(files).where(eq(files.id, target.id)),
+          ]);
+          deletedFileIds.push(target.id);
+          await logEvent(db, {
+            eventType: "file.deleted",
+            targetType: "file",
+            targetId: target.id,
+            targetPath: target.path,
+            actor,
+            metadata: { size: target.size, batch: true },
+          });
+        }
+      } catch (error) {
+        failures.push({
+          id,
+          error: "delete_failed",
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    return c.json({
+      requested: ids.length,
+      deletedFiles: deletedFileIds.length,
+      deletedFolders: deletedFolderIds.length,
+      deletedIds: [...deletedFileIds, ...deletedFolderIds],
+      failures,
+    });
+  })
+);
+
+filesRoutes.patch(
+  "/batch",
+  withErrorHandling(async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { ids?: unknown; parentPath?: unknown };
+    const ids = normalizeBatchIds(body.ids);
+    if (typeof body.parentPath !== "string") {
+      throw new ApiError(400, "validation_error", "parentPath is required");
+    }
+    const nextParentPath = normalizePath(body.parentPath);
+
+    const { db } = await import("edgespark");
+    await ensureFolderChain(db, nextParentPath);
+
+    const targets = await db.select().from(files).where(inArray(files.id, ids));
+    const byId = new Map(targets.map((t) => [t.id, t]));
+    const failures: BatchFailure[] = [];
+    const movedIds: string[] = [];
+    const updatedAt = nowIso();
+    const actor = await getRequestActor();
+
+    for (const id of ids) {
+      const existing = byId.get(id);
+      if (!existing) {
+        failures.push({ id, error: "file_not_found", message: "File not found" });
+        continue;
+      }
+      try {
+        if (existing.isFolder === 1 && (nextParentPath === existing.path || nextParentPath.startsWith(`${existing.path}/`))) {
+          failures.push({ id, error: "validation_error", message: "Cannot move a folder into itself" });
+          continue;
+        }
+        if (existing.parentPath === nextParentPath) {
+          movedIds.push(id);
+          continue;
+        }
+
+        const nextPath = joinPath(nextParentPath, existing.name);
+        const [conflict] = await db
+          .select()
+          .from(files)
+          .where(and(eq(files.path, nextPath), ne(files.id, existing.id)))
+          .limit(1);
+        if (conflict) {
+          failures.push({ id, error: "path_conflict", message: `Path already exists: ${nextPath}` });
+          continue;
+        }
+
+        await db.update(files).set({ parentPath: nextParentPath, path: nextPath, updatedAt }).where(eq(files.id, existing.id));
+
+        if (existing.isFolder === 1) {
+          const descendants = await db.select().from(files).where(like(files.path, descendantPattern(existing.path))).orderBy(asc(files.path));
+          const descendantUpdates = descendants.map((item) => {
+            const path = `${nextPath}${item.path.slice(existing.path.length)}`;
+            return db.update(files).set({ path, parentPath: parentOfPath(path), updatedAt }).where(eq(files.id, item.id));
+          });
+
+          const linkedShares = await db
+            .select({ id: shares.id, folderPath: shares.folderPath })
+            .from(shares)
+            .where(or(eq(shares.folderPath, existing.path), like(shares.folderPath, descendantPattern(existing.path))));
+          const shareUpdates = linkedShares.flatMap((linkedShare) => {
+            if (!linkedShare.folderPath) return [];
+            const updatedFolderPath =
+              linkedShare.folderPath === existing.path
+                ? nextPath
+                : `${nextPath}${linkedShare.folderPath.slice(existing.path.length)}`;
+            return [db.update(shares).set({ folderPath: updatedFolderPath }).where(eq(shares.id, linkedShare.id))];
+          });
+
+          const updates = [...descendantUpdates, ...shareUpdates];
+          if (updates.length > 0) await db.batch(updates as [typeof updates[number], ...Array<typeof updates[number]>]);
+        }
+
+        movedIds.push(existing.id);
+        await logEvent(db, {
+          eventType: "file.moved",
+          targetType: existing.isFolder === 1 ? "folder" : "file",
+          targetId: existing.id,
+          targetPath: nextPath,
+          actor,
+          metadata: {
+            previousParentPath: existing.parentPath,
+            nextParentPath,
+            previousPath: existing.path,
+            nextPath,
+            batch: true,
+          },
+        });
+      } catch (error) {
+        failures.push({
+          id,
+          error: "move_failed",
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    return c.json({
+      requested: ids.length,
+      moved: movedIds.length,
+      movedIds,
+      parentPath: nextParentPath,
+      failures,
+    });
+  })
+);
+
 filesRoutes.get(
   "/:id",
   withErrorHandling(async (c) => {

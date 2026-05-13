@@ -92,6 +92,22 @@ export const driveApi = {
       () => apiFetchJson<{ deleted: number }>(`/api/public/v1/files/${fileId}`, { method: "DELETE" }),
       () => mockDriveApi.deleteFile(fileId),
     ),
+  deleteFiles: (ids: string[]) =>
+    apiFetchJson<{
+      requested: number;
+      deletedFiles: number;
+      deletedFolders: number;
+      deletedIds: string[];
+      failures: Array<{ id: string; error: string; message: string }>;
+    }>("/api/public/v1/files/batch", { method: "DELETE", body: JSON.stringify({ ids }) }),
+  moveFiles: (ids: string[], parentPath: string) =>
+    apiFetchJson<{
+      requested: number;
+      moved: number;
+      movedIds: string[];
+      parentPath: string;
+      failures: Array<{ id: string; error: string; message: string }>;
+    }>("/api/public/v1/files/batch", { method: "PATCH", body: JSON.stringify({ ids, parentPath }) }),
   listShares: () => withMockFallback(() => apiFetchJson<{ shares: ShareLink[] }>("/api/public/v1/shares"), () => mockDriveApi.listShares()),
   createShare: (input: CreateShareInput) =>
     withMockFallback(

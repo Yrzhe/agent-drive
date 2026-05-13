@@ -15,6 +15,9 @@ function formatDate(input: string): string {
 export function FileTable({
   entries,
   loading,
+  selectedIds,
+  onToggleSelect,
+  onToggleSelectAll,
   onOpenFolder,
   onRename,
   onShare,
@@ -22,16 +25,36 @@ export function FileTable({
 }: {
   entries: DriveFile[];
   loading: boolean;
+  selectedIds: ReadonlySet<string>;
+  onToggleSelect: (id: string, next: boolean) => void;
+  onToggleSelectAll: (next: boolean) => void;
   onOpenFolder: (entry: DriveFile) => void;
   onRename: (entry: DriveFile) => void;
   onShare: (entry: DriveFile) => void;
   onDelete: (entry: DriveFile) => void;
 }) {
+  const selectableIds = entries.map((entry) => entry.id);
+  const selectedCount = selectableIds.filter((id) => selectedIds.has(id)).length;
+  const allSelected = selectableIds.length > 0 && selectedCount === selectableIds.length;
+  const indeterminate = selectedCount > 0 && !allSelected;
+
   return (
     <div className="overflow-x-auto">
       <table className="min-w-full text-sm">
         <thead>
           <tr className="border-b border-slate-200 text-left text-slate-600">
+            <th className="w-8 py-2 pr-2 font-medium">
+              <input
+                aria-label="Select all"
+                checked={allSelected}
+                disabled={selectableIds.length === 0}
+                onChange={(event) => onToggleSelectAll(event.target.checked)}
+                ref={(node) => {
+                  if (node) node.indeterminate = indeterminate;
+                }}
+                type="checkbox"
+              />
+            </th>
             <th className="py-2 pr-4 font-medium">Name</th>
             <th className="py-2 pr-4 font-medium">Type</th>
             <th className="py-2 pr-4 font-medium">Size</th>
@@ -42,36 +65,47 @@ export function FileTable({
         <tbody>
           {loading ? (
             <tr>
-              <td className="py-4 text-slate-600" colSpan={5}>Loading files...</td>
+              <td className="py-4 text-slate-600" colSpan={6}>Loading files...</td>
             </tr>
           ) : entries.length === 0 ? (
             <tr>
-              <td className="py-4 text-slate-500" colSpan={5}>This folder is empty.</td>
+              <td className="py-4 text-slate-500" colSpan={6}>This folder is empty.</td>
             </tr>
           ) : (
-            entries.map((entry) => (
-              <tr className="border-b border-slate-100" key={entry.id}>
-                <td className="py-2 pr-4">
-                  {entry.isFolder ? (
-                    <button className="rounded px-2 py-1 font-medium text-blue-700 hover:bg-blue-50" onClick={() => onOpenFolder(entry)} type="button">
-                      📁 {entry.name}
-                    </button>
-                  ) : (
-                    <span className="text-slate-800">📄 {entry.name}</span>
-                  )}
-                </td>
-                <td className="py-2 pr-4 text-slate-700">{entry.isFolder ? "Folder" : entry.contentType || "File"}</td>
-                <td className="py-2 pr-4 text-slate-700">{entry.isFolder ? "-" : formatBytes(entry.size)}</td>
-                <td className="py-2 pr-4 text-slate-600">{formatDate(entry.updatedAt)}</td>
-                <td className="py-2 pr-4">
-                  <div className="flex flex-wrap gap-2">
-                    <button className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-700" onClick={() => onRename(entry)} type="button">Rename</button>
-                    <button className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-700" onClick={() => onShare(entry)} type="button">Share</button>
-                    <button className="rounded border border-red-300 px-2 py-1 text-xs text-red-700" onClick={() => onDelete(entry)} type="button">Delete</button>
-                  </div>
-                </td>
-              </tr>
-            ))
+            entries.map((entry) => {
+              const isSelected = selectedIds.has(entry.id);
+              return (
+                <tr className={`border-b border-slate-100 ${isSelected ? "bg-blue-50/40" : ""}`} key={entry.id}>
+                  <td className="py-2 pr-2 align-middle">
+                    <input
+                      aria-label={`Select ${entry.name}`}
+                      checked={isSelected}
+                      onChange={(event) => onToggleSelect(entry.id, event.target.checked)}
+                      type="checkbox"
+                    />
+                  </td>
+                  <td className="py-2 pr-4">
+                    {entry.isFolder ? (
+                      <button className="rounded px-2 py-1 font-medium text-blue-700 hover:bg-blue-50" onClick={() => onOpenFolder(entry)} type="button">
+                        📁 {entry.name}
+                      </button>
+                    ) : (
+                      <span className="text-slate-800">📄 {entry.name}</span>
+                    )}
+                  </td>
+                  <td className="py-2 pr-4 text-slate-700">{entry.isFolder ? "Folder" : entry.contentType || "File"}</td>
+                  <td className="py-2 pr-4 text-slate-700">{entry.isFolder ? "-" : formatBytes(entry.size)}</td>
+                  <td className="py-2 pr-4 text-slate-600">{formatDate(entry.updatedAt)}</td>
+                  <td className="py-2 pr-4">
+                    <div className="flex flex-wrap gap-2">
+                      <button className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-700" onClick={() => onRename(entry)} type="button">Rename</button>
+                      <button className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-700" onClick={() => onShare(entry)} type="button">Share</button>
+                      <button className="rounded border border-red-300 px-2 py-1 text-xs text-red-700" onClick={() => onDelete(entry)} type="button">Delete</button>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })
           )}
         </tbody>
       </table>
