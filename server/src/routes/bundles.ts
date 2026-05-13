@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { nanoid } from "nanoid";
 
@@ -370,5 +370,171 @@ bundlesRoutes.post(
       fileCount: manifest.fileCount,
       totalSize: manifest.totalSize,
     });
+  })
+);
+
+function requirePrefixQuery(value: string | undefined): string {
+  if (typeof value !== "string" || value.trim().length === 0) {
+    throw new ApiError(400, "validation_error", "prefix query parameter required");
+  }
+  const prefix = normalizePath(value);
+  if (prefix === "/") throw new ApiError(400, "validation_error", "prefix must be a non-root path");
+  return prefix;
+}
+
+bundlesRoutes.get(
+  "/current",
+  withErrorHandling(async (c) => {
+    const { db } = await import("edgespark");
+    const prefix = requirePrefixQuery(c.req.query("prefix"));
+
+    const [row] = await db
+      .select()
+      .from(bundleVersions)
+      .where(eq(bundleVersions.prefix, prefix))
+      .limit(1);
+
+    if (!row) return c.json({ prefix, currentVersion: null });
+    return c.json({
+      prefix,
+      currentVersion: {
+        versionId: row.currentVersionId,
+        previousVersionId: row.previousVersionId,
+        machineId: row.machineId,
+        hash: row.hash,
+        fileCount: row.fileCount,
+        totalSize: row.totalSize,
+        pushedAt: row.pushedAt,
+      },
+    });
+  })
+);
+
+interface HistoryManifestSummary {
+  versionId: string;
+  previousVersionId: string | null;
+  hash: string;
+  machineId: string;
+  pushedAt: string;
+  fileCount: number;
+  totalSize: number;
+}
+
+function summariseManifest(raw: unknown, fallbackVersionIdFromName: string): HistoryManifestSummary | null {
+  if (!raw || typeof raw !== "object") return null;
+  const m = raw as Record<string, unknown>;
+  const versionId = typeof m.versionId === "string" ? m.versionId : fallbackVersionIdFromName;
+  if (!versionId.startsWith("dv_")) return null;
+  return {
+    versionId,
+    previousVersionId: typeof m.previousVersionId === "string" ? m.previousVersionId : null,
+    hash: typeof m.hash === "string" ? m.hash : "",
+    machineId: typeof m.machineId === "string" ? m.machineId : "",
+    pushedAt: typeof m.pushedAt === "string" ? m.pushedAt : "",
+    fileCount: typeof m.fileCount === "number" ? m.fileCount : 0,
+    totalSize: typeof m.totalSize === "number" ? m.totalSize : 0,
+  };
+}
+
+bundlesRoutes.get(
+  "/history",
+  withErrorHandling(async (c) => {
+    const { db, storage } = await import("edgespark");
+    const prefix = requirePrefixQuery(c.req.query("prefix"));
+    const limitRaw = Number(c.req.query("limit") ?? "50");
+    const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(Math.trunc(limitRaw), 200) : 50;
+
+    const historyDir = joinPath(prefix, ".history");
+    const historyRows = await db
+      .select()
+      .from(files)
+      .where(and(eq(files.parentPath, historyDir), eq(files.isFolder, 0)))
+      .orderBy(desc(files.updatedAt))
+      .limit(limit);
+
+    const summaries: HistoryManifestSummary[] = [];
+    for (const row of historyRows) {
+      if (!row.s3Uri) continue;
+      const parsed = storage.tryParseS3Uri(row.s3Uri);
+      if (!parsed) continue;
+      const obj = await storage.from(buckets.drive).get(parsed.path);
+      if (!obj) continue;
+      const body = obj.body as unknown;
+      const bytes = body instanceof Uint8Array ? body : new Uint8Array(body as ArrayBuffer);
+      let parsedManifest: unknown;
+      try {
+        parsedManifest = JSON.parse(new TextDecoder().decode(bytes));
+      } catch {
+        continue;
+      }
+      const fallback = row.name.endsWith(".json") ? row.name.slice(0, -5) : row.name;
+      const summary = summariseManifest(parsedManifest, fallback);
+      if (summary) summaries.push(summary);
+    }
+
+    summaries.sort((a, b) => (b.pushedAt < a.pushedAt ? -1 : b.pushedAt > a.pushedAt ? 1 : 0));
+
+    const [currentRow] = await db
+      .select()
+      .from(bundleVersions)
+      .where(eq(bundleVersions.prefix, prefix))
+      .limit(1);
+
+    return c.json({
+      prefix,
+      currentVersionId: currentRow?.currentVersionId ?? null,
+      history: summaries,
+    });
+  })
+);
+
+interface RawManifestDownload {
+  prefix: string;
+  versionId: string;
+  manifest: unknown;
+}
+
+bundlesRoutes.get(
+  "/manifest",
+  withErrorHandling(async (c) => {
+    const { db, storage } = await import("edgespark");
+    const prefix = requirePrefixQuery(c.req.query("prefix"));
+    const versionId = c.req.query("versionId");
+    if (typeof versionId !== "string" || !versionId.startsWith("dv_")) {
+      throw new ApiError(400, "validation_error", "versionId query param required (must start with dv_)");
+    }
+
+    const [currentRow] = await db
+      .select()
+      .from(bundleVersions)
+      .where(eq(bundleVersions.prefix, prefix))
+      .limit(1);
+
+    const isCurrent = currentRow?.currentVersionId === versionId;
+    const manifestFsPath = isCurrent
+      ? joinPath(prefix, "manifest.json")
+      : joinPath(prefix, `.history/${versionId}.json`);
+
+    const [row] = await db.select().from(files).where(eq(files.path, manifestFsPath)).limit(1);
+    if (!row?.s3Uri) {
+      throw new ApiError(404, "not_found", `Manifest for ${versionId} not found at ${manifestFsPath}`);
+    }
+    const parsed = storage.tryParseS3Uri(row.s3Uri);
+    if (!parsed) throw new ApiError(500, "internal_error", "Manifest object has invalid S3 URI");
+    const obj = await storage.from(buckets.drive).get(parsed.path);
+    if (!obj) {
+      throw new ApiError(404, "not_found", `Manifest body for ${versionId} missing from storage`);
+    }
+    const body = obj.body as unknown;
+    const bytes = body instanceof Uint8Array ? body : new Uint8Array(body as ArrayBuffer);
+    let manifest: unknown;
+    try {
+      manifest = JSON.parse(new TextDecoder().decode(bytes));
+    } catch {
+      throw new ApiError(500, "internal_error", "Manifest body is not valid JSON");
+    }
+
+    const response: RawManifestDownload = { prefix, versionId, manifest };
+    return c.json(response);
   })
 );
