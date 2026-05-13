@@ -83,5 +83,6 @@ If you set `AGENT_TOKEN` as an EdgeSpark var on your deployment, you can paste i
 
 - **API reference**: [`docs/api/mcp.md`](../api/mcp.md)
 - **OAuth reference**: [`docs/api/oauth.md`](../api/oauth.md)
+- **Compatibility matrix**: [`compatibility.md`](./compatibility.md)
 - **In-app wizard**: `<YOUR_AGENT_DRIVE_URL>/connect`
 - **Discovery**: `<YOUR_AGENT_DRIVE_URL>/api/public/.well-known/oauth-protected-resource`

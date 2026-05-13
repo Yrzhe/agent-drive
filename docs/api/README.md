@@ -6,7 +6,8 @@ This directory documents the public HTTP surface of an Agent Drive deployment.
 |---|---|
 | [`mcp.md`](./mcp.md) | Anyone integrating an AI agent over Remote MCP |
 | [`oauth.md`](./oauth.md) | OAuth client implementers, security reviewers |
-| Setup guides ([Claude](../setup/mcp-claude.md), [Codex](../setup/mcp-codex.md), [Cursor](../setup/mcp-cursor.md)) | End users wiring an IDE/agent |
+| [Compatibility matrix](../setup/compatibility.md) | Anyone deciding which client to use |
+| Setup guides ([Claude](../setup/mcp-claude.md), [Codex](../setup/mcp-codex.md), [Cursor](../setup/mcp-cursor.md), [Gemini](../setup/mcp-gemini.md), [Windsurf](../setup/mcp-windsurf.md)) | End users wiring an IDE/agent |
 
 > Easiest onboarding path is the in-app wizard at `<YOUR_AGENT_DRIVE_URL>/connect` — it auto-detects the right URL and emits per-IDE config snippets.
 

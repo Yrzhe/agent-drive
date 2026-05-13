@@ -78,5 +78,6 @@ If your deployment sets `AGENT_TOKEN`, you can use it as a Bearer token to skip 
 
 - **API reference**: [`docs/api/mcp.md`](../api/mcp.md)
 - **OAuth reference**: [`docs/api/oauth.md`](../api/oauth.md)
+- **Compatibility matrix**: [`compatibility.md`](./compatibility.md)
 - **In-app wizard**: `<YOUR_AGENT_DRIVE_URL>/connect`
 - **Discovery**: `<YOUR_AGENT_DRIVE_URL>/api/public/.well-known/oauth-protected-resource`
