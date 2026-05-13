@@ -7,6 +7,33 @@ import { normalizeBaseUrl } from "./mcp-client.js";
 
 export const DEFAULT_OAUTH_SCOPE = "read:drive write:drive share:create";
 
+export const KNOWN_OAUTH_SCOPES = [
+  "read:drive",
+  "write:drive",
+  "share:create",
+  "read:memory",
+  "write:memory",
+  "read:skills",
+  "write:skills",
+] as const;
+
+export type KnownOauthScope = typeof KNOWN_OAUTH_SCOPES[number];
+
+const KNOWN_SCOPE_SET = new Set<string>(KNOWN_OAUTH_SCOPES);
+
+export function validateScopeString(input: string): string {
+  const tokens = input.trim().split(/\s+/u).filter((token) => token.length > 0);
+  if (tokens.length === 0) throw new Error("--scope must not be empty");
+
+  const unknown = tokens.filter((token) => !KNOWN_SCOPE_SET.has(token));
+  if (unknown.length > 0) {
+    throw new Error(
+      `Unknown OAuth scope(s): ${unknown.join(", ")}.\nKnown scopes: ${KNOWN_OAUTH_SCOPES.join(", ")}`
+    );
+  }
+  return [...new Set(tokens)].join(" ");
+}
+
 export interface PkcePair {
   verifier: string;
   challenge: string;

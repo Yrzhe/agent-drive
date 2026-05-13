@@ -76,15 +76,22 @@ async function refreshIfNeeded(options: McpClientOptions, force = false): Promis
       refreshToken: options.refreshToken,
       scope: options.scope,
     });
-    options.token = token.access_token;
-    options.refreshToken = token.refresh_token ?? options.refreshToken;
-    options.expiresAt = new Date(Date.now() + token.expires_in * 1000).toISOString();
-    options.scope = token.scope ?? options.scope;
-    if (options.machineId && options.createdAt) {
-      await writeConfig(options as AgentDriveConfig);
+    const next: McpClientOptions = {
+      ...options,
+      token: token.access_token,
+      refreshToken: token.refresh_token ?? options.refreshToken,
+      expiresAt: new Date(Date.now() + token.expires_in * 1000).toISOString(),
+      scope: token.scope ?? options.scope,
+    };
+    if (next.machineId && next.createdAt) {
+      await writeConfig(next as AgentDriveConfig);
     }
-  } catch {
-    throw new Error(`Session expired. Run: adrive login --url ${options.url}`);
+    // Disk write succeeded — only now mutate the in-memory options so a
+    // partial failure can't leave callers using a token that was never persisted.
+    Object.assign(options, next);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(`Session expired (${detail}). Run: adrive login --url ${options.url}`);
   }
 }
 

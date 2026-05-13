@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { readConfig, writeConfig, type AgentDriveConfig, type TokenType } from "../lib/config.js";
 import { initializeMcp, normalizeBaseUrl } from "../lib/mcp-client.js";
 import { openBrowser } from "../lib/browser.js";
-import { DEFAULT_OAUTH_SCOPE, exchangeAuthorizationCode, generatePkcePair, generateState, registerOAuthClient, startCallbackListener, timingSafeEqualString } from "../lib/oauth.js";
+import { DEFAULT_OAUTH_SCOPE, exchangeAuthorizationCode, generatePkcePair, generateState, registerOAuthClient, startCallbackListener, timingSafeEqualString, validateScopeString } from "../lib/oauth.js";
 
 interface LoginOptions {
   url: string;
@@ -49,8 +49,7 @@ async function loginWithToken(url: string, options: LoginOptions): Promise<void>
 }
 
 async function loginWithOAuth(url: string, options: LoginOptions): Promise<void> {
-  const scope = (options.scope ?? DEFAULT_OAUTH_SCOPE).trim();
-  if (!scope) throw new Error("--scope must not be empty");
+  const scope = validateScopeString(options.scope ?? DEFAULT_OAUTH_SCOPE);
   const existing = await readConfig();
   const listener = await startCallbackListener();
   let interrupted = false;
