@@ -40,4 +40,20 @@ describe("validateScopeString", () => {
     expect(() => validateScopeString("write::drive")).toThrow(/Unknown/);
     expect(() => validateScopeString("read:everything")).toThrow(/Unknown/);
   });
+
+  it("accepts and canonicalizes path scope tokens", () => {
+    expect(validateScopeString("path:/skills/*")).toBe("path:/skills/*");
+    expect(validateScopeString("path:/skills")).toBe("path:/skills/*");
+    expect(validateScopeString("path:/skills/")).toBe("path:/skills/*");
+    expect(validateScopeString("path:/")).toBe("path:/");
+    expect(validateScopeString("read:drive path:/memory/*"))
+      .toBe("read:drive path:/memory/*");
+  });
+
+  it("rejects malformed path scopes", () => {
+    expect(() => validateScopeString("path:")).toThrow(/Unknown/);
+    expect(() => validateScopeString("path:skills/*")).toThrow(/Unknown/);
+    expect(() => validateScopeString("path://skills/*")).toThrow(/Unknown/);
+    expect(() => validateScopeString("path:/foo/../etc/*")).toThrow(/Unknown/);
+  });
 });

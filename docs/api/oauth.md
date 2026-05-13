@@ -217,6 +217,8 @@ This avoids the O(N) PBKDF2 scan that would be required if tokens were stored on
 
 Authoritative list lives in `server/src/lib/mcp-scopes.ts`.
 
+### Capability scopes
+
 | Scope | Description |
 |---|---|
 | `read:drive` | Read files and folders in Agent Drive |
@@ -226,6 +228,42 @@ Authoritative list lives in `server/src/lib/mcp-scopes.ts`.
 | `read:skills` | Read skill files (planned) |
 | `write:skills` | Write skill files (planned) |
 | `share:create` | Create share links for files and folders |
+
+### Path-prefix scopes
+
+Limit a token's blast radius to a subtree of the drive. Grammar:
+
+```text
+path:<absolute-prefix>/*     # e.g. path:/skills/* or path:/memory/*
+path:/                       # entire drive (default if omitted)
+```
+
+Tokens may carry zero or more `path:*` scopes. Enforcement rule applied to every file/folder operation:
+
+- **No `path:*` scope on token** → any path allowed (backwards compat).
+- **One or more `path:*` scopes** → the target path must equal OR be a descendant of at least one granted prefix; otherwise the tool call returns `invalid_scope:path:<target>`.
+- `list_files` automatically filters its result to paths the token can see. `search_files` does the same — a token scoped to `/skills/*` will not surface hits from `/memory/`.
+
+Grammar rules:
+
+- Prefix must start with `/`. Trailing `/*` is stripped during normalization; `path:/skills` and `path:/skills/*` are equivalent.
+- No `..`, no `//`, no `*` anywhere except the trailing `/*`, no control characters.
+- Server canonicalizes to either `path:/` (root) or `path:/<prefix>/*` before persisting.
+
+Examples:
+
+```text
+# Claude Desktop limited to skills only
+scope=read:drive write:drive path:/skills/*
+
+# A throwaway agent that can only write to /scratch
+scope=write:drive path:/scratch/*
+
+# Read-only audit token scoped to memory + skills
+scope=read:drive path:/memory/* path:/skills/*
+```
+
+The CLI's `--scope` flag accepts these tokens too (`adrive login --url ... --scope "read:drive write:drive path:/skills/*"`). Unknown path syntax is rejected client-side with the allowed grammar.
 
 ## Security notes
 

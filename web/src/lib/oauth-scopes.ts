@@ -40,9 +40,29 @@ export function parseOAuthScopes(scopeParam: string | null): string[] {
   return Array.from(new Set(scopeParam.split(/\s+/).map((scope) => scope.trim()).filter(Boolean)));
 }
 
+function describePathScope(scope: string): OAuthScopeDescription | null {
+  if (!scope.startsWith("path:")) return null;
+  const raw = scope.slice("path:".length);
+  // Canonical forms: `path:/` (root) or `path:/<prefix>/*`
+  let prefix = raw.endsWith("/*") ? raw.slice(0, -2) : raw;
+  if (!prefix.startsWith("/")) return null;
+  if (prefix.length > 1 && prefix.endsWith("/")) prefix = prefix.slice(0, -1);
+  const display = prefix === "" ? "/" : prefix;
+  const human = prefix === "/" || prefix === ""
+    ? "整个 Drive (entire drive)"
+    : `${prefix}/ 下 (under ${prefix}/)`;
+  return {
+    scope,
+    title: `限制路径 / Path-restricted to ${display}`,
+    description: `该 MCP 客户端的文件操作只能作用于 ${human}。其他路径请求会被服务端拒绝。`,
+  };
+}
+
 export function describeOAuthScope(scope: string): OAuthScopeDescription {
   const known = OAUTH_SCOPE_DESCRIPTIONS[scope];
   if (known) return { scope, ...known };
+  const path = describePathScope(scope);
+  if (path) return path;
   return {
     scope,
     title: `${scope} / Unknown permission`,

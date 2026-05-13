@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **Path-prefix scoped OAuth tokens (YRZ-271 T4.1)** — `path:/<absolute-prefix>/*` scope tokens (or `path:/` for root) can be attached at OAuth consent time to limit a token's file/folder blast radius to a subtree. New helpers in `server/src/lib/mcp-scopes.ts`: `parsePathScope` / `formatPathScope` / `pathAllowed` / `extractPathPrefixes` / `requirePathAllowed`. Every MCP tool that takes a path arg (`list_files`, `read_file`, `write_file`, `create_share`, plus `search_files` result filtering) enforces the granted prefixes; out-of-scope paths return `invalid_scope:path:<target>`. Tokens with no `path:*` scope retain backwards-compat "any path" behavior. The CLI's `--scope` flag validates and canonicalizes `path:` tokens client-side. Web consent UI renders path scopes in plain language ("Restrict file/folder operations to paths under /skills/"). `/connect` setup page gains a path-prefix input that appends the canonical scope to the generated config. Docs: `docs/api/oauth.md` describes the grammar + examples. Verified end-to-end: token scoped to `path:/skills/*` succeeded writes/reads under `/skills/*`, was rejected on `/memory/*` and `/test/*` with clear `invalid_scope` errors.
+
 This release closes a full code-review pass (21 findings) and a follow-up audit (3 regressions, all addressed). Full review and audit history lives in the Maestri canvas note `review` / `reviewer-code-review`.
 
 ### Fixed

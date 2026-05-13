@@ -21,17 +21,50 @@ export type KnownOauthScope = typeof KNOWN_OAUTH_SCOPES[number];
 
 const KNOWN_SCOPE_SET = new Set<string>(KNOWN_OAUTH_SCOPES);
 
+/**
+ * Accept path-prefix scope tokens of the form `path:/<absolute-prefix>/*`
+ * or `path:/` (root). Returns the normalized canonical form, or null if
+ * malformed.
+ */
+export function normalizePathScopeToken(token: string): string | null {
+  if (!token.startsWith("path:")) return null;
+  let prefix = token.slice("path:".length).trim();
+  if (prefix.length === 0) return null;
+  if (prefix.endsWith("/*")) prefix = prefix.slice(0, -2);
+  if (!prefix.startsWith("/")) return null;
+  if (prefix.includes("//") || prefix.includes("/../") || prefix.endsWith("/..") || prefix.includes("*")) return null;
+  if (/[\x00-\x1f]/u.test(prefix)) return null;
+  if (prefix.length > 1 && prefix.endsWith("/")) prefix = prefix.slice(0, -1);
+  return prefix === "/" ? "path:/" : `path:${prefix}/*`;
+}
+
 export function validateScopeString(input: string): string {
   const tokens = input.trim().split(/\s+/u).filter((token) => token.length > 0);
   if (tokens.length === 0) throw new Error("--scope must not be empty");
 
-  const unknown = tokens.filter((token) => !KNOWN_SCOPE_SET.has(token));
+  const canonical: string[] = [];
+  const unknown: string[] = [];
+  for (const token of tokens) {
+    if (KNOWN_SCOPE_SET.has(token)) {
+      canonical.push(token);
+      continue;
+    }
+    const pathToken = normalizePathScopeToken(token);
+    if (pathToken !== null) {
+      canonical.push(pathToken);
+      continue;
+    }
+    unknown.push(token);
+  }
+
   if (unknown.length > 0) {
     throw new Error(
-      `Unknown OAuth scope(s): ${unknown.join(", ")}.\nKnown scopes: ${KNOWN_OAUTH_SCOPES.join(", ")}`
+      `Unknown OAuth scope(s): ${unknown.join(", ")}.\n` +
+      `Known scopes: ${KNOWN_OAUTH_SCOPES.join(", ")}\n` +
+      `Path scopes: path:/<absolute-prefix>/* (e.g. path:/skills/* or path:/ for root)`
     );
   }
-  return [...new Set(tokens)].join(" ");
+  return [...new Set(canonical)].join(" ");
 }
 
 export interface PkcePair {

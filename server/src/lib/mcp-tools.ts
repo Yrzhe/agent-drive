@@ -6,7 +6,7 @@ import { buckets, files, shares } from "@defs";
 import { hashPassword } from "./crypto";
 import { ensureFolderChain, nowIso, toFileObject } from "./files";
 import { descendantPattern, joinPath, normalizeName, normalizePath, parentOfPath } from "./paths";
-import { hasScope, type McpScope } from "./mcp-scopes";
+import { extractPathPrefixes, hasScope, pathAllowed, requirePathAllowed, type McpScope } from "./mcp-scopes";
 import type { AppDb } from "../types";
 
 interface McpToolDefinition {
@@ -137,16 +137,27 @@ export async function callMcpTool(db: AppDb, origin: string, scopes: readonly st
     const path = normalizePath(typeof input.path === "string" ? input.path : "/");
     const recursive = input.recursive === true;
     const limit = Math.max(1, Math.min(200, Math.trunc(numberArg(input, "limit", 100))));
+    // If the caller has path scopes and `path` is fully outside them, reject —
+    // they shouldn't even know whether anything is inside.
+    if (!pathAllowed(scopes, path)) {
+      // Allow listing the root only if it's an ancestor of one of the granted
+      // prefixes (so the agent can navigate down to its scoped subtree).
+      const grantedPrefixes = extractPathPrefixes(scopes);
+      const allowAsAncestor = grantedPrefixes.some((prefix) => prefix.startsWith(`${path === "/" ? "" : path}/`));
+      if (!allowAsAncestor) throw new Error(`invalid_scope:path:${path}`);
+    }
     const rows = recursive
       ? path === "/"
         ? await db.select().from(files).orderBy(asc(files.path)).limit(limit)
         : await db.select().from(files).where(like(files.path, descendantPattern(path))).orderBy(asc(files.path)).limit(limit)
       : await db.select().from(files).where(eq(files.parentPath, path)).orderBy(desc(files.isFolder), asc(files.name)).limit(limit);
-    return textResult({ path, files: rows.map(toFileObject) });
+    const visible = rows.filter((row) => pathAllowed(scopes, row.path));
+    return textResult({ path, files: visible.map(toFileObject) });
   }
 
   if (name === "read_file") {
     const path = normalizePath(stringArg(input, "path")!);
+    requirePathAllowed(scopes, path);
     const [file] = await db.select().from(files).where(and(eq(files.path, path), eq(files.isFolder, 0))).limit(1);
     if (!file?.s3Uri) throw new Error("file_not_found");
     const { storage } = await import("edgespark");
@@ -160,6 +171,7 @@ export async function callMcpTool(db: AppDb, origin: string, scopes: readonly st
 
   if (name === "write_file") {
     const path = normalizePath(stringArg(input, "path")!);
+    requirePathAllowed(scopes, path);
     const content = rawStringArg(input, "content")!;
     const contentType = stringArg(input, "content_type", false) ?? "text/plain";
     const overwrite = input.overwrite !== false;
@@ -206,7 +218,8 @@ export async function callMcpTool(db: AppDb, origin: string, scopes: readonly st
       .where(or(sql`${files.name} LIKE ${pattern} ESCAPE '\\'`, sql`${files.path} LIKE ${pattern} ESCAPE '\\'`))
       .orderBy(desc(files.isFolder), asc(files.name))
       .limit(limit);
-    return textResult({ query, files: rows.map(toFileObject) });
+    const visible = rows.filter((row) => pathAllowed(scopes, row.path));
+    return textResult({ query, files: visible.map(toFileObject) });
   }
 
   if (name === "create_share") {
@@ -218,6 +231,9 @@ export async function callMcpTool(db: AppDb, origin: string, scopes: readonly st
     const expiresIn = input.expires_in == null ? null : Math.trunc(numberArg(input, "expires_in", 0));
     if (maxDownloads !== null && maxDownloads <= 0) throw new Error("invalid_params:max_downloads must be positive");
     if (expiresIn !== null && expiresIn <= 0) throw new Error("invalid_params:expires_in must be positive");
+
+    if (filePath) requirePathAllowed(scopes, normalizePath(filePath));
+    if (folderPathInput) requirePathAllowed(scopes, normalizePath(folderPathInput));
 
     let fileId: string | null = null;
     let folderPath: string | null = null;

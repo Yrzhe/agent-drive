@@ -9,6 +9,24 @@ const DEFAULT_SCOPES = new Set<string>(["read:drive", "write:drive", "share:crea
 const UNIMPLEMENTED_SCOPES = new Set<string>(["read:memory", "write:memory", "read:skills", "write:skills"]);
 const API_DOCS_URL = "https://github.com/Yrzhe/agent-drive/tree/main/docs/api";
 const SCOPE_STORAGE_KEY = "agent-drive:connect:selected-scopes";
+const PATH_SCOPE_STORAGE_KEY = "agent-drive:connect:path-prefix";
+
+function normalizePathInput(raw: string): { ok: true; canonical: string } | { ok: false; reason: string } | { ok: "empty" } {
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) return { ok: "empty" };
+  let prefix = trimmed;
+  if (!prefix.startsWith("/")) prefix = `/${prefix}`;
+  if (prefix.endsWith("/*")) prefix = prefix.slice(0, -2);
+  if (prefix.length > 1 && prefix.endsWith("/")) prefix = prefix.slice(0, -1);
+  if (prefix.includes("//") || prefix.includes("/../") || prefix.endsWith("/..") || prefix.includes("*")) {
+    return { ok: false, reason: "Path cannot contain //, .., or extra * characters." };
+  }
+  if (/[\x00-\x1f]/u.test(prefix)) {
+    return { ok: false, reason: "Path cannot contain control characters." };
+  }
+  const scope = prefix === "/" ? "path:/" : `path:${prefix}/*`;
+  return { ok: true, canonical: scope };
+}
 
 function loadStoredScopes(): string[] | null {
   try {
@@ -87,8 +105,18 @@ export default function ConnectSetupPage() {
   const protectedResourceUrl = `${origin}/api/public/.well-known/oauth-protected-resource`;
   const authorizationServerUrl = `${origin}/api/public/.well-known/oauth-authorization-server`;
   const [selectedScopes, setSelectedScopes] = useState<string[]>(() => loadStoredScopes() ?? ALL_SCOPES.filter((scope) => DEFAULT_SCOPES.has(scope)));
+  const [pathPrefix, setPathPrefix] = useState<string>(() => {
+    try { return window.localStorage.getItem(PATH_SCOPE_STORAGE_KEY) ?? ""; } catch { return ""; }
+  });
   const [testStatus, setTestStatus] = useState<TestStatus>({ kind: "idle", message: "Run a quick probe to confirm the MCP endpoint is reachable." });
-  const scopeString = useMemo(() => selectedScopes.join(" "), [selectedScopes]);
+
+  const pathScopeResult = useMemo(() => normalizePathInput(pathPrefix), [pathPrefix]);
+  const pathScopeToken = pathScopeResult.ok === true ? pathScopeResult.canonical : null;
+
+  const scopeString = useMemo(() => {
+    const all = pathScopeToken ? [...selectedScopes, pathScopeToken] : selectedScopes;
+    return all.join(" ");
+  }, [selectedScopes, pathScopeToken]);
 
   useEffect(() => {
     try {
@@ -97,6 +125,14 @@ export default function ConnectSetupPage() {
       // localStorage disabled (private mode); ignore.
     }
   }, [selectedScopes]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(PATH_SCOPE_STORAGE_KEY, pathPrefix);
+    } catch {
+      // localStorage disabled; ignore.
+    }
+  }, [pathPrefix]);
 
   const toggleScope = (scope: string) => {
     setSelectedScopes((current) => current.includes(scope) ? current.filter((item) => item !== scope) : [...current, scope]);
@@ -179,6 +215,34 @@ export default function ConnectSetupPage() {
                 </label>
               );
             })}
+          </div>
+
+          <div className="mt-5 rounded-lg border border-slate-200 bg-slate-50 p-3">
+            <label className="block text-sm font-medium text-slate-900" htmlFor="path-prefix">
+              Path restriction (optional)
+            </label>
+            <p className="mt-1 text-xs text-slate-600">
+              Limit this token's file operations to a subtree. Leave blank for the entire drive. Example: <code>/skills</code> or <code>/memory</code>.
+            </p>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <span className="text-sm text-slate-500">path:</span>
+              <input
+                className="flex-1 min-w-[200px] rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-mono"
+                id="path-prefix"
+                onChange={(event) => { setPathPrefix(event.target.value); }}
+                placeholder="/skills"
+                type="text"
+                value={pathPrefix}
+              />
+              <span className="text-sm text-slate-500">/*</span>
+            </div>
+            {pathScopeResult.ok === false ? (
+              <p className="mt-2 text-xs text-red-600">{pathScopeResult.reason}</p>
+            ) : pathScopeToken ? (
+              <p className="mt-2 text-xs text-slate-600">
+                Will add <code className="rounded bg-slate-200 px-1.5 py-0.5">{pathScopeToken}</code> to the scope list.
+              </p>
+            ) : null}
           </div>
         </section>
 

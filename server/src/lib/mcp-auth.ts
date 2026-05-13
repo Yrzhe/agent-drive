@@ -3,14 +3,19 @@ import { and, eq, isNull } from "drizzle-orm";
 import { oauthTokens } from "@defs";
 
 import { parseBearerToken, timingSafeEqualStrings, verifyPasswordHash } from "./crypto";
-import { FULL_MCP_SCOPES, normalizeScopes, type McpScope } from "./mcp-scopes";
+import { FULL_MCP_SCOPES, normalizeScopes } from "./mcp-scopes";
 import type { AppDb } from "../types";
 
 export interface McpAuthContext {
   kind: "oauth" | "agent_token";
   userId: string | null;
   clientId: string | null;
-  scopes: McpScope[];
+  /**
+   * Granted scopes. Includes both capability scopes ("read:drive", etc.) and
+   * any path:/<prefix>/* scopes attached at consent time. Use mcp-scopes
+   * helpers (hasScope / pathAllowed) instead of inspecting the strings.
+   */
+  scopes: string[];
 }
 
 function splitSecretToken(token: string): { id: string; secret: string } | null {
