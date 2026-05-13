@@ -4,9 +4,11 @@ import { Command } from "commander";
 import { loginCommand } from "./commands/login.js";
 import { logoutCommand } from "./commands/logout.js";
 import { mcpStdioCommand } from "./commands/mcp-stdio.js";
+import { syncHistoryCommand } from "./commands/sync-history.js";
 import { syncListCommand } from "./commands/sync-list.js";
 import { syncPullCommand } from "./commands/sync-pull.js";
 import { syncPushCommand } from "./commands/sync-push.js";
+import { syncRollbackCommand } from "./commands/sync-rollback.js";
 import { whoamiCommand } from "./commands/whoami.js";
 
 const program = new Command();
@@ -69,12 +71,29 @@ sync
   .command("push")
   .requiredOption("--from <local>", "Local directory to push")
   .requiredOption("--to <cloud>", "Cloud bundle path")
-  .option("--force", "Overwrite a bundle last pushed by another machine")
+  .option("--force", "Bypass version ETag check (ifMatch: '*')")
   .option("--dry-run", "Preview changes without uploading")
   .option("--max-size <size>", "Maximum single file size, such as 10MB")
   .option("--max-files <count>", "Maximum number of files")
   .description("Push a local directory bundle to Agent Drive")
   .action((options: { from: string; to: string; force?: boolean; dryRun?: boolean; maxSize?: string; maxFiles?: string }) => run(() => syncPushCommand(options)));
+
+sync
+  .command("history")
+  .argument("<cloud-prefix>", "Cloud bundle path")
+  .option("--json", "Output raw JSON")
+  .option("--limit <count>", "Max number of versions to list (default 50, max 200)")
+  .description("List historical versions of a bundle")
+  .action((prefix: string, options: { json?: boolean; limit?: string }) => run(() => syncHistoryCommand(prefix, options)));
+
+sync
+  .command("rollback")
+  .argument("<cloud-prefix>", "Cloud bundle path")
+  .requiredOption("--to <versionId>", "Target versionId (dv_*) to restore")
+  .option("--yes", "Skip the confirmation prompt")
+  .option("--force", "Skip the confirmation prompt (alias of --yes)")
+  .description("Restore a prior manifest as a new version (pointer-only)")
+  .action((prefix: string, options: { to: string; yes?: boolean; force?: boolean }) => run(() => syncRollbackCommand(prefix, options)));
 
 async function run(action: () => Promise<void>): Promise<void> {
   try {

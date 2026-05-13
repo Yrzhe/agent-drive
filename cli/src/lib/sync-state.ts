@@ -2,7 +2,9 @@ import { mkdir, readFile, writeFile, chmod } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
-const SYNC_STATE_PATH = join(homedir(), ".agent-drive", "sync-state.json");
+function syncStatePath(): string {
+  return join(homedir(), ".agent-drive", "sync-state.json");
+}
 
 export interface BundleSyncEntry {
   localPath: string;
@@ -27,7 +29,7 @@ function makeKey(localPath: string, cloudPrefix: string): string {
 
 async function readState(): Promise<SyncStateFile> {
   try {
-    const raw = await readFile(SYNC_STATE_PATH, "utf8");
+    const raw = await readFile(syncStatePath(), "utf8");
     const parsed = JSON.parse(raw) as Partial<SyncStateFile>;
     if (parsed && parsed.version === 1 && parsed.bundles && typeof parsed.bundles === "object") {
       return { version: 1, bundles: parsed.bundles as Record<string, BundleSyncEntry> };
@@ -40,9 +42,9 @@ async function readState(): Promise<SyncStateFile> {
 }
 
 async function writeState(state: SyncStateFile): Promise<void> {
-  await mkdir(dirname(SYNC_STATE_PATH), { recursive: true, mode: 0o700 });
-  await writeFile(SYNC_STATE_PATH, `${JSON.stringify(state, null, 2)}\n`, { mode: 0o600 });
-  await chmod(SYNC_STATE_PATH, 0o600);
+  await mkdir(dirname(syncStatePath()), { recursive: true, mode: 0o700 });
+  await writeFile(syncStatePath(), `${JSON.stringify(state, null, 2)}\n`, { mode: 0o600 });
+  await chmod(syncStatePath(), 0o600);
 }
 
 export async function readBundleSyncEntry(localPath: string, cloudPrefix: string): Promise<BundleSyncEntry | null> {
