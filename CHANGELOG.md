@@ -19,6 +19,7 @@ This release closes a full code-review pass (21 findings) and a follow-up audit 
 
 ### Added
 
+- **`adrive mcp stdio` bridge** — local stdio↔HTTP MCP proxy so stdio-only clients (Gemini CLI, older OpenCode, older Claude Desktop) can use Agent Drive. Reads `~/.agent-drive/config.json`, forwards newline-delimited JSON-RPC to the remote `/api/public/mcp`, preserves request `id`, auto-refreshes OAuth tokens on 401, and returns proper JSON-RPC error objects on parse/network failure instead of crashing.
 - **Share stats IP/UA breakdown** — `GET /api/public/v1/shares/:id/stats` now returns `ipBreakdown` (top 5) and `userAgentBreakdown` (top 5) alongside the existing aggregates. Folder ZIP downloads correctly populate `fileBreakdown` (per-file download counts).
 - **File list pagination** — `GET /api/public/v1/files` accepts `limit` (default 100, max 500) and `offset` query params; response echoes both for client-side paging.
 - **Activity Log retention** — entries older than 30 days are pruned probabilistically (1% sample on each write).

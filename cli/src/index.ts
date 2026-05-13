@@ -3,6 +3,7 @@ import { Command } from "commander";
 
 import { loginCommand } from "./commands/login.js";
 import { logoutCommand } from "./commands/logout.js";
+import { mcpStdioCommand } from "./commands/mcp-stdio.js";
 import { syncListCommand } from "./commands/sync-list.js";
 import { syncPullCommand } from "./commands/sync-pull.js";
 import { syncPushCommand } from "./commands/sync-push.js";
@@ -34,6 +35,15 @@ program
   .command("whoami")
   .description("Show current Agent Drive config and server info")
   .action(() => run(whoamiCommand));
+
+const mcp = program
+  .command("mcp")
+  .description("MCP transport bridges");
+
+mcp
+  .command("stdio")
+  .description("Bridge stdio JSON-RPC to the remote HTTP MCP endpoint")
+  .action(() => run(mcpStdioCommand));
 
 const sync = program
   .command("sync")
