@@ -106,9 +106,9 @@ function printTable(manifests: RemoteManifest[]): void {
 
 export async function syncListCommand(prefixArg: string | undefined, options: SyncListOptions): Promise<void> {
   const config = await readConfig();
-  if (!config) throw new Error("Not logged in. Run: adrive login --url <URL> --token <TOKEN>");
+  if (!config) throw new Error("Not logged in. Run: adrive login --url <URL>");
 
-  const client = { url: config.url, token: config.token };
+  const client = config;
   const prefix = normalizeCloudPath(prefixArg);
   const { paths, truncated } = await candidateBundlePaths(client, prefix);
   const manifests = (await Promise.all(paths.map((path) => readManifest(client, path))))

@@ -9,6 +9,10 @@ export interface AgentDriveConfig {
   url: string;
   token: string;
   tokenType: TokenType;
+  clientId?: string;
+  refreshToken?: string;
+  expiresAt?: string;
+  scope?: string;
   machineId: string;
   createdAt: string;
 }
@@ -37,6 +41,10 @@ function parseConfig(value: unknown): AgentDriveConfig | null {
     url: candidate.url,
     token: candidate.token,
     tokenType: candidate.tokenType,
+    ...(typeof candidate.clientId === "string" ? { clientId: candidate.clientId } : {}),
+    ...(typeof candidate.refreshToken === "string" ? { refreshToken: candidate.refreshToken } : {}),
+    ...(typeof candidate.expiresAt === "string" ? { expiresAt: candidate.expiresAt } : {}),
+    ...(typeof candidate.scope === "string" ? { scope: candidate.scope } : {}),
     machineId: candidate.machineId,
     createdAt: candidate.createdAt,
   };

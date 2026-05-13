@@ -160,9 +160,9 @@ async function deleteLocalOrphans(localPath: string, remote: RemoteManifest): Pr
 
 export async function syncPullCommand(options: SyncPullOptions): Promise<void> {
   const config = await readConfig();
-  if (!config) throw new Error("Not logged in. Run: adrive login --url <URL> --token <TOKEN>");
+  if (!config) throw new Error("Not logged in. Run: adrive login --url <URL>");
 
-  const client = { url: config.url, token: config.token };
+  const client = config;
   const cloudPath = normalizeCloudPath(options.from);
   const localPath = resolve(options.to);
   const remote = await readRemoteManifest(client, cloudPath);

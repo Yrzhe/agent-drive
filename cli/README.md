@@ -21,6 +21,28 @@ npm test
 
 ## Login
 
+Browser OAuth flow:
+
+```bash
+adrive login --url https://large-gator-9215.edgespark.app
+```
+
+The CLI opens a browser, starts a localhost callback listener, and stores an OAuth access token plus refresh token in `~/.agent-drive/config.json`.
+
+Use a custom scope:
+
+```bash
+adrive login --url https://large-gator-9215.edgespark.app --scope "read:drive write:drive"
+```
+
+Print the authorization URL without opening the browser:
+
+```bash
+adrive login --url https://large-gator-9215.edgespark.app --no-browser
+```
+
+Non-interactive AGENT_TOKEN fallback for CI or owner-only automation:
+
 ```bash
 adrive login --url https://large-gator-9215.edgespark.app --token "$AGENT_TOKEN"
 ```

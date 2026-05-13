@@ -18,10 +18,12 @@ program
 program
   .command("login")
   .requiredOption("--url <url>", "Agent Drive deployment URL")
-  .requiredOption("--token <token>", "Bearer token")
+  .option("--token <token>", "Bearer token for non-interactive login")
   .option("--token-type <type>", "Token type: agent_token or oauth_access_token", "agent_token")
+  .option("--no-browser", "Print the OAuth URL without opening a browser")
+  .option("--scope <scope>", "OAuth scope to request", "read:drive write:drive share:create")
   .description("Log in to Agent Drive and write local config")
-  .action((options: { url: string; token: string; tokenType: string }) => run(() => loginCommand(options)));
+  .action((options: { url: string; token?: string; tokenType: string; browser?: boolean; scope?: string }) => run(() => loginCommand({ ...options, noBrowser: options.browser === false })));
 
 program
   .command("logout")

@@ -4,7 +4,7 @@ import { basename, posix } from "node:path";
 
 import { readConfig } from "../lib/config.js";
 import { bundleHash, sha256Hex, type ManifestFile } from "../lib/hash.js";
-import { apiUrl, callTool, McpToolError, type McpClientOptions } from "../lib/mcp-client.js";
+import { apiUrl, authorizationHeader, callTool, McpToolError, type McpClientOptions } from "../lib/mcp-client.js";
 import { formatBytes, parseSize } from "../lib/size-parser.js";
 import { type FileEntry, type SkipEntry, walkBundle } from "../lib/walker.js";
 
@@ -192,7 +192,7 @@ async function deleteRemoteFile(client: McpClientOptions, id: string): Promise<v
   const response = await fetch(apiUrl(client, `/api/public/v1/files/${encodeURIComponent(id)}`), {
     method: "DELETE",
     headers: {
-      "authorization": `Bearer ${client.token}`,
+      "authorization": await authorizationHeader(client),
     },
   });
   if (!response.ok) throw new Error(`DELETE /api/public/v1/files/${id} failed: HTTP ${response.status}`);
@@ -236,7 +236,7 @@ async function writeManifest(client: McpClientOptions, plan: BundlePlan, machine
 
 export async function syncPushCommand(options: SyncPushOptions): Promise<void> {
   const config = await readConfig();
-  if (!config) throw new Error("Not logged in. Run: adrive login --url <URL> --token <TOKEN>");
+  if (!config) throw new Error("Not logged in. Run: adrive login --url <URL>");
 
   const maxFileSize = parseSize(options.maxSize, DEFAULT_MAX_FILE_SIZE);
   const maxFiles = parseMaxFiles(options.maxFiles);
@@ -247,7 +247,7 @@ export async function syncPushCommand(options: SyncPushOptions): Promise<void> {
     maxFiles,
   });
   const plan = buildPlan(options.to, files, directories, skipped);
-  const client = { url: config.url, token: config.token };
+  const client = config;
   const remote = await readRemoteManifest(client, plan.cloudPath);
 
   if (remote && remote.machineId !== config.machineId && !options.force) {

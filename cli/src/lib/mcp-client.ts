@@ -1,6 +1,16 @@
+import { type AgentDriveConfig, writeConfig } from "./config.js";
+import { refreshAccessToken } from "./oauth.js";
+
 export interface McpClientOptions {
   url: string;
   token: string;
+  tokenType?: "agent_token" | "oauth_access_token";
+  clientId?: string;
+  refreshToken?: string;
+  expiresAt?: string;
+  scope?: string;
+  machineId?: string;
+  createdAt?: string;
 }
 
 export interface McpInitializeResult {
@@ -47,7 +57,38 @@ export function apiUrl(options: McpClientOptions, path: string): string {
   return `${normalizeBaseUrl(options.url)}${path}`;
 }
 
-async function postJsonRpc<T>(options: McpClientOptions, method: string, params?: unknown): Promise<T> {
+function oauthExpiresSoon(expiresAt: string | undefined): boolean {
+  if (!expiresAt) return false;
+  return Date.parse(expiresAt) - Date.now() < 60 * 1000;
+}
+
+function isRefreshable(options: McpClientOptions): options is McpClientOptions & Required<Pick<McpClientOptions, "clientId" | "refreshToken">> {
+  return options.tokenType === "oauth_access_token" && Boolean(options.clientId && options.refreshToken);
+}
+
+async function refreshIfNeeded(options: McpClientOptions, force = false): Promise<void> {
+  if (!isRefreshable(options)) return;
+  if (!force && !oauthExpiresSoon(options.expiresAt)) return;
+  try {
+    const token = await refreshAccessToken({
+      baseUrl: options.url,
+      clientId: options.clientId,
+      refreshToken: options.refreshToken,
+      scope: options.scope,
+    });
+    options.token = token.access_token;
+    options.refreshToken = token.refresh_token ?? options.refreshToken;
+    options.expiresAt = new Date(Date.now() + token.expires_in * 1000).toISOString();
+    options.scope = token.scope ?? options.scope;
+    if (options.machineId && options.createdAt) {
+      await writeConfig(options as AgentDriveConfig);
+    }
+  } catch {
+    throw new Error(`Session expired. Run: adrive login --url ${options.url}`);
+  }
+}
+
+async function sendJsonRpc<T>(options: McpClientOptions, method: string, params?: unknown): Promise<{ response: Response; payload: JsonRpcResponse<T> | null }> {
   const response = await fetch(mcpEndpoint(options.url), {
     method: "POST",
     headers: {
@@ -69,6 +110,16 @@ async function postJsonRpc<T>(options: McpClientOptions, method: string, params?
   } catch {
     throw new Error(`MCP ${method} failed: HTTP ${response.status} non-JSON response`);
   }
+  return { response, payload };
+}
+
+async function postJsonRpc<T>(options: McpClientOptions, method: string, params?: unknown): Promise<T> {
+  await refreshIfNeeded(options);
+  let { response, payload } = await sendJsonRpc<T>(options, method, params);
+  if (response.status === 401 && isRefreshable(options)) {
+    await refreshIfNeeded(options, true);
+    ({ response, payload } = await sendJsonRpc<T>(options, method, params));
+  }
 
   if (!response.ok) {
     throw new Error(`MCP ${method} failed: HTTP ${response.status}${payload?.error?.message ? ` ${payload.error.message}` : ""}`);
@@ -80,6 +131,11 @@ async function postJsonRpc<T>(options: McpClientOptions, method: string, params?
     throw new Error(`MCP ${method} failed: missing result`);
   }
   return payload.result;
+}
+
+export async function authorizationHeader(options: McpClientOptions): Promise<string> {
+  await refreshIfNeeded(options);
+  return `Bearer ${options.token}`;
 }
 
 export async function initializeMcp(options: McpClientOptions): Promise<McpInitializeResult> {
