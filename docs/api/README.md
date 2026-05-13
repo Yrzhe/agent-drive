@@ -6,6 +6,7 @@ This directory documents the public HTTP surface of an Agent Drive deployment.
 |---|---|
 | [`mcp.md`](./mcp.md) | Anyone integrating an AI agent over Remote MCP |
 | [`oauth.md`](./oauth.md) | OAuth client implementers, security reviewers |
+| [`drive-bundles.md`](./drive-bundles.md) | `adrive sync` users + anyone building versioned bundle workflows |
 | [Compatibility matrix](../setup/compatibility.md) | Anyone deciding which client to use |
 | Setup guides ([Claude](../setup/mcp-claude.md), [Codex](../setup/mcp-codex.md), [Cursor](../setup/mcp-cursor.md), [Gemini](../setup/mcp-gemini.md), [Windsurf](../setup/mcp-windsurf.md)) | End users wiring an IDE/agent |
 
