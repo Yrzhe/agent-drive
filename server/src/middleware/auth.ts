@@ -1,7 +1,8 @@
 import type { MiddlewareHandler } from "hono";
 
-import { parseBearerToken, timingSafeEqualStrings } from "../lib/crypto";
+import { parseBearerToken } from "../lib/crypto";
 import { ApiError, handleApiError } from "../lib/errors";
+import { authenticateMcpBearer } from "../lib/mcp-auth";
 
 export const requireDualAuth: MiddlewareHandler = async (c, next) => {
   try {
@@ -11,12 +12,13 @@ export const requireDualAuth: MiddlewareHandler = async (c, next) => {
       return;
     }
 
-    const token = parseBearerToken(c.req.header("authorization"));
-    if (!token) throw new ApiError(401, "unauthorized", "Authentication required");
+    if (!parseBearerToken(c.req.header("authorization"))) {
+      throw new ApiError(401, "unauthorized", "Authentication required");
+    }
 
-    const { secret } = await import("edgespark");
-    const configured = secret.get("AGENT_TOKEN");
-    if (!configured || !timingSafeEqualStrings(token, configured)) {
+    const { db } = await import("edgespark");
+    const authContext = await authenticateMcpBearer(db, c.req.header("authorization"));
+    if (!authContext) {
       throw new ApiError(401, "invalid_token", "Invalid bearer token");
     }
 

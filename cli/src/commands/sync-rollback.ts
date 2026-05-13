@@ -91,6 +91,9 @@ export async function syncRollbackCommand(prefix: string, options: SyncRollbackO
     });
     console.log(`Rolled back: new version ${result.versionId} restored from ${options.to}`);
     console.log(`  previousVersionId: ${result.previousVersionId}`);
+    console.log("");
+    console.log(`Note: any local checkout of ${cloudPath} now has stale sync state.`);
+    console.log(`Run 'adrive sync pull --from ${cloudPath} --to <localPath>' to re-anchor.`);
   } catch (error) {
     if (error instanceof BundleConflictError) {
       throw new Error(`Cloud bundle moved during rollback (now at ${error.currentVersionId}). Retry the rollback.`);

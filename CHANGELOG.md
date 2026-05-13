@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 This release closes a full code-review pass (21 findings) and a follow-up audit (3 regressions, all addressed). Full review and audit history lives in the Maestri canvas note `review` / `reviewer-code-review`.
 
+### Fixed
+
+- **OAuth bearer tokens now work on `/api/public/v1/*`** — `requireDualAuth` middleware previously accepted only EdgeSpark session or `AGENT_TOKEN`, silently rejecting OAuth bearer tokens that the same deployment hands out via `/api/public/oauth/token`. The middleware now delegates to `authenticateMcpBearer`, so any path the CLI exercises (`sync push` → `/v1/bundles/commit`, `/v1/files/...` orphan deletion, etc.) accepts OAuth tokens with the same scope checks the MCP surface uses. Pre-existing bug that surfaced during T4.2 smoke testing.
+- **`sync push` no longer wipes `.history/*` snapshots** — `deleteOrphans()` walked the cloud bundle and considered any file not in the local manifest as orphan, which deleted server-managed `${prefix}/.history/<versionId>.json` snapshots on every push (eating the version history). Orphan detection now excludes `${prefix}/.history/`.
+- **`sync rollback` prints local-state hint** — rollback creates a new versionId on the server but local sync-state files on other machines still point at the prior version. The rollback output now reminds users to re-anchor with `sync pull`.
+
 ### Security
 
 - **Rate limiter TOCTOU race fixed** — share password attempts now use atomic SQL increment (`count = count + 1`) instead of read-modify-write, preventing concurrent bypass of the 5/15min limit.

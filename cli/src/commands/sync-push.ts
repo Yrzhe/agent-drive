@@ -188,13 +188,22 @@ async function deleteRemoteFile(client: McpClientOptions, id: string): Promise<v
   if (!response.ok) throw new Error(`DELETE /api/public/v1/files/${id} failed: HTTP ${response.status}`);
 }
 
+function isServerManaged(cloudPath: string, filePath: string): boolean {
+  const historyPrefix = `${cloudPath.replace(/\/$/u, "")}/.history/`;
+  return filePath.startsWith(historyPrefix);
+}
+
 async function deleteOrphans(client: McpClientOptions, plan: BundlePlan): Promise<void> {
   const remoteFiles = await listRemoteFiles(client, plan.cloudPath);
   const expected = new Set([
     ...plan.manifestFiles.map((file) => cloudFilePath(plan.cloudPath, file.path)),
     cloudFilePath(plan.cloudPath, "manifest.json"),
   ]);
-  const orphans = remoteFiles.filter((file) => !file.isFolder && !expected.has(file.path));
+  const orphans = remoteFiles.filter((file) =>
+    !file.isFolder
+    && !expected.has(file.path)
+    && !isServerManaged(plan.cloudPath, file.path)
+  );
   if (orphans.length === 0) return;
 
   console.log(`Deleting ${orphans.length} orphan file(s)...`);
