@@ -449,6 +449,26 @@ filesRoutes.patch(
 );
 
 filesRoutes.get(
+  "/trash",
+  withErrorHandling(async (c) => {
+    const { db } = await import("edgespark");
+    const rows = await db
+      .select()
+      .from(files)
+      .where(isNotNull(files.deletedAt))
+      .orderBy(desc(files.deletedAt));
+    return c.json({
+      files: rows.map((row) => ({
+        ...toFileObject(row),
+        deletedAt: row.deletedAt,
+        retention: row.deletedAt ? trashRetentionInfo(row.deletedAt) : null,
+      })),
+      retentionDays: 30,
+    });
+  })
+);
+
+filesRoutes.get(
   "/:id",
   withErrorHandling(async (c) => {
     const { db } = await import("edgespark");
@@ -617,26 +637,6 @@ filesRoutes.delete(
           : { size: target.size },
     });
     return c.json({ trashed: target.isFolder === 1 ? fileIds.length : 1, targetId: target.id });
-  })
-);
-
-filesRoutes.get(
-  "/trash",
-  withErrorHandling(async (c) => {
-    const { db } = await import("edgespark");
-    const rows = await db
-      .select()
-      .from(files)
-      .where(isNotNull(files.deletedAt))
-      .orderBy(desc(files.deletedAt));
-    return c.json({
-      files: rows.map((row) => ({
-        ...toFileObject(row),
-        deletedAt: row.deletedAt,
-        retention: row.deletedAt ? trashRetentionInfo(row.deletedAt) : null,
-      })),
-      retentionDays: 30,
-    });
   })
 );
 
