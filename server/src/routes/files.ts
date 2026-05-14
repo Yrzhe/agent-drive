@@ -456,6 +456,28 @@ filesRoutes.get(
   })
 );
 
+filesRoutes.get(
+  "/:id/preview",
+  withErrorHandling(async (c) => {
+    const { db, storage } = await import("edgespark");
+    const [file] = await db.select().from(files).where(eq(files.id, getIdParam(c))).limit(1);
+    if (!file) throw new ApiError(404, "file_not_found", "File not found");
+    if (file.isFolder === 1) throw new ApiError(400, "validation_error", "Folders cannot be previewed");
+    if (!file.s3Uri) throw new ApiError(409, "upload_pending", "File has not finished uploading");
+    const parsed = storage.tryParseS3Uri(file.s3Uri);
+    if (!parsed) throw new ApiError(500, "storage_error", "Invalid storage URI");
+    const { downloadUrl } = await storage.from(buckets.drive).createPresignedGetUrl(parsed.path, 300);
+    return c.json({
+      id: file.id,
+      name: file.name,
+      contentType: file.contentType,
+      size: file.size,
+      downloadUrl,
+      expiresInSecs: 300,
+    });
+  })
+);
+
 filesRoutes.patch(
   "/:id",
   withErrorHandling(async (c) => {

@@ -19,6 +19,7 @@ export function FileTable({
   onToggleSelect,
   onToggleSelectAll,
   onOpenFolder,
+  onPreview,
   onRename,
   onShare,
   onDelete,
@@ -29,6 +30,7 @@ export function FileTable({
   onToggleSelect: (id: string, next: boolean) => void;
   onToggleSelectAll: (next: boolean) => void;
   onOpenFolder: (entry: DriveFile) => void;
+  onPreview: (entry: DriveFile) => void;
   onRename: (entry: DriveFile) => void;
   onShare: (entry: DriveFile) => void;
   onDelete: (entry: DriveFile) => void;
@@ -90,7 +92,9 @@ export function FileTable({
                         📁 {entry.name}
                       </button>
                     ) : (
-                      <span className="text-slate-800">📄 {entry.name}</span>
+                      <button className="rounded px-2 py-1 text-left text-slate-800 hover:bg-slate-50" onClick={() => onPreview(entry)} type="button">
+                        📄 {entry.name}
+                      </button>
                     )}
                   </td>
                   <td className="py-2 pr-4 text-slate-700">{entry.isFolder ? "Folder" : entry.contentType || "File"}</td>

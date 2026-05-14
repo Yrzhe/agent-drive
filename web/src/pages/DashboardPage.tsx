@@ -3,6 +3,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { AuthLoginPanel } from "@/components/AuthLoginPanel";
 import { Breadcrumbs } from "@/components/Breadcrumbs";
 import { FileTable } from "@/components/FileTable";
+import { PreviewModal } from "@/components/PreviewModal";
 import { ShareModal, type ShareModalInput } from "@/components/ShareModal";
 import { UploadZone, type UploadProgress } from "@/components/UploadZone";
 import { useAuth } from "@/hooks/useAuth";
@@ -34,6 +35,7 @@ export default function DashboardPage() {
   const [uploading, setUploading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [shareTarget, setShareTarget] = useState<DriveFile | null>(null);
+  const [previewTarget, setPreviewTarget] = useState<DriveFile | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<UploadProgress | null>(null);
@@ -334,6 +336,8 @@ export default function DashboardPage() {
     }
   };
 
+  const loadPreview = useCallback((fileId: string) => driveApi.previewFile(fileId), []);
+
   const handleOpenFolder = useCallback((entry: DriveFile) => {
     if (!entry.isFolder) return;
     setSearchQuery("");
@@ -452,6 +456,7 @@ export default function DashboardPage() {
             loading={isSearchActive ? searching : loadingFiles}
             onDelete={(entry) => { void handleDelete(entry); }}
             onOpenFolder={handleOpenFolder}
+            onPreview={(entry) => setPreviewTarget(entry)}
             onRename={(entry) => { void handleRename(entry); }}
             onShare={(entry) => setShareTarget(entry)}
             onToggleSelect={handleToggleSelect}
@@ -554,6 +559,7 @@ export default function DashboardPage() {
       </div>
 
       {shareTarget ? <ShareModal onCancel={() => setShareTarget(null)} onCreate={(input) => { void handleCreateShare(input); }} target={shareTarget} /> : null}
+      {previewTarget ? <PreviewModal loadPreview={loadPreview} onClose={() => setPreviewTarget(null)} target={previewTarget} /> : null}
     </main>
   );
 }

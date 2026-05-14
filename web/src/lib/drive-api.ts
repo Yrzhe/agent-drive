@@ -87,6 +87,15 @@ export const driveApi = {
       () => apiFetchJson<{ file: DriveFile }>(`/api/public/v1/files/${fileId}`, { method: "PATCH", body: JSON.stringify(payload) }),
       () => mockDriveApi.renameFile(fileId, payload),
     ),
+  previewFile: (fileId: string) =>
+    apiFetchJson<{
+      id: string;
+      name: string;
+      contentType: string | null;
+      size: number;
+      downloadUrl: string;
+      expiresInSecs: number;
+    }>(`/api/public/v1/files/${fileId}/preview`),
   deleteFile: (fileId: string) =>
     withMockFallback(
       () => apiFetchJson<{ deleted: number }>(`/api/public/v1/files/${fileId}`, { method: "DELETE" }),
