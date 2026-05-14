@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, like, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, like, or, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
 import { buckets, files, shares } from "@defs";
@@ -7,6 +7,7 @@ import { hashPassword } from "./crypto";
 import { ensureFolderChain, nowIso, toFileObject } from "./files";
 import { descendantPattern, joinPath, normalizeName, normalizePath, parentOfPath } from "./paths";
 import { extractPathPrefixes, hasScope, pathAllowed, requirePathAllowed, type McpScope } from "./mcp-scopes";
+import { purgeConflictingTrashAtPath } from "./trash";
 import type { AppDb } from "../types";
 
 interface McpToolDefinition {
@@ -148,9 +149,9 @@ export async function callMcpTool(db: AppDb, origin: string, scopes: readonly st
     }
     const rows = recursive
       ? path === "/"
-        ? await db.select().from(files).orderBy(asc(files.path)).limit(limit)
-        : await db.select().from(files).where(like(files.path, descendantPattern(path))).orderBy(asc(files.path)).limit(limit)
-      : await db.select().from(files).where(eq(files.parentPath, path)).orderBy(desc(files.isFolder), asc(files.name)).limit(limit);
+        ? await db.select().from(files).where(isNull(files.deletedAt)).orderBy(asc(files.path)).limit(limit)
+        : await db.select().from(files).where(and(like(files.path, descendantPattern(path)), isNull(files.deletedAt))).orderBy(asc(files.path)).limit(limit)
+      : await db.select().from(files).where(and(eq(files.parentPath, path), isNull(files.deletedAt))).orderBy(desc(files.isFolder), asc(files.name)).limit(limit);
     const visible = rows.filter((row) => pathAllowed(scopes, row.path));
     return textResult({ path, files: visible.map(toFileObject) });
   }
@@ -158,7 +159,11 @@ export async function callMcpTool(db: AppDb, origin: string, scopes: readonly st
   if (name === "read_file") {
     const path = normalizePath(stringArg(input, "path")!);
     requirePathAllowed(scopes, path);
-    const [file] = await db.select().from(files).where(and(eq(files.path, path), eq(files.isFolder, 0))).limit(1);
+    const [file] = await db
+      .select()
+      .from(files)
+      .where(and(eq(files.path, path), eq(files.isFolder, 0), isNull(files.deletedAt)))
+      .limit(1);
     if (!file?.s3Uri) throw new Error("file_not_found");
     const { storage } = await import("edgespark");
     const parsed = storage.tryParseS3Uri(file.s3Uri);
@@ -180,8 +185,13 @@ export async function callMcpTool(db: AppDb, origin: string, scopes: readonly st
     const bytes = new TextEncoder().encode(content);
     const { storage } = await import("edgespark");
     await ensureFolderChain(db, parentPath);
+    await purgeConflictingTrashAtPath(db, storage, path);
 
-    const [existing] = await db.select().from(files).where(eq(files.path, path)).limit(1);
+    const [existing] = await db
+      .select()
+      .from(files)
+      .where(and(eq(files.path, path), isNull(files.deletedAt)))
+      .limit(1);
     if (existing?.isFolder === 1) throw new Error("path_conflict:target is a folder");
     if (existing && !overwrite) throw new Error("path_conflict:file already exists");
 
@@ -215,7 +225,10 @@ export async function callMcpTool(db: AppDb, origin: string, scopes: readonly st
     const rows = await db
       .select()
       .from(files)
-      .where(or(sql`${files.name} LIKE ${pattern} ESCAPE '\\'`, sql`${files.path} LIKE ${pattern} ESCAPE '\\'`))
+      .where(and(
+        or(sql`${files.name} LIKE ${pattern} ESCAPE '\\'`, sql`${files.path} LIKE ${pattern} ESCAPE '\\'`),
+        isNull(files.deletedAt)
+      ))
       .orderBy(desc(files.isFolder), asc(files.name))
       .limit(limit);
     const visible = rows.filter((row) => pathAllowed(scopes, row.path));
@@ -238,12 +251,20 @@ export async function callMcpTool(db: AppDb, origin: string, scopes: readonly st
     let fileId: string | null = null;
     let folderPath: string | null = null;
     if (filePath) {
-      const [file] = await db.select().from(files).where(and(eq(files.path, normalizePath(filePath)), eq(files.isFolder, 0))).limit(1);
+      const [file] = await db
+        .select()
+        .from(files)
+        .where(and(eq(files.path, normalizePath(filePath)), eq(files.isFolder, 0), isNull(files.deletedAt)))
+        .limit(1);
       if (!file) throw new Error("file_not_found");
       fileId = file.id;
     } else if (folderPathInput) {
       folderPath = normalizePath(folderPathInput);
-      const [folder] = await db.select().from(files).where(and(eq(files.path, folderPath), eq(files.isFolder, 1))).limit(1);
+      const [folder] = await db
+        .select()
+        .from(files)
+        .where(and(eq(files.path, folderPath), eq(files.isFolder, 1), isNull(files.deletedAt)))
+        .limit(1);
       if (!folder) throw new Error("folder_not_found");
     }
 

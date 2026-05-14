@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, like, ne, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, like, ne, or, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { nanoid } from "nanoid";
 import { buckets, files, shares } from "@defs";
@@ -6,6 +6,14 @@ import { getRequestActor, logEvent } from "../lib/activity";
 import { ensureFolderChain, nowIso, toFileObject } from "../lib/files";
 import { ApiError, withErrorHandling } from "../lib/errors";
 import { descendantPattern, joinPath, normalizeName, normalizePath, parentOfPath } from "../lib/paths";
+import {
+  hardPurgeSubtree,
+  maybePurgeStaleTrash,
+  purgeConflictingTrashAtPath,
+  restoreSubtree,
+  softDeleteSubtree,
+  trashRetentionInfo,
+} from "../lib/trash";
 import { PRESIGNED_URL_TTL_SECS } from "../types";
 
 export const filesRoutes = new Hono();
@@ -64,7 +72,12 @@ filesRoutes.post(
     await ensureFolderChain(db, parentPath);
 
     const targetPath = joinPath(parentPath, filename);
-    const [conflict] = await db.select().from(files).where(eq(files.path, targetPath)).limit(1);
+    await purgeConflictingTrashAtPath(db, storage, targetPath);
+    const [conflict] = await db
+      .select()
+      .from(files)
+      .where(and(eq(files.path, targetPath), isNull(files.deletedAt)))
+      .limit(1);
     if (conflict) throw new ApiError(409, "path_conflict", "Path already exists");
 
     const fileId = nanoid();
@@ -185,9 +198,9 @@ filesRoutes.get(
 
     const result = recursive
       ? path === "/"
-        ? await db.select().from(files).orderBy(asc(files.path)).limit(limit).offset(offset)
-        : await db.select().from(files).where(like(files.path, descendantPattern(path))).orderBy(asc(files.path)).limit(limit).offset(offset)
-      : await db.select().from(files).where(eq(files.parentPath, path)).orderBy(desc(files.isFolder), asc(files.name)).limit(limit).offset(offset);
+        ? await db.select().from(files).where(isNull(files.deletedAt)).orderBy(asc(files.path)).limit(limit).offset(offset)
+        : await db.select().from(files).where(and(like(files.path, descendantPattern(path)), isNull(files.deletedAt))).orderBy(asc(files.path)).limit(limit).offset(offset)
+      : await db.select().from(files).where(and(eq(files.parentPath, path), isNull(files.deletedAt))).orderBy(desc(files.isFolder), asc(files.name)).limit(limit).offset(offset);
 
     return c.json({ files: result.map(toFileObject), path, limit, offset });
   })
@@ -209,9 +222,12 @@ filesRoutes.get(
       .select()
       .from(files)
       .where(
-        or(
-          sql`${files.name} LIKE ${pattern} ESCAPE '\\'`,
-          sql`${files.path} LIKE ${pattern} ESCAPE '\\'`
+        and(
+          or(
+            sql`${files.name} LIKE ${pattern} ESCAPE '\\'`,
+            sql`${files.path} LIKE ${pattern} ESCAPE '\\'`
+          ),
+          isNull(files.deletedAt)
         )
       )
       .orderBy(desc(files.isFolder), asc(files.name))
@@ -261,11 +277,14 @@ filesRoutes.delete(
     const ids = normalizeBatchIds(body.ids);
 
     const { db, storage } = await import("edgespark");
-    const targets = await db.select().from(files).where(inArray(files.id, ids));
+    const targets = await db
+      .select()
+      .from(files)
+      .where(and(inArray(files.id, ids), isNull(files.deletedAt)));
     const byId = new Map(targets.map((t) => [t.id, t]));
     const failures: BatchFailure[] = [];
-    const deletedFileIds: string[] = [];
-    const deletedFolderIds: string[] = [];
+    const trashedFileIds: string[] = [];
+    const trashedFolderIds: string[] = [];
     const actor = await getRequestActor();
 
     for (const id of ids) {
@@ -275,44 +294,21 @@ filesRoutes.delete(
         continue;
       }
       try {
-        const rows =
-          target.isFolder === 1
-            ? await db.select().from(files).where(or(eq(files.path, target.path), like(files.path, descendantPattern(target.path))))
-            : [target];
-
-        const storagePaths = rows
-          .filter((x) => x.isFolder === 0 && x.s3Uri)
-          .map((x) => storage.tryParseS3Uri(x.s3Uri!))
-          .filter((x): x is NonNullable<typeof x> => x !== null)
-          .map((x) => x.path);
-
-        if (storagePaths.length > 0) await storage.from(buckets.drive).delete(storagePaths);
-
-        const childFileIds = rows.filter((x) => x.isFolder === 0).map((x) => x.id);
-
+        const { rows, fileIds: childFileIds } = await softDeleteSubtree(db, target);
         if (target.isFolder === 1) {
-          await db.batch([
-            db.delete(shares).where(or(eq(shares.folderPath, target.path), like(shares.folderPath, descendantPattern(target.path)))),
-            ...(childFileIds.length > 0 ? [db.delete(shares).where(inArray(shares.fileId, childFileIds))] : []),
-            db.delete(files).where(or(eq(files.path, target.path), like(files.path, descendantPattern(target.path)))),
-          ]);
-          deletedFolderIds.push(target.id);
+          trashedFolderIds.push(target.id);
           await logEvent(db, {
-            eventType: "file.deleted",
+            eventType: "file.trashed",
             targetType: "folder",
             targetId: target.id,
             targetPath: target.path,
             actor,
-            metadata: { deletedFiles: childFileIds.length, deletedPaths: rows.length, batch: true },
+            metadata: { trashedFiles: childFileIds.length, trashedPaths: rows.length, batch: true },
           });
         } else {
-          await db.batch([
-            db.delete(shares).where(eq(shares.fileId, target.id)),
-            db.delete(files).where(eq(files.id, target.id)),
-          ]);
-          deletedFileIds.push(target.id);
+          trashedFileIds.push(target.id);
           await logEvent(db, {
-            eventType: "file.deleted",
+            eventType: "file.trashed",
             targetType: "file",
             targetId: target.id,
             targetPath: target.path,
@@ -329,11 +325,13 @@ filesRoutes.delete(
       }
     }
 
+    await maybePurgeStaleTrash(db, storage);
+
     return c.json({
       requested: ids.length,
-      deletedFiles: deletedFileIds.length,
-      deletedFolders: deletedFolderIds.length,
-      deletedIds: [...deletedFileIds, ...deletedFolderIds],
+      trashedFiles: trashedFileIds.length,
+      trashedFolders: trashedFolderIds.length,
+      trashedIds: [...trashedFileIds, ...trashedFolderIds],
       failures,
     });
   })
@@ -349,10 +347,13 @@ filesRoutes.patch(
     }
     const nextParentPath = normalizePath(body.parentPath);
 
-    const { db } = await import("edgespark");
+    const { db, storage } = await import("edgespark");
     await ensureFolderChain(db, nextParentPath);
 
-    const targets = await db.select().from(files).where(inArray(files.id, ids));
+    const targets = await db
+      .select()
+      .from(files)
+      .where(and(inArray(files.id, ids), isNull(files.deletedAt)));
     const byId = new Map(targets.map((t) => [t.id, t]));
     const failures: BatchFailure[] = [];
     const movedIds: string[] = [];
@@ -376,10 +377,11 @@ filesRoutes.patch(
         }
 
         const nextPath = joinPath(nextParentPath, existing.name);
+        await purgeConflictingTrashAtPath(db, storage, nextPath);
         const [conflict] = await db
           .select()
           .from(files)
-          .where(and(eq(files.path, nextPath), ne(files.id, existing.id)))
+          .where(and(eq(files.path, nextPath), ne(files.id, existing.id), isNull(files.deletedAt)))
           .limit(1);
         if (conflict) {
           failures.push({ id, error: "path_conflict", message: `Path already exists: ${nextPath}` });
@@ -450,7 +452,11 @@ filesRoutes.get(
   "/:id",
   withErrorHandling(async (c) => {
     const { db } = await import("edgespark");
-    const [file] = await db.select().from(files).where(eq(files.id, getIdParam(c))).limit(1);
+    const [file] = await db
+      .select()
+      .from(files)
+      .where(and(eq(files.id, getIdParam(c)), isNull(files.deletedAt)))
+      .limit(1);
     if (!file) throw new ApiError(404, "file_not_found", "File not found");
     return c.json({ file: toFileObject(file) });
   })
@@ -460,7 +466,11 @@ filesRoutes.get(
   "/:id/preview",
   withErrorHandling(async (c) => {
     const { db, storage } = await import("edgespark");
-    const [file] = await db.select().from(files).where(eq(files.id, getIdParam(c))).limit(1);
+    const [file] = await db
+      .select()
+      .from(files)
+      .where(and(eq(files.id, getIdParam(c)), isNull(files.deletedAt)))
+      .limit(1);
     if (!file) throw new ApiError(404, "file_not_found", "File not found");
     if (file.isFolder === 1) throw new ApiError(400, "validation_error", "Folders cannot be previewed");
     if (!file.s3Uri) throw new ApiError(409, "upload_pending", "File has not finished uploading");
@@ -486,8 +496,12 @@ filesRoutes.patch(
       throw new ApiError(400, "validation_error", "Either name or parentPath is required");
     }
 
-    const { db } = await import("edgespark");
-    const [existing] = await db.select().from(files).where(eq(files.id, getIdParam(c))).limit(1);
+    const { db, storage } = await import("edgespark");
+    const [existing] = await db
+      .select()
+      .from(files)
+      .where(and(eq(files.id, getIdParam(c)), isNull(files.deletedAt)))
+      .limit(1);
     if (!existing) throw new ApiError(404, "file_not_found", "File not found");
 
     const nextName = body.name === undefined ? existing.name : normalizeName(body.name);
@@ -500,10 +514,11 @@ filesRoutes.patch(
     const nextPath = joinPath(nextParentPath, nextName);
 
     if (nextPath !== existing.path) {
+      await purgeConflictingTrashAtPath(db, storage, nextPath);
       const [conflict] = await db
         .select()
         .from(files)
-        .where(and(eq(files.path, nextPath), ne(files.id, existing.id)))
+        .where(and(eq(files.path, nextPath), ne(files.id, existing.id), isNull(files.deletedAt)))
         .limit(1);
       if (conflict) throw new ApiError(409, "path_conflict", "Path already exists");
     }
@@ -579,58 +594,108 @@ filesRoutes.delete(
   "/:id",
   withErrorHandling(async (c) => {
     const { db, storage } = await import("edgespark");
-    const [target] = await db.select().from(files).where(eq(files.id, getIdParam(c))).limit(1);
+    const [target] = await db
+      .select()
+      .from(files)
+      .where(and(eq(files.id, getIdParam(c)), isNull(files.deletedAt)))
+      .limit(1);
     if (!target) throw new ApiError(404, "file_not_found", "File not found");
 
-    const rows =
-      target.isFolder === 1
-        ? await db.select().from(files).where(or(eq(files.path, target.path), like(files.path, descendantPattern(target.path))))
-        : [target];
+    const { rows, fileIds } = await softDeleteSubtree(db, target);
+    await maybePurgeStaleTrash(db, storage);
 
-    const storagePaths = rows
-      .filter((x) => x.isFolder === 0 && x.s3Uri)
-      .map((x) => storage.tryParseS3Uri(x.s3Uri!))
-      .filter((x): x is NonNullable<typeof x> => x !== null)
-      .map((x) => x.path);
-
-    if (storagePaths.length > 0) await storage.from(buckets.drive).delete(storagePaths);
-
-    const fileIds = rows.filter((x) => x.isFolder === 0).map((x) => x.id);
-
-    if (target.isFolder === 1) {
-      await db.batch([
-        db.delete(shares).where(or(eq(shares.folderPath, target.path), like(shares.folderPath, descendantPattern(target.path)))),
-        ...(fileIds.length > 0 ? [db.delete(shares).where(inArray(shares.fileId, fileIds))] : []),
-        db.delete(files).where(or(eq(files.path, target.path), like(files.path, descendantPattern(target.path)))),
-      ]);
-      await logEvent(db, {
-        eventType: "file.deleted",
-        targetType: "folder",
-        targetId: target.id,
-        targetPath: target.path,
-        actor: await getRequestActor(),
-        metadata: {
-          deletedFiles: fileIds.length,
-          deletedPaths: rows.length,
-        },
-      });
-      return c.json({ deleted: fileIds.length });
-    }
-
-    await db.batch([
-      db.delete(shares).where(eq(shares.fileId, target.id)),
-      db.delete(files).where(eq(files.id, target.id)),
-    ]);
+    const targetType = target.isFolder === 1 ? "folder" : "file";
     await logEvent(db, {
-      eventType: "file.deleted",
-      targetType: "file",
+      eventType: "file.trashed",
+      targetType,
       targetId: target.id,
       targetPath: target.path,
       actor: await getRequestActor(),
-      metadata: {
-        size: target.size,
-      },
+      metadata:
+        target.isFolder === 1
+          ? { trashedFiles: fileIds.length, trashedPaths: rows.length }
+          : { size: target.size },
     });
-    return c.json({ deleted: 1 });
+    return c.json({ trashed: target.isFolder === 1 ? fileIds.length : 1, targetId: target.id });
+  })
+);
+
+filesRoutes.get(
+  "/trash",
+  withErrorHandling(async (c) => {
+    const { db } = await import("edgespark");
+    const rows = await db
+      .select()
+      .from(files)
+      .where(isNotNull(files.deletedAt))
+      .orderBy(desc(files.deletedAt));
+    return c.json({
+      files: rows.map((row) => ({
+        ...toFileObject(row),
+        deletedAt: row.deletedAt,
+        retention: row.deletedAt ? trashRetentionInfo(row.deletedAt) : null,
+      })),
+      retentionDays: 30,
+    });
+  })
+);
+
+filesRoutes.post(
+  "/:id/restore",
+  withErrorHandling(async (c) => {
+    const { db, storage } = await import("edgespark");
+    const [target] = await db
+      .select()
+      .from(files)
+      .where(and(eq(files.id, getIdParam(c)), isNotNull(files.deletedAt)))
+      .limit(1);
+    if (!target) throw new ApiError(404, "file_not_found", "Trashed item not found");
+
+    const [conflict] = await db
+      .select()
+      .from(files)
+      .where(and(eq(files.path, target.path), ne(files.id, target.id), isNull(files.deletedAt)))
+      .limit(1);
+    if (conflict) {
+      throw new ApiError(409, "path_conflict", `An item already exists at ${target.path}. Rename or move it before restoring.`);
+    }
+
+    await ensureFolderChain(db, target.parentPath);
+    const restored = await restoreSubtree(db, target);
+    await maybePurgeStaleTrash(db, storage);
+
+    await logEvent(db, {
+      eventType: "file.restored",
+      targetType: target.isFolder === 1 ? "folder" : "file",
+      targetId: target.id,
+      targetPath: target.path,
+      actor: await getRequestActor(),
+      metadata: { restoredPaths: restored },
+    });
+    return c.json({ restored, file: toFileObject({ ...target, deletedAt: null }) });
+  })
+);
+
+filesRoutes.delete(
+  "/:id/purge",
+  withErrorHandling(async (c) => {
+    const { db, storage } = await import("edgespark");
+    const [target] = await db
+      .select()
+      .from(files)
+      .where(and(eq(files.id, getIdParam(c)), isNotNull(files.deletedAt)))
+      .limit(1);
+    if (!target) throw new ApiError(404, "file_not_found", "Trashed item not found");
+
+    const { rowCount, objectCount } = await hardPurgeSubtree(db, storage, target);
+    await logEvent(db, {
+      eventType: "file.purged",
+      targetType: target.isFolder === 1 ? "folder" : "file",
+      targetId: target.id,
+      targetPath: target.path,
+      actor: await getRequestActor(),
+      metadata: { rowCount, objectCount },
+    });
+    return c.json({ purged: rowCount, objectsRemoved: objectCount });
   })
 );

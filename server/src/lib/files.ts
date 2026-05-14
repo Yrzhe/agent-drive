@@ -1,4 +1,4 @@
-import { inArray } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
 import { files } from "@defs";
@@ -38,7 +38,7 @@ export async function ensureFolderChain(db: AppDb, targetPath: string): Promise<
   }
 
   const existingRows = await db
-    .select({ path: files.path, isFolder: files.isFolder })
+    .select({ id: files.id, path: files.path, isFolder: files.isFolder, deletedAt: files.deletedAt })
     .from(files)
     .where(inArray(files.path, folderPaths));
   const existingByPath = new Map(existingRows.map((row) => [row.path, row]));
@@ -46,6 +46,17 @@ export async function ensureFolderChain(db: AppDb, targetPath: string): Promise<
   for (const [index, folderPath] of folderPaths.entries()) {
     const existing = existingByPath.get(folderPath);
     if (existing) {
+      if (existing.deletedAt) {
+        // Soft-deleted folder occupies this path. Restore it (and its subtree) instead of inserting a fresh row.
+        if (existing.isFolder !== 1) {
+          throw new ApiError(409, "path_conflict", `Path is reserved by a trashed file: ${folderPath}`);
+        }
+        await db
+          .update(files)
+          .set({ deletedAt: null, updatedAt: nowIso() })
+          .where(and(eq(files.id, existing.id), isNotNull(files.deletedAt)));
+        continue;
+      }
       if (existing.isFolder !== 1) {
         throw new ApiError(409, "path_conflict", `Path already exists as file: ${folderPath}`);
       }

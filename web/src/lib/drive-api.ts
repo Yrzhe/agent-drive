@@ -104,11 +104,20 @@ export const driveApi = {
   deleteFiles: (ids: string[]) =>
     apiFetchJson<{
       requested: number;
-      deletedFiles: number;
-      deletedFolders: number;
-      deletedIds: string[];
+      trashedFiles: number;
+      trashedFolders: number;
+      trashedIds: string[];
       failures: Array<{ id: string; error: string; message: string }>;
     }>("/api/public/v1/files/batch", { method: "DELETE", body: JSON.stringify({ ids }) }),
+  listTrash: () =>
+    apiFetchJson<{
+      files: Array<DriveFile & { deletedAt: string | null; retention: { deletedAt: string; purgesAt: string; daysLeft: number } | null }>;
+      retentionDays: number;
+    }>("/api/public/v1/files/trash"),
+  restoreFile: (fileId: string) =>
+    apiFetchJson<{ restored: number; file: DriveFile }>(`/api/public/v1/files/${fileId}/restore`, { method: "POST" }),
+  purgeFile: (fileId: string) =>
+    apiFetchJson<{ purged: number; objectsRemoved: number }>(`/api/public/v1/files/${fileId}/purge`, { method: "DELETE" }),
   moveFiles: (ids: string[], parentPath: string) =>
     apiFetchJson<{
       requested: number;

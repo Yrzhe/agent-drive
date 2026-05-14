@@ -112,7 +112,7 @@ publicSharesRoutes.get(
     }
 
     if (share.fileId) {
-      const [file] = await db.select().from(files).where(eq(files.id, share.fileId)).limit(1);
+      const [file] = await db.select().from(files).where(and(eq(files.id, share.fileId), isNull(files.deletedAt))).limit(1);
       if (!file) throw new ApiError(404, "file_not_found", "Shared file not found");
       await logEvent(db, {
         eventType: "share.accessed",
@@ -143,10 +143,10 @@ publicSharesRoutes.get(
     }
 
     const folderPath = normalizePath(share.folderPath ?? "/");
-    const [folder] = await db.select().from(files).where(and(eq(files.path, folderPath), eq(files.isFolder, 1))).limit(1);
+    const [folder] = await db.select().from(files).where(and(eq(files.path, folderPath), eq(files.isFolder, 1), isNull(files.deletedAt))).limit(1);
     if (!folder) throw new ApiError(404, "file_not_found", "Shared folder not found");
 
-    const descendants = await db.select({ size: files.size, isFolder: files.isFolder }).from(files).where(like(files.path, descendantPattern(folderPath)));
+    const descendants = await db.select({ size: files.size, isFolder: files.isFolder }).from(files).where(and(like(files.path, descendantPattern(folderPath)), isNull(files.deletedAt)));
     const size = descendants.filter((x) => x.isFolder === 0).reduce((sum, x) => sum + x.size, 0);
     const fileCount = descendants.filter((x) => x.isFolder === 0).length;
 
@@ -236,13 +236,13 @@ publicSharesRoutes.get(
     const { share, db } = await resolveShareAndToken(c);
 
     if (share.fileId) {
-      const [file] = await db.select().from(files).where(and(eq(files.id, share.fileId), eq(files.isFolder, 0))).limit(1);
+      const [file] = await db.select().from(files).where(and(eq(files.id, share.fileId), eq(files.isFolder, 0), isNull(files.deletedAt))).limit(1);
       if (!file) throw new ApiError(404, "file_not_found", "Shared file not found");
       return c.json({ files: [{ id: file.id, name: file.name, path: file.name, isFolder: false, size: file.size, contentType: file.contentType }] });
     }
 
     const folderPath = normalizePath(share.folderPath ?? "/");
-    const rows = await db.select().from(files).where(like(files.path, descendantPattern(folderPath))).orderBy(asc(files.path));
+    const rows = await db.select().from(files).where(and(like(files.path, descendantPattern(folderPath)), isNull(files.deletedAt))).orderBy(asc(files.path));
     return c.json({
       files: rows.map((row) => ({
         id: row.id,
@@ -272,7 +272,12 @@ publicSharesRoutes.get(
       [target] = await db
         .select()
         .from(files)
-        .where(and(eq(files.id, fileId), eq(files.isFolder, 0), or(eq(files.path, folderPath), like(files.path, descendantPattern(folderPath)))))
+        .where(and(
+          eq(files.id, fileId),
+          eq(files.isFolder, 0),
+          isNull(files.deletedAt),
+          or(eq(files.path, folderPath), like(files.path, descendantPattern(folderPath)))
+        ))
         .limit(1);
     }
 
@@ -328,7 +333,7 @@ publicSharesRoutes.get(
       throw new ApiError(400, "validation_error", "Path is outside the shared folder");
     }
 
-    const [baseFolder] = await db.select().from(files).where(and(eq(files.path, basePath), eq(files.isFolder, 1))).limit(1);
+    const [baseFolder] = await db.select().from(files).where(and(eq(files.path, basePath), eq(files.isFolder, 1), isNull(files.deletedAt))).limit(1);
     if (!baseFolder) throw new ApiError(404, "file_not_found", "Folder not found in share");
     zipName = sanitizeZipFilename(baseFolder.name);
 

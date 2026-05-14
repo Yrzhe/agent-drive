@@ -263,7 +263,7 @@ export default function DashboardPage() {
       const result = await driveApi.deleteFiles(ids);
       setSelectedIds(new Set());
       if (result.failures.length > 0) {
-        setErrorMessage(`${result.deletedFiles + result.deletedFolders} deleted, ${result.failures.length} failed: ${result.failures.map((f) => f.message).slice(0, 3).join("; ")}`);
+        setErrorMessage(`${result.trashedFiles + result.trashedFolders} moved to trash, ${result.failures.length} failed: ${result.failures.map((f) => f.message).slice(0, 3).join("; ")}`);
       } else {
         setErrorMessage(null);
       }
@@ -390,6 +390,7 @@ export default function DashboardPage() {
             />
             <Link className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700" to="/connect"><span aria-hidden="true">+</span> Connect AI Agent</Link>
             <Link className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-700" to="/bundles">Synced bundles</Link>
+            <Link className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-700" to="/trash">Trash</Link>
             <Link className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-700" to="/guide">Open Guide</Link>
             <button className="rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-medium text-white" onClick={() => { void signOut(); }} type="button">Sign out</button>
           </div>

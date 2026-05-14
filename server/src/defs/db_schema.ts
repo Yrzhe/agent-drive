@@ -12,10 +12,14 @@ export const files = sqliteTable(
     size: integer("size").notNull().default(0),
     contentType: text("content_type"),
     s3Uri: text("s3_uri"),
+    deletedAt: text("deleted_at"),
     createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
     updatedAt: text("updated_at").notNull().default(sql`(datetime('now'))`),
   },
-  (table) => [index("idx_files_parent_path").on(table.parentPath)]
+  (table) => [
+    index("idx_files_parent_path").on(table.parentPath),
+    index("idx_files_deleted_at").on(table.deletedAt),
+  ]
 );
 
 export const shares = sqliteTable(
