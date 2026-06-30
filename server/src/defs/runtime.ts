@@ -6,7 +6,8 @@
 export type VarKey =
   // | "API_BASE_URL"
   // | "GOOGLE_CLIENT_ID"
-  | "ALLOWED_ORIGIN";
+  | "ALLOWED_ORIGIN"
+  | "AGENT_TOKEN_SCOPES";
 
 export type SecretKey =
   | "AGENT_TOKEN";

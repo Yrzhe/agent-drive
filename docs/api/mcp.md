@@ -20,7 +20,15 @@ Content-Type: application/json
 `<token>` is one of:
 
 1. An OAuth 2.1 access token obtained via the [OAuth flow](./oauth.md). Scope is whatever the user approved.
-2. The `AGENT_TOKEN` EdgeSpark var on the deployment. Bypass path for self-hosted single-user mode; grants `FULL_MCP_SCOPES`.
+2. The `AGENT_TOKEN` EdgeSpark secret on the deployment. Bypass path for self-hosted single-user mode; defaults to `read:drive write:drive share:create path:/`.
+
+Set the optional `AGENT_TOKEN_SCOPES` var to narrow the bypass token for MCP, for example:
+
+```text
+read:drive path:/handoffs/*
+```
+
+`AGENT_TOKEN_SCOPES` can only select from the default AGENT_TOKEN MCP capabilities (`read:drive`, `write:drive`, `share:create`) plus optional `path:/...` restrictions. If it is set but malformed or includes unsupported scopes, the AGENT_TOKEN exposes no MCP tools until the var is fixed.
 
 ### 401 + WWW-Authenticate
 

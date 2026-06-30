@@ -3,7 +3,7 @@ import { and, eq, isNull } from "drizzle-orm";
 import { oauthTokens } from "@defs";
 
 import { parseBearerToken, timingSafeEqualStrings, verifyPasswordHash } from "./crypto";
-import { FULL_MCP_SCOPES, normalizeScopes } from "./mcp-scopes";
+import { DEFAULT_AGENT_TOKEN_SCOPES, isMcpScope, isPathScope, normalizeScopes, parsePathScope } from "./mcp-scopes";
 import type { AppDb } from "../types";
 
 export interface McpAuthContext {
@@ -24,6 +24,32 @@ function splitSecretToken(token: string): { id: string; secret: string } | null 
   return { id: token.slice(0, index), secret: token.slice(index + 1) };
 }
 
+const AGENT_TOKEN_ALLOWED_CAPABILITY_SCOPES: Set<string> = new Set(DEFAULT_AGENT_TOKEN_SCOPES.filter((scope) => isMcpScope(scope)));
+
+function agentTokenScopes(configuredScopes: string | null | undefined): string[] {
+  if (!configuredScopes?.trim()) return [...DEFAULT_AGENT_TOKEN_SCOPES];
+
+  const scopes: string[] = [];
+  const seen = new Set<string>();
+  for (const token of configuredScopes.split(/\s+/u)) {
+    const trimmed = token.trim();
+    if (!trimmed) continue;
+    if (isMcpScope(trimmed)) {
+      if (!AGENT_TOKEN_ALLOWED_CAPABILITY_SCOPES.has(trimmed)) return [];
+    } else if (!isPathScope(trimmed) || parsePathScope(trimmed) === null) {
+      return [];
+    }
+
+    const [normalized] = normalizeScopes(trimmed);
+    if (!normalized) return [];
+    if (!seen.has(normalized)) {
+      scopes.push(normalized);
+      seen.add(normalized);
+    }
+  }
+  return scopes;
+}
+
 export async function authenticateMcpBearer(db: AppDb, authorization: string | undefined): Promise<McpAuthContext | null> {
   const bearer = parseBearerToken(authorization);
   if (!bearer) return null;
@@ -41,14 +67,14 @@ export async function authenticateMcpBearer(db: AppDb, authorization: string | u
     }
   }
 
-  const { secret } = await import("edgespark");
+  const { secret, vars } = await import("edgespark");
   const configured = secret.get("AGENT_TOKEN");
   if (configured && timingSafeEqualStrings(bearer, configured)) {
     return {
       kind: "agent_token",
       userId: null,
       clientId: null,
-      scopes: FULL_MCP_SCOPES,
+      scopes: agentTokenScopes(vars.get("AGENT_TOKEN_SCOPES")),
     };
   }
 
