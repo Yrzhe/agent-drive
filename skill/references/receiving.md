@@ -153,15 +153,15 @@ GET https://{host}/api/public/s/{shareId}/download
 Header: X-Access-Token: {accessToken}
 ```
 
-## Handling Large Folders (>50MB)
+## Handling Large Folders (>30MB)
 
-ZIP download has a 50MB limit. If the folder exceeds it, the server returns 413 with a helpful response:
+ZIP download has a 30MB limit. If the folder exceeds it, the server returns 413 with a helpful response:
 
 ```json
 {
   "error": {
     "code": "zip_too_large",
-    "message": "ZIP download is limited to 50MB. This folder is 120MB.",
+    "message": "ZIP download is limited to 30MB. This folder is 120MB.",
     "hint": "Use GET /files to list all files, then GET /download?fileId=<id> to download each individually.",
     "filesEndpoint": "/api/public/s/{shareId}/files",
     "fileCount": 42,
@@ -213,7 +213,7 @@ Try /download-zip
 |------|------|---------|------------|
 | 404 | `share_not_found` | Share doesn't exist or deleted | Nothing — link is dead |
 | 410 | `share_expired` | Past expiration time | Request a new share from the sender |
-| 413 | `zip_too_large` | Folder exceeds 50MB ZIP limit | Download files individually (see above) |
+| 413 | `zip_too_large` | Folder exceeds 30MB ZIP limit | Download files individually (see above) |
 | 429 | `share_exhausted` | Download limit reached | Request a new share from the sender |
 | 403 | `wrong_password` | Wrong password | Check password and retry |
 | 401 | `invalid_access_token` | Token expired (15 min) | Call `/access` again for a new token |

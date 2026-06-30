@@ -16,6 +16,8 @@ POST {apiBase}/shares
 Body: { "folderPath": "/projects/demo" }
 ```
 
+Use `{"folderPath": "/"}` to share the whole drive as a virtual root folder. Blank or whitespace-only `folderPath` is invalid; use an explicit `/` for root.
+
 ### With all options
 ```bash
 POST {apiBase}/shares

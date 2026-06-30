@@ -70,6 +70,16 @@ The second command prints a URL. **STOP and tell the user:**
 
 **Wait for confirmation.**
 
+### Optional: Narrow MCP scopes for AGENT_TOKEN
+
+For MCP, `AGENT_TOKEN` defaults to `read:drive write:drive share:create path:/`. To restrict automation to a subtree, set the deployment var `AGENT_TOKEN_SCOPES` in EdgeSpark:
+
+```text
+AGENT_TOKEN_SCOPES=read:drive write:drive share:create path:/handoffs/*
+```
+
+Malformed or unsupported configured scopes fail closed for MCP tools, so verify carefully after changing this var.
+
 ## Deploy
 
 ```bash
@@ -129,4 +139,5 @@ Config saved to skill directory — agent can use it in any future session.
 - **Migration fails** — Must be on default branch (main/master)
 - **Deploy fails** — Run `edgespark deploy --dry-run` first
 - **Secret not working** — `edgespark secret list` to verify, re-set if needed
+- **MCP tools missing with AGENT_TOKEN** — Check `AGENT_TOKEN_SCOPES`; malformed scopes expose no MCP tools until fixed
 - **Can't sign up** — Check auth config: `edgespark auth`

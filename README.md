@@ -21,10 +21,11 @@ Agent Drive is a private cloud drive designed for AI agents. Your agent uploads 
 
 ### Key Features
 
-- **File management** — Upload, list, rename, move, delete files and folders via REST API
-- **Share links** — Password-protected, with download limits and expiration
+- **File management** — Upload, list, preview, rename, move, soft-delete/restore/purge files and folders via REST API
+- **Share links** — Password-protected, with download limits, expiration, folder shares, and virtual root (`/`) shares
 - **ZIP download** — Agents download entire folders as ZIP, or pick individual files
 - **Web dashboard** — Human-friendly file browser, upload zone, share management
+- **MCP + CLI sync** — OAuth-capable MCP endpoint and `adrive sync` bundle push/pull/history/rollback with version checks
 - **Agent guide endpoint** — Receiving agents read `/api/public/guide` to learn the API automatically
 - **One-click deploy** — Skill-guided setup on EdgeSpark, minimal manual steps
 
@@ -163,9 +164,9 @@ agent-drive/
 
 ## API Reference
 
-### Management (requires `Authorization: Bearer {TOKEN}`)
+### Management (requires session auth or `Authorization: Bearer {TOKEN}`)
 
-For MCP, the legacy `AGENT_TOKEN` bearer is accepted with `FULL_MCP_SCOPES` for backward-compatible automation. OAuth MCP tokens remain scoped and revocable.
+For MCP, OAuth bearer tokens are scoped and revocable. The self-hosted `AGENT_TOKEN` bypass defaults to `read:drive write:drive share:create path:/` for MCP and can be narrowed with the optional `AGENT_TOKEN_SCOPES` var.
 Use `/api/public/mcp` as the remote MCP URL. OAuth/MCP discovery is served from `/api/public/.well-known/*` because EdgeSpark requires server routes to live under `/api/*`.
 
 | Method | Endpoint | Description |
@@ -175,11 +176,15 @@ Use `/api/public/mcp` as the remote MCP URL. OAuth/MCP discovery is served from 
 | GET | `/api/public/v1/files?path=/` | List files |
 | POST | `/api/public/v1/folders` | Create folder |
 | PATCH | `/api/public/v1/files/:id` | Rename / move |
-| DELETE | `/api/public/v1/files/:id` | Delete |
+| DELETE | `/api/public/v1/files/:id` | Soft-delete (trash) |
 | POST | `/api/public/v1/shares` | Create share |
 | GET | `/api/public/v1/shares` | List active shares |
 | DELETE | `/api/public/v1/shares/:id` | Delete share |
 | GET | `/api/public/v1/stats` | Storage stats |
+| POST | `/api/public/v1/bundles/commit` | Commit a versioned bundle manifest |
+| GET | `/api/public/v1/bundles/current?prefix=/path` | Read current bundle version |
+| GET | `/api/public/v1/bundles/history?prefix=/path` | List prior bundle versions |
+| GET | `/api/public/v1/bundles/manifest?prefix=/path&versionId=dv_...` | Read a versioned bundle manifest |
 
 ### Public (no auth)
 
@@ -193,6 +198,16 @@ Use `/api/public/mcp` as the remote MCP URL. OAuth/MCP discovery is served from 
 | GET | `/api/public/s/:id/download-zip` | Download folder as ZIP |
 
 Full API docs: [`skill/references/api-reference.md`](skill/references/api-reference.md)
+
+## Development Checks
+
+Install dependencies separately in each package (`server`, `web`, `cli`), then run:
+
+```bash
+cd server && npm run typecheck && npm test && cd ..
+cd web && npm run lint && npm run build && npm test && cd ..
+cd cli && npm run check && npm test && cd ..
+```
 
 ## Tech Stack
 
