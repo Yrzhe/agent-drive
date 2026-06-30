@@ -1,11 +1,11 @@
-import { and, asc, desc, eq, inArray, isNotNull, isNull, like, ne, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { nanoid } from "nanoid";
 import { buckets, files, shares } from "@defs";
 import { getRequestActor, logEvent } from "../lib/activity";
 import { ensureFolderChain, nowIso, toFileObject } from "../lib/files";
 import { ApiError, withErrorHandling } from "../lib/errors";
-import { descendantPattern, joinPath, normalizeName, normalizePath, parentOfPath } from "../lib/paths";
+import { escapedDescendantPattern, joinPath, normalizeName, normalizePath, parentOfPath } from "../lib/paths";
 import {
   hardPurgeSubtree,
   maybePurgeStaleTrash,
@@ -199,7 +199,7 @@ filesRoutes.get(
     const result = recursive
       ? path === "/"
         ? await db.select().from(files).where(isNull(files.deletedAt)).orderBy(asc(files.path)).limit(limit).offset(offset)
-        : await db.select().from(files).where(and(like(files.path, descendantPattern(path)), isNull(files.deletedAt))).orderBy(asc(files.path)).limit(limit).offset(offset)
+        : await db.select().from(files).where(and(sql`${files.path} LIKE ${escapedDescendantPattern(path)} ESCAPE '\\'`, isNull(files.deletedAt))).orderBy(asc(files.path)).limit(limit).offset(offset)
       : await db.select().from(files).where(and(eq(files.parentPath, path), isNull(files.deletedAt))).orderBy(desc(files.isFolder), asc(files.name)).limit(limit).offset(offset);
 
     return c.json({ files: result.map(toFileObject), path, limit, offset });
@@ -391,7 +391,7 @@ filesRoutes.patch(
         await db.update(files).set({ parentPath: nextParentPath, path: nextPath, updatedAt }).where(eq(files.id, existing.id));
 
         if (existing.isFolder === 1) {
-          const descendants = await db.select().from(files).where(like(files.path, descendantPattern(existing.path))).orderBy(asc(files.path));
+          const descendants = await db.select().from(files).where(sql`${files.path} LIKE ${escapedDescendantPattern(existing.path)} ESCAPE '\\'`).orderBy(asc(files.path));
           const descendantUpdates = descendants.map((item) => {
             const path = `${nextPath}${item.path.slice(existing.path.length)}`;
             return db.update(files).set({ path, parentPath: parentOfPath(path), updatedAt }).where(eq(files.id, item.id));
@@ -400,7 +400,7 @@ filesRoutes.patch(
           const linkedShares = await db
             .select({ id: shares.id, folderPath: shares.folderPath })
             .from(shares)
-            .where(or(eq(shares.folderPath, existing.path), like(shares.folderPath, descendantPattern(existing.path))));
+            .where(or(eq(shares.folderPath, existing.path), sql`${shares.folderPath} LIKE ${escapedDescendantPattern(existing.path)} ESCAPE '\\'`));
           const shareUpdates = linkedShares.flatMap((linkedShare) => {
             if (!linkedShare.folderPath) return [];
             const updatedFolderPath =
@@ -547,7 +547,7 @@ filesRoutes.patch(
     await db.update(files).set({ name: nextName, parentPath: nextParentPath, path: nextPath, updatedAt }).where(eq(files.id, existing.id));
 
     if (existing.isFolder === 1 && nextPath !== existing.path) {
-      const descendants = await db.select().from(files).where(like(files.path, descendantPattern(existing.path))).orderBy(asc(files.path));
+      const descendants = await db.select().from(files).where(sql`${files.path} LIKE ${escapedDescendantPattern(existing.path)} ESCAPE '\\'`).orderBy(asc(files.path));
       const descendantUpdates = descendants.map((item) => {
         const path = `${nextPath}${item.path.slice(existing.path.length)}`;
         return db.update(files).set({ path, parentPath: parentOfPath(path), updatedAt }).where(eq(files.id, item.id));
@@ -556,7 +556,7 @@ filesRoutes.patch(
       const linkedShares = await db
         .select({ id: shares.id, folderPath: shares.folderPath })
         .from(shares)
-        .where(or(eq(shares.folderPath, existing.path), like(shares.folderPath, descendantPattern(existing.path))));
+        .where(or(eq(shares.folderPath, existing.path), sql`${shares.folderPath} LIKE ${escapedDescendantPattern(existing.path)} ESCAPE '\\'`));
       const shareUpdates = linkedShares.flatMap((linkedShare) => {
         if (!linkedShare.folderPath) return [];
         const updatedFolderPath =

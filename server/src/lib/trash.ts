@@ -1,8 +1,8 @@
-import { and, eq, inArray, isNotNull, isNull, like, lt, or, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
 import { buckets, files, shares } from "@defs";
 import type { AppDb, FileRow } from "../types";
 import { nowIso } from "./files";
-import { descendantPattern } from "./paths";
+import { escapedDescendantPattern } from "./paths";
 
 export const TRASH_RETENTION_DAYS = 30;
 export const TRASH_PURGE_SAMPLE_RATE = 0.01;
@@ -22,7 +22,7 @@ export async function expandSubtree(db: AppDb, root: FileRow): Promise<FileRow[]
   return db
     .select()
     .from(files)
-    .where(or(eq(files.path, root.path), like(files.path, descendantPattern(root.path))));
+    .where(or(eq(files.path, root.path), sql`${files.path} LIKE ${escapedDescendantPattern(root.path)} ESCAPE '\\'`));
 }
 
 export async function softDeleteSubtree(
@@ -35,7 +35,7 @@ export async function softDeleteSubtree(
 
   const folderShareCondition =
     root.isFolder === 1
-      ? or(eq(shares.folderPath, root.path), like(shares.folderPath, descendantPattern(root.path)))
+      ? or(eq(shares.folderPath, root.path), sql`${shares.folderPath} LIKE ${escapedDescendantPattern(root.path)} ESCAPE '\\'`)
       : undefined;
 
   const ops: any[] = [];
@@ -49,7 +49,7 @@ export async function softDeleteSubtree(
         .set({ deletedAt: timestamp, updatedAt: timestamp })
         .where(
           and(
-            or(eq(files.path, root.path), like(files.path, descendantPattern(root.path))),
+            or(eq(files.path, root.path), sql`${files.path} LIKE ${escapedDescendantPattern(root.path)} ESCAPE '\\'`),
             isNull(files.deletedAt)
           )
         )
@@ -77,14 +77,14 @@ export async function restoreSubtree(db: AppDb, root: FileRow): Promise<number> 
       .set({ deletedAt: null, updatedAt: timestamp })
       .where(
         and(
-          or(eq(files.path, root.path), like(files.path, descendantPattern(root.path))),
+          or(eq(files.path, root.path), sql`${files.path} LIKE ${escapedDescendantPattern(root.path)} ESCAPE '\\'`),
           isNotNull(files.deletedAt)
         )
       );
     const restored = await db
       .select({ id: files.id })
       .from(files)
-      .where(or(eq(files.path, root.path), like(files.path, descendantPattern(root.path))));
+      .where(or(eq(files.path, root.path), sql`${files.path} LIKE ${escapedDescendantPattern(root.path)} ESCAPE '\\'`));
     return restored.length;
   }
   await db
@@ -109,11 +109,11 @@ export async function hardPurgeSubtree(
     const ops: any[] = [
       db
         .delete(shares)
-        .where(or(eq(shares.folderPath, root.path), like(shares.folderPath, descendantPattern(root.path)))),
+        .where(or(eq(shares.folderPath, root.path), sql`${shares.folderPath} LIKE ${escapedDescendantPattern(root.path)} ESCAPE '\\'`)),
     ];
     if (fileIds.length > 0) ops.push(db.delete(shares).where(inArray(shares.fileId, fileIds)));
     ops.push(
-      db.delete(files).where(or(eq(files.path, root.path), like(files.path, descendantPattern(root.path))))
+      db.delete(files).where(or(eq(files.path, root.path), sql`${files.path} LIKE ${escapedDescendantPattern(root.path)} ESCAPE '\\'`))
     );
     await db.batch(ops as [any, ...any[]]);
   } else {
@@ -171,6 +171,3 @@ export function trashRetentionInfo(deletedAt: string): { deletedAt: string; purg
     daysLeft,
   };
 }
-
-// drizzle-orm 1.x ESM helpers used elsewhere are re-exported via @defs; sql import kept for future use
-void sql;

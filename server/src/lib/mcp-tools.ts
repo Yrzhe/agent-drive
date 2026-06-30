@@ -1,11 +1,11 @@
-import { and, asc, desc, eq, isNull, like, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, or, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
 import { buckets, files, shares } from "@defs";
 
 import { hashPassword } from "./crypto";
 import { ensureFolderChain, nowIso, toFileObject } from "./files";
-import { descendantPattern, joinPath, normalizeName, normalizePath, parentOfPath } from "./paths";
+import { escapedDescendantPattern, joinPath, normalizeName, normalizePath, parentOfPath } from "./paths";
 import { extractPathPrefixes, hasScope, pathAllowed, requirePathAllowed, type McpScope } from "./mcp-scopes";
 import { purgeConflictingTrashAtPath } from "./trash";
 import type { AppDb } from "../types";
@@ -150,7 +150,7 @@ export async function callMcpTool(db: AppDb, origin: string, scopes: readonly st
     const rows = recursive
       ? path === "/"
         ? await db.select().from(files).where(isNull(files.deletedAt)).orderBy(asc(files.path)).limit(limit)
-        : await db.select().from(files).where(and(like(files.path, descendantPattern(path)), isNull(files.deletedAt))).orderBy(asc(files.path)).limit(limit)
+        : await db.select().from(files).where(and(sql`${files.path} LIKE ${escapedDescendantPattern(path)} ESCAPE '\\'`, isNull(files.deletedAt))).orderBy(asc(files.path)).limit(limit)
       : await db.select().from(files).where(and(eq(files.parentPath, path), isNull(files.deletedAt))).orderBy(desc(files.isFolder), asc(files.name)).limit(limit);
     const visible = rows.filter((row) => pathAllowed(scopes, row.path));
     return textResult({ path, files: visible.map(toFileObject) });

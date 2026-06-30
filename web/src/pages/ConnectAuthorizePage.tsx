@@ -58,34 +58,20 @@ function readCsrfToken(payload: OAuthClientInfoResponse, searchParams: URLSearch
   return payload.csrfToken ?? payload.csrf_token ?? searchParams.get("csrf_token") ?? searchParams.get("csrfToken") ?? "";
 }
 
-function buildDeniedRedirect(redirectUri: string | null, state: string | null): string | null {
-  if (!redirectUri) return null;
-  try {
-    const url = new URL(redirectUri, window.location.origin);
-    url.searchParams.set("error", "access_denied");
-    if (state) url.searchParams.set("state", state);
-    return url.toString();
-  } catch {
-    return null;
-  }
-}
-
 export default function ConnectAuthorizePage() {
   const search = window.location.search;
   const searchParams = useMemo(() => new URLSearchParams(search), [search]);
   const clientId = searchParams.get("client_id") ?? "";
   const redirectUri = searchParams.get("redirect_uri");
-  const state = searchParams.get("state");
   const scopeDescriptions = useMemo(
     () => parseOAuthScopes(searchParams.get("scope")).map(describeOAuthScope),
     [searchParams],
   );
-  const deniedRedirect = useMemo(() => buildDeniedRedirect(redirectUri, state), [redirectUri, state]);
   const { loading: authLoading, isAuthenticated } = useAuth();
   const [clientInfo, setClientInfo] = useState<OAuthClientInfo | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [approving, setApproving] = useState(false);
+  const [submittingAction, setSubmittingAction] = useState<"allow" | "deny" | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -122,23 +108,15 @@ export default function ConnectAuthorizePage() {
     };
   }, [clientId, searchParams]);
 
-  const handleDeny = useCallback(() => {
-    if (deniedRedirect) {
-      window.location.assign(deniedRedirect);
-      return;
-    }
-    setErrorMessage("Cannot deny this request because redirect_uri is missing or invalid.");
-  }, [deniedRedirect]);
-
   const clientName = clientInfo?.clientName ?? "MCP Client";
   const csrfToken = clientInfo?.csrfToken ?? "";
 
-  const handleAllow = useCallback(async () => {
+  const submitConsent = useCallback(async (approved: boolean) => {
     if (!clientId || !redirectUri) {
-      setErrorMessage("Cannot authorize this request because client_id or redirect_uri is missing.");
+      setErrorMessage(`Cannot ${approved ? "authorize" : "deny"} this request because client_id or redirect_uri is missing.`);
       return;
     }
-    setApproving(true);
+    setSubmittingAction(approved ? "allow" : "deny");
     setErrorMessage(null);
     try {
       const body = Object.fromEntries(searchParams.entries());
@@ -146,7 +124,7 @@ export default function ConnectAuthorizePage() {
         method: "POST",
         body: JSON.stringify({
           ...body,
-          approved: "true",
+          approved: approved ? "true" : "false",
           csrf_token: csrfToken,
           csrfToken,
         }),
@@ -156,8 +134,8 @@ export default function ConnectAuthorizePage() {
       }
       window.location.assign(result.redirect_uri);
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "Authorization failed.");
-      setApproving(false);
+      setErrorMessage(error instanceof Error ? error.message : approved ? "Authorization failed." : "Deny failed.");
+      setSubmittingAction(null);
     }
   }, [clientId, csrfToken, redirectUri, search, searchParams]);
 
@@ -220,18 +198,19 @@ export default function ConnectAuthorizePage() {
         <section className="flex flex-wrap items-center justify-end gap-3 rounded-xl border border-slate-200 bg-white p-5">
           <button
             className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-            onClick={handleDeny}
+            disabled={loading || submittingAction !== null}
+            onClick={() => { void submitConsent(false); }}
             type="button"
           >
-            拒绝 / Deny
+            {submittingAction === "deny" ? "Denying..." : "拒绝 / Deny"}
           </button>
           <button
             className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-300"
-            disabled={!clientId || !redirectUri || loading || approving}
-            onClick={() => { void handleAllow(); }}
+            disabled={!clientId || !redirectUri || loading || submittingAction !== null}
+            onClick={() => { void submitConsent(true); }}
             type="button"
           >
-            {approving ? "Authorizing..." : "同意 / Allow"}
+            {submittingAction === "allow" ? "Authorizing..." : "同意 / Allow"}
           </button>
         </section>
       </div>
