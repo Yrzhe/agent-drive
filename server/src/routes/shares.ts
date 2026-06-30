@@ -12,6 +12,7 @@ import { normalizePath } from "../lib/paths";
 import type { AppDb, ShareObject, ShareRow } from "../types";
 
 export const sharesRoutes = new Hono();
+const ROOT_SHARE_NAME = "Drive";
 
 function getShareId(c: { req: { param: (name: string) => string | undefined } }): string {
   const id = c.req.param("id");
@@ -44,6 +45,22 @@ async function toShareObject(db: AppDb, share: ShareRow, origin: string): Promis
   }
 
   const folderPath = normalizePath(share.folderPath ?? "/");
+  if (folderPath === "/") {
+    return {
+      id: share.id,
+      fileId: share.fileId,
+      folderPath: share.folderPath,
+      type: "folder",
+      targetName: ROOT_SHARE_NAME,
+      hasPassword: Boolean(share.passwordHash),
+      maxDownloads: share.maxDownloads,
+      downloadCount: share.downloadCount,
+      expiresAt: share.expiresAt,
+      createdAt: share.createdAt,
+      shareUrl: `${origin}/s/${share.id}`,
+    };
+  }
+
   const [folder] = await db
     .select()
     .from(files)
@@ -98,6 +115,7 @@ async function toShareObjects(db: AppDb, shareRows: ShareRow[], origin: string):
   return shareRows.map((share) => {
     if (share.fileId) return toShareObjectWithTarget(share, origin, fileNameById.get(share.fileId) ?? "(deleted file)");
     const folderPath = normalizePath(share.folderPath ?? "/");
+    if (folderPath === "/") return toShareObjectWithTarget(share, origin, ROOT_SHARE_NAME);
     return toShareObjectWithTarget(share, origin, folderNameByPath.get(folderPath) ?? folderPath.split("/").filter(Boolean).pop() ?? "/");
   });
 }
@@ -114,7 +132,11 @@ sharesRoutes.post(
     };
 
     const fileId = body.fileId?.trim() || null;
-    const folderPath = body.folderPath ? normalizePath(body.folderPath) : null;
+    const rawFolderPath = typeof body.folderPath === "string" ? body.folderPath.trim() : undefined;
+    if (body.folderPath !== undefined && !rawFolderPath) {
+      throw new ApiError(400, "validation_error", "folderPath cannot be empty");
+    }
+    const folderPath = rawFolderPath ? normalizePath(rawFolderPath) : null;
     if ((fileId ? 1 : 0) + (folderPath ? 1 : 0) !== 1) {
       throw new ApiError(400, "validation_error", "Exactly one of fileId or folderPath is required");
     }
@@ -133,7 +155,7 @@ sharesRoutes.post(
       const [file] = await db.select().from(files).where(and(eq(files.id, fileId), eq(files.isFolder, 0), isNull(files.deletedAt))).limit(1);
       if (!file) throw new ApiError(404, "file_not_found", "File not found");
     }
-    if (folderPath) {
+    if (folderPath && folderPath !== "/") {
       const [folder] = await db.select().from(files).where(and(eq(files.path, folderPath), eq(files.isFolder, 1), isNull(files.deletedAt))).limit(1);
       if (!folder) throw new ApiError(404, "file_not_found", "Folder not found");
     }

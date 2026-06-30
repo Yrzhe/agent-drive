@@ -260,12 +260,14 @@ export async function callMcpTool(db: AppDb, origin: string, scopes: readonly st
       fileId = file.id;
     } else if (folderPathInput) {
       folderPath = normalizePath(folderPathInput);
-      const [folder] = await db
-        .select()
-        .from(files)
-        .where(and(eq(files.path, folderPath), eq(files.isFolder, 1), isNull(files.deletedAt)))
-        .limit(1);
-      if (!folder) throw new Error("folder_not_found");
+      if (folderPath !== "/") {
+        const [folder] = await db
+          .select()
+          .from(files)
+          .where(and(eq(files.path, folderPath), eq(files.isFolder, 1), isNull(files.deletedAt)))
+          .limit(1);
+        if (!folder) throw new Error("folder_not_found");
+      }
     }
 
     const [share] = await db.insert(shares).values({

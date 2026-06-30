@@ -88,7 +88,7 @@ Status is updated as fixes land on this PR.
 | Done | Follow-up | Bundle relative file links and orphan manifests | Bundle file links include the bundle prefix; orphan `manifest.json` files are ignored. |
 | Done | Follow-up | Bundle soft-deleted manifests | Bundle commit/manifest/history paths now avoid soft-deleted manifest rows. |
 | Done | Follow-up | Escaped descendant path matching | Recursive path queries now escape `%`, `_`, and `\\` to avoid sibling leaks/purges. |
-| Backlog | Follow-up | Root folder shares | Needs product decision: support virtual `/` folder shares or reject them explicitly. |
+| Done | Follow-up | Root folder shares | `/` is now supported as a virtual root folder share for REST, MCP, metadata, listing, single download, and ZIP. |
 | Backlog | P1 | Reduce `AGENT_TOKEN` blast radius | Requires product/security design. |
 | Backlog | P1 | Re-check webhook destinations at delivery time | Not yet changed in this PR. |
 | Backlog | P1 | Harden CLI sync concurrency | Not yet changed in this PR. |
@@ -237,10 +237,9 @@ Sources reviewed:
 
 ## Suggested next PRs
 
-1. Decide root folder share semantics: support virtual `/` shares or reject them explicitly.
-2. Reduce `AGENT_TOKEN` blast radius.
-3. Re-check webhook destinations at delivery time.
-4. Harden CLI sync concurrency.
-5. Address npm audit dependency findings.
-6. Add server and web tests.
-7. Refresh Dashboard/CLI docs plus structured agent handoff block design.
+1. Reduce `AGENT_TOKEN` blast radius.
+2. Re-check webhook destinations at delivery time.
+3. Harden CLI sync concurrency.
+4. Address npm audit dependency findings.
+5. Add server and web tests.
+6. Refresh Dashboard/CLI docs plus structured agent handoff block design.
