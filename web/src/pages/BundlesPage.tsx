@@ -76,12 +76,11 @@ function fileListForBundle(bundlePath: string, manifest: BundleManifest | undefi
     .map((file) => ({ path: file.path, size: file.size }));
 }
 
-function parseManifest(content: string): BundleManifest {
-  const parsed = JSON.parse(content) as unknown;
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+function validateManifest(input: unknown): BundleManifest {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
     throw new Error("manifest.json must contain a JSON object.");
   }
-  return parsed as BundleManifest;
+  return input as BundleManifest;
 }
 
 async function listAllFiles(): Promise<DriveFile[]> {
@@ -100,8 +99,10 @@ async function loadBundles(): Promise<BundleRow[]> {
   const rows = await Promise.all(manifestFiles.map(async (file) => {
     const bundlePath = parentPath(file.path);
     try {
-      const result = await driveApi.readFileText(file.path);
-      const manifest = parseManifest(result.content);
+      const current = await driveApi.getBundleCurrent(bundlePath);
+      if (!current.currentVersion) throw new Error("Bundle has manifest.json but no current bundle version.");
+      const result = await driveApi.getBundleManifest(bundlePath, current.currentVersion.versionId);
+      const manifest = validateManifest(result.manifest);
       return {
         path: bundlePath,
         name: bundlePath,

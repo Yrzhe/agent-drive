@@ -11,6 +11,13 @@ const API_DOCS_URL = "https://github.com/Yrzhe/agent-drive/tree/main/docs/api";
 const SCOPE_STORAGE_KEY = "agent-drive:connect:selected-scopes";
 const PATH_SCOPE_STORAGE_KEY = "agent-drive:connect:path-prefix";
 
+function hasControlCharacter(value: string): boolean {
+  for (let index = 0; index < value.length; index += 1) {
+    if (value.charCodeAt(index) <= 0x1f) return true;
+  }
+  return false;
+}
+
 function normalizePathInput(raw: string): { ok: true; canonical: string } | { ok: false; reason: string } | { ok: "empty" } {
   const trimmed = raw.trim();
   if (trimmed.length === 0) return { ok: "empty" };
@@ -21,7 +28,7 @@ function normalizePathInput(raw: string): { ok: true; canonical: string } | { ok
   if (prefix.includes("//") || prefix.includes("/../") || prefix.endsWith("/..") || prefix.includes("*")) {
     return { ok: false, reason: "Path cannot contain //, .., or extra * characters." };
   }
-  if (/[\x00-\x1f]/u.test(prefix)) {
+  if (hasControlCharacter(prefix)) {
     return { ok: false, reason: "Path cannot contain control characters." };
   }
   const scope = prefix === "/" ? "path:/" : `path:${prefix}/*`;

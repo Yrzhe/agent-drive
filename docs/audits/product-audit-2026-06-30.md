@@ -50,7 +50,7 @@ Passed:
 - `cli`: `npm run check`
 - `cli`: `npm test` (6 files, 30 tests)
 
-Failed or warned:
+Initial audit failed or warned:
 
 - `web`: `npm run lint`
   - `web/src/pages/ConnectSetupPage.tsx`: `no-control-regex`
@@ -58,6 +58,35 @@ Failed or warned:
 - `server`: `npm audit` reports 4 moderate vulnerabilities via
   `drizzle-kit -> esbuild`.
 - `cli`: `npm audit` reports 1 high vulnerability via `vite`.
+
+Latest repair verification:
+
+- `server`: `npm run typecheck`
+- `web`: `npm run lint`
+- `web`: `npm run build`
+- `cli`: `npm run check`
+- `cli`: `npm test` (6 files, 30 tests)
+
+## Repair progress
+
+Status is updated as fixes land on this PR.
+
+| Status | Priority | Item | Notes |
+| --- | --- | --- | --- |
+| Done | P0 | Bundle page live API integration | Replaced nonexistent `/files/read` calls with `/api/public/v1/bundles/current` and `/manifest`. |
+| Done | P0 | OAuth consent completion | Replaced native form navigation with `fetch` plus redirect to returned `redirect_uri`. |
+| Done | P0 | OAuth consent auth gate | Added login gate and current authorize URL redirect preservation. |
+| Done | P0 | Public shares exclude trashed downloads | Added `deletedAt IS NULL` filters for single-file and ZIP downloads. |
+| Done | P1 | Prevent sharing trashed targets | Share creation now validates only non-trashed files/folders. |
+| Done | P1 | Exclude trash from drive stats | File/folder/count/size stats now ignore soft-deleted rows. |
+| Done | P1 | Folder creation vs trashed path behavior | Folder creation now purges same-path trash before checking active conflicts. |
+| Done | P2 | Fix web lint | Removed the control-character regex lint violation and scoped the React directory attribute augmentation. |
+| Backlog | P1 | Reduce `AGENT_TOKEN` blast radius | Requires product/security design. |
+| Backlog | P1 | Re-check webhook destinations at delivery time | Not yet changed in this PR. |
+| Backlog | P1 | Harden CLI sync concurrency | Not yet changed in this PR. |
+| Backlog | P2 | Address npm audit findings | Not yet changed in this PR. |
+| Backlog | P2 | Add server and web tests | Not yet changed in this PR. |
+| Backlog | P2 | Refresh README and skill docs | Not yet changed in this PR. |
 
 ## Proposed issue backlog
 
