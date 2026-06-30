@@ -7,12 +7,13 @@ import { buckets, files, shares } from "@defs";
 import { logEvent, logEventsBatch } from "../lib/activity";
 import { createAccessToken, verifyAccessToken, verifyPasswordHash } from "../lib/crypto";
 import { ApiError, withErrorHandling } from "../lib/errors";
-import { escapedDescendantPattern, normalizePath, relativePath } from "../lib/paths";
+import { escapedDescendantPattern, normalizePath } from "../lib/paths";
 import { checkRateLimit, clearRateLimit, recordFailure } from "../lib/rate-limit";
 import type { AppDb } from "../types";
 
 export const publicSharesRoutes = new Hono();
 const MAX_ZIP_DOWNLOAD_BYTES = 30 * 1024 * 1024;
+const ROOT_SHARE_NAME = "Drive";
 
 function getShareId(c: { req: { param: (name: string) => string | undefined } }): string {
   const shareId = c.req.param("shareId");
@@ -33,6 +34,18 @@ function sanitizeZipFilename(name: string): string {
   const safe = ascii.replace(/[^A-Za-z0-9._-]/g, "_").replace(/_+/g, "_").replace(/^[_\.-]+|[_\.-]+$/g, "");
   const base = safe || "download";
   return `${base}.zip`;
+}
+
+function isSafeRelativePath(path: string): boolean {
+  if (!path || path.startsWith("/") || path.includes("\\")) return false;
+  return path.split("/").every((segment) => segment !== "" && segment !== "." && segment !== "..");
+}
+
+function storedRelativePath(fullPath: string, basePath: string): string {
+  const base = normalizePath(basePath);
+  if (base === "/") return fullPath.startsWith("/") ? fullPath.slice(1) : fullPath;
+  if (fullPath === base) return "";
+  return fullPath.startsWith(`${base}/`) ? fullPath.slice(base.length + 1) : fullPath;
 }
 
 function assertShareAccessible(share: typeof shares.$inferSelect): void {
@@ -143,8 +156,10 @@ publicSharesRoutes.get(
     }
 
     const folderPath = normalizePath(share.folderPath ?? "/");
-    const [folder] = await db.select().from(files).where(and(eq(files.path, folderPath), eq(files.isFolder, 1), isNull(files.deletedAt))).limit(1);
-    if (!folder) throw new ApiError(404, "file_not_found", "Shared folder not found");
+    const folder = folderPath === "/"
+      ? null
+      : (await db.select().from(files).where(and(eq(files.path, folderPath), eq(files.isFolder, 1), isNull(files.deletedAt))).limit(1))[0];
+    if (folderPath !== "/" && !folder) throw new ApiError(404, "file_not_found", "Shared folder not found");
 
     const descendants = await db.select({ size: files.size, isFolder: files.isFolder }).from(files).where(and(sql`${files.path} LIKE ${escapedDescendantPattern(folderPath)} ESCAPE '\\'`, isNull(files.deletedAt)));
     const size = descendants.filter((x) => x.isFolder === 0).reduce((sum, x) => sum + x.size, 0);
@@ -154,7 +169,7 @@ publicSharesRoutes.get(
       eventType: "share.accessed",
       targetType: "share",
       targetId: share.id,
-      targetPath: folder.path,
+      targetPath: folderPath,
       actor: "public",
       metadata: {
         shareType: "folder",
@@ -167,7 +182,7 @@ publicSharesRoutes.get(
     return c.json({
       id: share.id,
       type: "folder",
-      name: folder.name,
+      name: folder?.name ?? ROOT_SHARE_NAME,
       size,
       fileCount,
       hasPassword: Boolean(share.passwordHash),
@@ -244,14 +259,18 @@ publicSharesRoutes.get(
     const folderPath = normalizePath(share.folderPath ?? "/");
     const rows = await db.select().from(files).where(and(sql`${files.path} LIKE ${escapedDescendantPattern(folderPath)} ESCAPE '\\'`, isNull(files.deletedAt))).orderBy(asc(files.path));
     return c.json({
-      files: rows.map((row) => ({
-        id: row.id,
-        name: row.name,
-        path: relativePath(row.path, folderPath),
-        isFolder: row.isFolder === 1,
-        size: row.size,
-        contentType: row.contentType,
-      })),
+      files: rows.flatMap((row) => {
+        const path = storedRelativePath(row.path, folderPath);
+        if (!isSafeRelativePath(path)) return [];
+        return [{
+          id: row.id,
+          name: row.name,
+          path,
+          isFolder: row.isFolder === 1,
+          size: row.size,
+          contentType: row.contentType,
+        }];
+      }),
     });
   })
 );
@@ -327,15 +346,22 @@ publicSharesRoutes.get(
     }
 
     const folderPath = normalizePath(share.folderPath ?? "/");
+    if (subPath && !isSafeRelativePath(subPath)) {
+      throw new ApiError(400, "validation_error", "Path must be a safe relative path inside the shared folder");
+    }
     basePath = subPath ? normalizePath(`${folderPath}/${subPath}`) : folderPath;
 
     if (!basePath.startsWith(folderPath)) {
       throw new ApiError(400, "validation_error", "Path is outside the shared folder");
     }
 
-    const [baseFolder] = await db.select().from(files).where(and(eq(files.path, basePath), eq(files.isFolder, 1), isNull(files.deletedAt))).limit(1);
-    if (!baseFolder) throw new ApiError(404, "file_not_found", "Folder not found in share");
-    zipName = sanitizeZipFilename(baseFolder.name);
+    if (basePath === "/") {
+      zipName = sanitizeZipFilename(ROOT_SHARE_NAME);
+    } else {
+      const [baseFolder] = await db.select().from(files).where(and(eq(files.path, basePath), eq(files.isFolder, 1), isNull(files.deletedAt))).limit(1);
+      if (!baseFolder) throw new ApiError(404, "file_not_found", "Folder not found in share");
+      zipName = sanitizeZipFilename(baseFolder.name);
+    }
 
     const fileRows = await db
       .select()
@@ -344,7 +370,12 @@ publicSharesRoutes.get(
       .orderBy(asc(files.path));
 
     if (fileRows.length === 0) throw new ApiError(404, "file_not_found", "No files in this folder");
-    const totalSize = fileRows.reduce((sum, row) => sum + row.size, 0);
+    const downloadableRows = fileRows.flatMap((row) => {
+      const entryPath = storedRelativePath(row.path, basePath);
+      return isSafeRelativePath(entryPath) ? [{ row, entryPath }] : [];
+    });
+
+    const totalSize = downloadableRows.reduce((sum, item) => sum + item.row.size, 0);
     if (totalSize > MAX_ZIP_DOWNLOAD_BYTES) {
       return c.json({
         error: {
@@ -352,21 +383,20 @@ publicSharesRoutes.get(
           message: `ZIP download is limited to 30MB. This folder is ${Math.ceil(totalSize / (1024 * 1024))}MB.`,
           hint: "Use GET /files to list all files, then GET /download?fileId=<id> to download each file individually. Preserve the relative path from the file list to maintain folder structure.",
           filesEndpoint: `/api/public/s/${getShareId(c)}/files`,
-          fileCount: fileRows.length,
+          fileCount: downloadableRows.length,
           totalSizeMB: Math.ceil(totalSize / (1024 * 1024)),
         },
       }, 413);
     }
 
     const zipEntries: Record<string, Uint8Array> = {};
-    for (const row of fileRows) {
+    for (const { row, entryPath } of downloadableRows) {
       if (!row.s3Uri) continue;
       const parsed = storage.tryParseS3Uri(row.s3Uri);
       if (!parsed) continue;
       const obj = await storage.from(buckets.drive).get(parsed.path);
       if (!obj) continue;
       const buffer = obj.body;
-      const entryPath = relativePath(row.path, basePath);
       zipEntries[entryPath] = new Uint8Array(buffer);
     }
 
@@ -377,7 +407,7 @@ publicSharesRoutes.get(
     const zipped = zipSync(zipEntries);
     await incrementDownloadCountOrThrow(db, share.id);
     const activityContext = requestActivityContext(c);
-    await logEventsBatch(db, fileRows.map((row) => ({
+    await logEventsBatch(db, downloadableRows.map(({ row }) => ({
       eventType: "share.downloaded",
       targetType: "share",
       targetId: share.id,
@@ -400,9 +430,9 @@ publicSharesRoutes.get(
         metadata: {
           mode: "zip",
           zipName,
-          fileIds: fileRows.map((row) => row.id),
+          fileIds: downloadableRows.map(({ row }) => row.id),
           totalSize,
-          count: fileRows.length,
+          count: downloadableRows.length,
         },
       },
     });

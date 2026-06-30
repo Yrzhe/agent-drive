@@ -5,7 +5,7 @@ import { files } from "@defs";
 
 import type { AppDb, FileObject, FileRow } from "../types";
 import { ApiError } from "./errors";
-import { joinPath, normalizePath } from "./paths";
+import { joinPath, normalizeName, normalizePath } from "./paths";
 
 export function nowIso(): string {
   return new Date().toISOString();
@@ -33,7 +33,7 @@ export async function ensureFolderChain(db: AppDb, targetPath: string): Promise<
   const folderPaths: string[] = [];
   let cursor = "/";
   for (const segment of segments) {
-    cursor = joinPath(cursor, segment);
+    cursor = joinPath(cursor, normalizeName(segment));
     folderPaths.push(cursor);
   }
 
