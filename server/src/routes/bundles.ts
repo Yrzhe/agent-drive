@@ -1,10 +1,12 @@
 import { and, desc, eq, isNull } from "drizzle-orm";
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { nanoid } from "nanoid";
 
 import { buckets, bundleVersions, files } from "@defs";
 
 import { getRequestActor, logEvent } from "../lib/activity";
+import { authenticateMcpBearer } from "../lib/mcp-auth";
+import { requirePathAllowed, requireScope, type McpScope } from "../lib/mcp-scopes";
 import { ApiError, withErrorHandling } from "../lib/errors";
 import { ensureFolderChain, nowIso } from "../lib/files";
 import { joinPath, normalizePath } from "../lib/paths";
@@ -38,6 +40,27 @@ interface ValidatedManifest {
 
 function newVersionId(): string {
   return `dv_${nanoid(10)}`;
+}
+
+async function getBearerAuthContext(c: Context): Promise<Awaited<ReturnType<typeof authenticateMcpBearer>> | null> {
+  const authorization = c.req.header("authorization");
+  if (!authorization) return null;
+  const { db } = await import("edgespark");
+  return authenticateMcpBearer(db, authorization);
+}
+
+async function requireBearerBundleAccess(c: Context, requiredScope: McpScope, prefix: string): Promise<void> {
+  const auth = await getBearerAuthContext(c);
+  if (!auth) return;
+  try {
+    requireScope(auth.scopes, requiredScope);
+    requirePathAllowed(auth.scopes, prefix);
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith("invalid_scope:")) {
+      throw new ApiError(403, "invalid_scope", error.message);
+    }
+    throw error;
+  }
 }
 
 function isUniqueViolation(error: unknown, table: string): boolean {
@@ -172,6 +195,7 @@ bundlesRoutes.post(
     if (prefix.includes("/.history/") || prefix.endsWith("/.history")) {
       throw new ApiError(400, "validation_error", "prefix cannot target the .history directory");
     }
+    await requireBearerBundleAccess(c, "write:drive", prefix);
 
     const ifMatch = parseIfMatch(body.ifMatch);
     const manifest = validateManifest(body.manifest);
@@ -389,6 +413,7 @@ bundlesRoutes.get(
   withErrorHandling(async (c) => {
     const { db } = await import("edgespark");
     const prefix = requirePrefixQuery(c.req.query("prefix"));
+    await requireBearerBundleAccess(c, "read:drive", prefix);
 
     const [row] = await db
       .select()
@@ -443,6 +468,7 @@ bundlesRoutes.get(
   withErrorHandling(async (c) => {
     const { db, storage } = await import("edgespark");
     const prefix = requirePrefixQuery(c.req.query("prefix"));
+    await requireBearerBundleAccess(c, "read:drive", prefix);
     const limitRaw = Number(c.req.query("limit") ?? "50");
     const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(Math.trunc(limitRaw), 200) : 50;
 
@@ -501,6 +527,7 @@ bundlesRoutes.get(
   withErrorHandling(async (c) => {
     const { db, storage } = await import("edgespark");
     const prefix = requirePrefixQuery(c.req.query("prefix"));
+    await requireBearerBundleAccess(c, "read:drive", prefix);
     const versionId = c.req.query("versionId");
     if (typeof versionId !== "string" || !versionId.startsWith("dv_")) {
       throw new ApiError(400, "validation_error", "versionId query param required (must start with dv_)");

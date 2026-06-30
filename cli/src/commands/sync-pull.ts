@@ -3,7 +3,7 @@ import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import { dirname, join, resolve } from "node:path";
 
-import { getBundleCurrent } from "../lib/bundles.js";
+import { getBundleCurrent, getBundleManifest } from "../lib/bundles.js";
 import { readConfig } from "../lib/config.js";
 import { bundleHash, sha256Hex, type ManifestFile } from "../lib/hash.js";
 import { callTool, McpToolError, type McpClientOptions } from "../lib/mcp-client.js";
@@ -63,6 +63,19 @@ async function readRemoteManifest(client: McpClientOptions, cloudPath: string): 
     }
     throw error;
   }
+}
+
+async function readRemoteBundle(client: McpClientOptions, cloudPath: string): Promise<{ remote: RemoteManifest; versionId: string | null }> {
+  const current = await getBundleCurrent(client, cloudPath);
+  if (!current.currentVersion) {
+    return { remote: await readRemoteManifest(client, cloudPath), versionId: null };
+  }
+
+  const response = await getBundleManifest(client, cloudPath, current.currentVersion.versionId);
+  return {
+    remote: response.manifest as RemoteManifest,
+    versionId: current.currentVersion.versionId,
+  };
 }
 
 async function directoryExists(path: string): Promise<boolean> {
@@ -160,6 +173,15 @@ async function deleteLocalOrphans(localPath: string, remote: RemoteManifest): Pr
   }
 }
 
+async function recordPulledBundleSync(localPath: string, cloudPath: string, hash: string, versionId: string | null): Promise<void> {
+  await recordBundleSync({
+    localPath,
+    cloudPrefix: cloudPath,
+    lastSeenVersionId: versionId,
+    lastSeenHash: hash,
+  });
+}
+
 export async function syncPullCommand(options: SyncPullOptions): Promise<void> {
   const config = await readConfig();
   if (!config) throw new Error("Not logged in. Run: adrive login --url <URL>");
@@ -167,7 +189,7 @@ export async function syncPullCommand(options: SyncPullOptions): Promise<void> {
   const client = config;
   const cloudPath = normalizeCloudPath(options.from);
   const localPath = resolve(options.to);
-  const remote = await readRemoteManifest(client, cloudPath);
+  const { remote, versionId } = await readRemoteBundle(client, cloudPath);
   const localEntries = await isNonEmptyDirectory(localPath) ? (await walkBundle(localPath, { loadContent: true })).files : [];
   const localHash = bundleHash(localManifestFiles(localEntries, remote));
 
@@ -178,7 +200,9 @@ export async function syncPullCommand(options: SyncPullOptions): Promise<void> {
 
   if (localEntries.length > 0) {
     if (localHash === remote.hash) {
-      console.log("Already up to date");
+      await recordPulledBundleSync(localPath, cloudPath, remote.hash, versionId);
+      const versionTag = versionId ? ` versionId=${versionId}` : "";
+      console.log(`Already up to date${versionTag}`);
       return;
     }
     if (!options.force && !(await confirmOverwrite(localPath, localHash, remote.hash))) {
@@ -189,14 +213,8 @@ export async function syncPullCommand(options: SyncPullOptions): Promise<void> {
   await downloadFiles(client, cloudPath, localPath, remote);
   await deleteLocalOrphans(localPath, remote);
 
-  const currentVersion = await getBundleCurrent(client, cloudPath).catch(() => null);
-  await recordBundleSync({
-    localPath,
-    cloudPrefix: cloudPath,
-    lastSeenVersionId: currentVersion?.currentVersion?.versionId ?? null,
-    lastSeenHash: remote.hash,
-  });
+  await recordPulledBundleSync(localPath, cloudPath, remote.hash, versionId);
 
-  const versionTag = currentVersion?.currentVersion?.versionId ? ` versionId=${currentVersion.currentVersion.versionId}` : "";
+  const versionTag = versionId ? ` versionId=${versionId}` : "";
   console.log(`Pulled ${cloudPath} (${remote.fileCount} files, ${formatBytes(remote.totalSize)}) from machine ${remote.machineId.slice(0, 8)} @ ${remote.pushedAt}${versionTag}`);
 }

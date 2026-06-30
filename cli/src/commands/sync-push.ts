@@ -1,6 +1,6 @@
 import { posix, resolve as resolvePath } from "node:path";
 
-import { BundleConflictError, commitBundle, type CommitManifestInput } from "../lib/bundles.js";
+import { BundleConflictError, commitBundle, getBundleCurrent, type CommitManifestInput } from "../lib/bundles.js";
 import { readConfig } from "../lib/config.js";
 import { bundleHash, sha256Hex, type ManifestFile } from "../lib/hash.js";
 import { apiUrl, authorizationHeader, callTool, McpToolError, type McpClientOptions } from "../lib/mcp-client.js";
@@ -173,9 +173,15 @@ async function uploadFiles(client: McpClientOptions, plan: BundlePlan): Promise<
 }
 
 async function listRemoteFiles(client: McpClientOptions, cloudPath: string): Promise<RemoteFile[]> {
-  const result = await callTool(client, "list_files", { path: cloudPath, recursive: true, limit: 200 });
-  const parsed = parseToolJson<{ files: RemoteFile[] }>(result);
-  return parsed.files ?? [];
+  const allFiles: RemoteFile[] = [];
+  const limit = 200;
+  for (let offset = 0; ; offset += limit) {
+    const result = await callTool(client, "list_files", { path: cloudPath, recursive: true, limit, offset });
+    const page = parseToolJson<{ files: RemoteFile[] }>(result);
+    const files = page.files ?? [];
+    allFiles.push(...files);
+    if (files.length < limit) return allFiles;
+  }
 }
 
 async function deleteRemoteFile(client: McpClientOptions, id: string): Promise<void> {
@@ -281,6 +287,14 @@ export async function syncPushCommand(options: SyncPushOptions): Promise<void> {
     ? "*"
     : localSyncEntry?.lastSeenVersionId ?? null;
   console.log(`Push ${plan.cloudPath} — ifMatch: ${describeIfMatch(ifMatch)}`);
+  const current = await getBundleCurrent(client, plan.cloudPath);
+  const currentVersionId = current.currentVersion?.versionId ?? null;
+  if (!options.force && remote && currentVersionId === null && ifMatch === null) {
+    throw new Error(formatConflictMessage(localAbsPath, plan.cloudPath, currentVersionId, localSyncEntry?.lastSeenVersionId ?? null));
+  }
+  if (!options.force && currentVersionId !== ifMatch) {
+    throw new Error(formatConflictMessage(localAbsPath, plan.cloudPath, currentVersionId, localSyncEntry?.lastSeenVersionId ?? null));
+  }
 
   if (remote?.hash === plan.hash && !options.force) {
     console.log("Bundle is up to date (no file changes), committing manifest pushedAt only.");

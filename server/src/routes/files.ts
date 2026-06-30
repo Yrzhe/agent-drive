@@ -1,8 +1,10 @@
 import { and, asc, desc, eq, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { nanoid } from "nanoid";
 import { buckets, files, shares } from "@defs";
 import { getRequestActor, logEvent } from "../lib/activity";
+import { authenticateMcpBearer } from "../lib/mcp-auth";
+import { requirePathAllowed, requireScope, type McpScope } from "../lib/mcp-scopes";
 import { ensureFolderChain, nowIso, toFileObject } from "../lib/files";
 import { ApiError, withErrorHandling } from "../lib/errors";
 import { escapedDescendantPattern, joinPath, normalizeName, normalizePath, parentOfPath } from "../lib/paths";
@@ -23,6 +25,27 @@ const FILE_SIZE_TOLERANCE_RATIO = 0.1;
 function isPathUniqueConflict(error: unknown): boolean {
   const message = (error as { message?: string } | null)?.message?.toLowerCase() ?? "";
   return message.includes("unique constraint failed: files.path") || (message.includes("duplicate key") && message.includes("files.path"));
+}
+
+async function getBearerAuthContext(c: Context): Promise<Awaited<ReturnType<typeof authenticateMcpBearer>> | null> {
+  const authorization = c.req.header("authorization");
+  if (!authorization) return null;
+  const { db } = await import("edgespark");
+  return authenticateMcpBearer(db, authorization);
+}
+
+async function requireBearerFileAccess(c: Context, requiredScope: McpScope, path: string): Promise<void> {
+  const auth = await getBearerAuthContext(c);
+  if (!auth) return;
+  try {
+    requireScope(auth.scopes, requiredScope);
+    requirePathAllowed(auth.scopes, path);
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith("invalid_scope:")) {
+      throw new ApiError(403, "invalid_scope", error.message);
+    }
+    throw error;
+  }
 }
 
 function createPendingUploadMarker(declaredSize: number): string {
@@ -620,6 +643,7 @@ filesRoutes.delete(
       .where(and(eq(files.id, getIdParam(c)), isNull(files.deletedAt)))
       .limit(1);
     if (!target) throw new ApiError(404, "file_not_found", "File not found");
+    await requireBearerFileAccess(c, "write:drive", target.path);
 
     const { rows, fileIds } = await softDeleteSubtree(db, target);
     await maybePurgeStaleTrash(db, storage);
