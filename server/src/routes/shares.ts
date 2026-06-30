@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { nanoid } from "nanoid";
 
@@ -130,11 +130,11 @@ sharesRoutes.post(
 
     const { db } = await import("edgespark");
     if (fileId) {
-      const [file] = await db.select().from(files).where(and(eq(files.id, fileId), eq(files.isFolder, 0))).limit(1);
+      const [file] = await db.select().from(files).where(and(eq(files.id, fileId), eq(files.isFolder, 0), isNull(files.deletedAt))).limit(1);
       if (!file) throw new ApiError(404, "file_not_found", "File not found");
     }
     if (folderPath) {
-      const [folder] = await db.select().from(files).where(and(eq(files.path, folderPath), eq(files.isFolder, 1))).limit(1);
+      const [folder] = await db.select().from(files).where(and(eq(files.path, folderPath), eq(files.isFolder, 1), isNull(files.deletedAt))).limit(1);
       if (!folder) throw new ApiError(404, "file_not_found", "Folder not found");
     }
 
@@ -289,9 +289,9 @@ sharesRoutes.get(
   withErrorHandling(async (c) => {
     const { db } = await import("edgespark");
     const [filesCount, foldersCount, sizeSum, shareCount, downloadSum] = await Promise.all([
-      db.select({ count: sql<number>`count(*)` }).from(files).where(eq(files.isFolder, 0)),
-      db.select({ count: sql<number>`count(*)` }).from(files).where(eq(files.isFolder, 1)),
-      db.select({ total: sql<number>`coalesce(sum(${files.size}), 0)` }).from(files).where(eq(files.isFolder, 0)),
+      db.select({ count: sql<number>`count(*)` }).from(files).where(and(eq(files.isFolder, 0), isNull(files.deletedAt))),
+      db.select({ count: sql<number>`count(*)` }).from(files).where(and(eq(files.isFolder, 1), isNull(files.deletedAt))),
+      db.select({ total: sql<number>`coalesce(sum(${files.size}), 0)` }).from(files).where(and(eq(files.isFolder, 0), isNull(files.deletedAt))),
       db.select({ count: sql<number>`count(*)` }).from(shares),
       db.select({ total: sql<number>`coalesce(sum(${shares.downloadCount}), 0)` }).from(shares),
     ]);

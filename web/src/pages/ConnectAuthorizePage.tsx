@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { AuthLoginPanel } from "@/components/AuthLoginPanel";
 import { ConsentScopeList } from "@/components/ConsentScopeList";
+import { useAuth } from "@/hooks/useAuth";
 import { DriveApiError, apiFetchJson } from "@/lib/api-client";
 import { describeOAuthScope, parseOAuthScopes } from "@/lib/oauth-scopes";
 
@@ -26,6 +28,10 @@ type OAuthClientInfoResponse = {
   name?: string;
   csrfToken?: string;
   csrf_token?: string;
+};
+
+type ConsentResponse = {
+  redirect_uri?: string;
 };
 
 function readClientName(payload: OAuthClientInfoResponse, clientId: string): string {
@@ -74,11 +80,12 @@ export default function ConnectAuthorizePage() {
     () => parseOAuthScopes(searchParams.get("scope")).map(describeOAuthScope),
     [searchParams],
   );
-  const hiddenParams = useMemo(() => Array.from(searchParams.entries()), [searchParams]);
   const deniedRedirect = useMemo(() => buildDeniedRedirect(redirectUri, state), [redirectUri, state]);
+  const { loading: authLoading, isAuthenticated } = useAuth();
   const [clientInfo, setClientInfo] = useState<OAuthClientInfo | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [approving, setApproving] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -125,6 +132,50 @@ export default function ConnectAuthorizePage() {
 
   const clientName = clientInfo?.clientName ?? "MCP Client";
   const csrfToken = clientInfo?.csrfToken ?? "";
+
+  const handleAllow = useCallback(async () => {
+    if (!clientId || !redirectUri) {
+      setErrorMessage("Cannot authorize this request because client_id or redirect_uri is missing.");
+      return;
+    }
+    setApproving(true);
+    setErrorMessage(null);
+    try {
+      const body = Object.fromEntries(searchParams.entries());
+      const result = await apiFetchJson<ConsentResponse>(`/api/public/oauth/authorize/consent${search}`, {
+        method: "POST",
+        body: JSON.stringify({
+          ...body,
+          approved: "true",
+          csrf_token: csrfToken,
+          csrfToken,
+        }),
+      });
+      if (!result.redirect_uri) {
+        throw new DriveApiError("Authorization response did not include redirect_uri.", 500, "MISSING_REDIRECT_URI");
+      }
+      window.location.assign(result.redirect_uri);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Authorization failed.");
+      setApproving(false);
+    }
+  }, [clientId, csrfToken, redirectUri, search, searchParams]);
+
+  if (authLoading) {
+    return (
+      <main className="min-h-screen bg-slate-50 px-6 py-10">
+        <div className="mx-auto max-w-2xl rounded-xl border border-slate-200 bg-white p-5 text-sm text-slate-600">Checking auth status...</div>
+      </main>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <main className="min-h-screen bg-gradient-to-b from-slate-100 via-white to-slate-100 px-6 py-16">
+        <AuthLoginPanel redirectTo={`${window.location.pathname}${window.location.search}`} />
+      </main>
+    );
+  }
 
   return (
     <main className="min-h-screen bg-slate-50 px-6 py-10">
@@ -174,21 +225,14 @@ export default function ConnectAuthorizePage() {
           >
             拒绝 / Deny
           </button>
-          <form action={`/api/public/oauth/authorize/consent${search}`} method="post">
-            {hiddenParams.map(([key, value], index) => (
-              <input key={`${key}-${index}`} name={key} type="hidden" value={value} />
-            ))}
-            <input name="approved" type="hidden" value="true" />
-            <input name="csrf_token" type="hidden" value={csrfToken} />
-            <input name="csrfToken" type="hidden" value={csrfToken} />
-            <button
-              className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-300"
-              disabled={!clientId || !redirectUri || loading}
-              type="submit"
-            >
-              同意 / Allow
-            </button>
-          </form>
+          <button
+            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-300"
+            disabled={!clientId || !redirectUri || loading || approving}
+            onClick={() => { void handleAllow(); }}
+            type="button"
+          >
+            {approving ? "Authorizing..." : "同意 / Allow"}
+          </button>
         </section>
       </div>
     </main>

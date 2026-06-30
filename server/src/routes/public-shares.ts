@@ -264,7 +264,7 @@ publicSharesRoutes.get(
 
     let target = undefined as typeof files.$inferSelect | undefined;
     if (share.fileId) {
-      [target] = await db.select().from(files).where(and(eq(files.id, share.fileId), eq(files.isFolder, 0))).limit(1);
+      [target] = await db.select().from(files).where(and(eq(files.id, share.fileId), eq(files.isFolder, 0), isNull(files.deletedAt))).limit(1);
     } else {
       const fileId = (c.req.query("fileId") ?? "").trim();
       if (!fileId) throw new ApiError(400, "validation_error", "fileId is required for single file download. Use /download-zip to download all files.");
@@ -340,7 +340,7 @@ publicSharesRoutes.get(
     const fileRows = await db
       .select()
       .from(files)
-      .where(and(like(files.path, descendantPattern(basePath)), eq(files.isFolder, 0)))
+      .where(and(like(files.path, descendantPattern(basePath)), eq(files.isFolder, 0), isNull(files.deletedAt)))
       .orderBy(asc(files.path));
 
     if (fileRows.length === 0) throw new ApiError(404, "file_not_found", "No files in this folder");

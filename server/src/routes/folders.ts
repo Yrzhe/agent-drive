@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { Hono } from "hono";
 import { nanoid } from "nanoid";
 
@@ -8,6 +8,7 @@ import { getRequestActor, logEvent } from "../lib/activity";
 import { ensureFolderChain, nowIso, toFileObject } from "../lib/files";
 import { ApiError, withErrorHandling } from "../lib/errors";
 import { joinPath, normalizeName, normalizePath } from "../lib/paths";
+import { purgeConflictingTrashAtPath } from "../lib/trash";
 
 export const foldersRoutes = new Hono();
 
@@ -18,11 +19,12 @@ foldersRoutes.post(
     const name = normalizeName(body.name);
     const parentPath = normalizePath(body.path ?? "/");
 
-    const { db } = await import("edgespark");
+    const { db, storage } = await import("edgespark");
     await ensureFolderChain(db, parentPath);
 
     const folderPath = joinPath(parentPath, name);
-    const [conflict] = await db.select().from(files).where(eq(files.path, folderPath)).limit(1);
+    await purgeConflictingTrashAtPath(db, storage, folderPath);
+    const [conflict] = await db.select().from(files).where(and(eq(files.path, folderPath), isNull(files.deletedAt))).limit(1);
     if (conflict) throw new ApiError(409, "path_conflict", "Path already exists");
 
     const [folder] = await db
