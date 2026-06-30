@@ -1,4 +1,4 @@
-import { and, asc, eq, isNull, like, lt, or, sql } from "drizzle-orm";
+import { and, asc, eq, isNull, lt, or, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { zipSync } from "fflate";
 
@@ -7,7 +7,7 @@ import { buckets, files, shares } from "@defs";
 import { logEvent, logEventsBatch } from "../lib/activity";
 import { createAccessToken, verifyAccessToken, verifyPasswordHash } from "../lib/crypto";
 import { ApiError, withErrorHandling } from "../lib/errors";
-import { descendantPattern, normalizePath, relativePath } from "../lib/paths";
+import { escapedDescendantPattern, normalizePath, relativePath } from "../lib/paths";
 import { checkRateLimit, clearRateLimit, recordFailure } from "../lib/rate-limit";
 import type { AppDb } from "../types";
 
@@ -146,7 +146,7 @@ publicSharesRoutes.get(
     const [folder] = await db.select().from(files).where(and(eq(files.path, folderPath), eq(files.isFolder, 1), isNull(files.deletedAt))).limit(1);
     if (!folder) throw new ApiError(404, "file_not_found", "Shared folder not found");
 
-    const descendants = await db.select({ size: files.size, isFolder: files.isFolder }).from(files).where(and(like(files.path, descendantPattern(folderPath)), isNull(files.deletedAt)));
+    const descendants = await db.select({ size: files.size, isFolder: files.isFolder }).from(files).where(and(sql`${files.path} LIKE ${escapedDescendantPattern(folderPath)} ESCAPE '\\'`, isNull(files.deletedAt)));
     const size = descendants.filter((x) => x.isFolder === 0).reduce((sum, x) => sum + x.size, 0);
     const fileCount = descendants.filter((x) => x.isFolder === 0).length;
 
@@ -242,7 +242,7 @@ publicSharesRoutes.get(
     }
 
     const folderPath = normalizePath(share.folderPath ?? "/");
-    const rows = await db.select().from(files).where(and(like(files.path, descendantPattern(folderPath)), isNull(files.deletedAt))).orderBy(asc(files.path));
+    const rows = await db.select().from(files).where(and(sql`${files.path} LIKE ${escapedDescendantPattern(folderPath)} ESCAPE '\\'`, isNull(files.deletedAt))).orderBy(asc(files.path));
     return c.json({
       files: rows.map((row) => ({
         id: row.id,
@@ -276,7 +276,7 @@ publicSharesRoutes.get(
           eq(files.id, fileId),
           eq(files.isFolder, 0),
           isNull(files.deletedAt),
-          or(eq(files.path, folderPath), like(files.path, descendantPattern(folderPath)))
+          or(eq(files.path, folderPath), sql`${files.path} LIKE ${escapedDescendantPattern(folderPath)} ESCAPE '\\'`)
         ))
         .limit(1);
     }
@@ -340,7 +340,7 @@ publicSharesRoutes.get(
     const fileRows = await db
       .select()
       .from(files)
-      .where(and(like(files.path, descendantPattern(basePath)), eq(files.isFolder, 0), isNull(files.deletedAt)))
+      .where(and(sql`${files.path} LIKE ${escapedDescendantPattern(basePath)} ESCAPE '\\'`, eq(files.isFolder, 0), isNull(files.deletedAt)))
       .orderBy(asc(files.path));
 
     if (fileRows.length === 0) throw new ApiError(404, "file_not_found", "No files in this folder");

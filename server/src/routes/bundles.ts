@@ -1,4 +1,4 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, isNull } from "drizzle-orm";
 import { Hono } from "hono";
 import { nanoid } from "nanoid";
 
@@ -8,6 +8,7 @@ import { getRequestActor, logEvent } from "../lib/activity";
 import { ApiError, withErrorHandling } from "../lib/errors";
 import { ensureFolderChain, nowIso } from "../lib/files";
 import { joinPath, normalizePath } from "../lib/paths";
+import { purgeConflictingTrashAtPath } from "../lib/trash";
 import type { AppDb } from "../types";
 
 export const bundlesRoutes = new Hono();
@@ -105,11 +106,7 @@ function versionConflictResponse(currentVersionId: string | null, message: strin
   } as const;
 }
 
-type StorageClientLike = {
-  from: typeof import("edgespark")["storage"]["from"];
-  tryParseS3Uri: typeof import("edgespark")["storage"]["tryParseS3Uri"];
-  createS3Uri: typeof import("edgespark")["storage"]["createS3Uri"];
-};
+type StorageClientLike = typeof import("edgespark")["storage"];
 
 async function snapshotCurrentManifestToHistory(
   db: AppDb,
@@ -119,7 +116,7 @@ async function snapshotCurrentManifestToHistory(
   pushedAt: string
 ): Promise<{ filesRow: typeof files.$inferInsert; existingId: string | null; bytes: Uint8Array } | null> {
   const manifestPath = joinPath(prefix, "manifest.json");
-  const [currentManifestRow] = await db.select().from(files).where(eq(files.path, manifestPath)).limit(1);
+  const [currentManifestRow] = await db.select().from(files).where(and(eq(files.path, manifestPath), isNull(files.deletedAt))).limit(1);
   if (!currentManifestRow?.s3Uri) return null;
 
   const parsed = storage.tryParseS3Uri(currentManifestRow.s3Uri);
@@ -136,7 +133,8 @@ async function snapshotCurrentManifestToHistory(
   const historyPath = joinPath(historyDir, `${previousVersionId}.json`);
   const historyName = `${previousVersionId}.json`;
 
-  const [existingHistoryRow] = await db.select().from(files).where(eq(files.path, historyPath)).limit(1);
+  await purgeConflictingTrashAtPath(db, storage, historyPath);
+  const [existingHistoryRow] = await db.select().from(files).where(and(eq(files.path, historyPath), isNull(files.deletedAt))).limit(1);
   const historyFileId = existingHistoryRow?.id ?? nanoid();
   const historyR2Path = `${historyFileId}/${encodeURIComponent(historyName)}`;
   await storage.from(buckets.drive).put(historyR2Path, bytes, { contentType: "application/json" });
@@ -150,6 +148,7 @@ async function snapshotCurrentManifestToHistory(
     size: bytes.byteLength,
     contentType: "application/json",
     s3Uri: storage.createS3Uri(buckets.drive, historyR2Path),
+    deletedAt: null,
     createdAt: existingHistoryRow?.createdAt ?? pushedAt,
     updatedAt: pushedAt,
   };
@@ -246,10 +245,12 @@ bundlesRoutes.post(
       }
     }
 
+    await purgeConflictingTrashAtPath(db, storage, manifestPath);
+
     const [existingManifestRow] = await db
       .select()
       .from(files)
-      .where(eq(files.path, manifestPath))
+      .where(and(eq(files.path, manifestPath), isNull(files.deletedAt)))
       .limit(1);
 
     if (existingManifestRow?.isFolder === 1) {
@@ -269,6 +270,7 @@ bundlesRoutes.post(
       size: manifestBytes.byteLength,
       contentType: "application/json",
       s3Uri: storage.createS3Uri(buckets.drive, manifestR2Path),
+      deletedAt: null,
       createdAt: existingManifestRow?.createdAt ?? pushedAt,
       updatedAt: pushedAt,
     };
@@ -448,7 +450,7 @@ bundlesRoutes.get(
     const historyRows = await db
       .select()
       .from(files)
-      .where(and(eq(files.parentPath, historyDir), eq(files.isFolder, 0)))
+      .where(and(eq(files.parentPath, historyDir), eq(files.isFolder, 0), isNull(files.deletedAt)))
       .orderBy(desc(files.updatedAt))
       .limit(limit);
 
@@ -515,7 +517,7 @@ bundlesRoutes.get(
       ? joinPath(prefix, "manifest.json")
       : joinPath(prefix, `.history/${versionId}.json`);
 
-    const [row] = await db.select().from(files).where(eq(files.path, manifestFsPath)).limit(1);
+    const [row] = await db.select().from(files).where(and(eq(files.path, manifestFsPath), isNull(files.deletedAt))).limit(1);
     if (!row?.s3Uri) {
       throw new ApiError(404, "not_found", `Manifest for ${versionId} not found at ${manifestFsPath}`);
     }

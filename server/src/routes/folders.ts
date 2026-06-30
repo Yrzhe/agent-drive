@@ -12,6 +12,11 @@ import { purgeConflictingTrashAtPath } from "../lib/trash";
 
 export const foldersRoutes = new Hono();
 
+function isPathUniqueConflict(error: unknown): boolean {
+  const message = (error as { message?: string } | null)?.message?.toLowerCase() ?? "";
+  return message.includes("unique constraint failed: files.path") || (message.includes("duplicate key") && message.includes("files.path"));
+}
+
 foldersRoutes.post(
   "/",
   withErrorHandling(async (c) => {
@@ -27,21 +32,30 @@ foldersRoutes.post(
     const [conflict] = await db.select().from(files).where(and(eq(files.path, folderPath), isNull(files.deletedAt))).limit(1);
     if (conflict) throw new ApiError(409, "path_conflict", "Path already exists");
 
-    const [folder] = await db
-      .insert(files)
-      .values({
-        id: nanoid(),
-        name,
-        path: folderPath,
-        parentPath,
-        isFolder: 1,
-        size: 0,
-        contentType: null,
-        s3Uri: null,
-        createdAt: nowIso(),
-        updatedAt: nowIso(),
-      })
-      .returning();
+    let folder: typeof files.$inferSelect | undefined;
+    try {
+      [folder] = await db
+        .insert(files)
+        .values({
+          id: nanoid(),
+          name,
+          path: folderPath,
+          parentPath,
+          isFolder: 1,
+          size: 0,
+          contentType: null,
+          s3Uri: null,
+          createdAt: nowIso(),
+          updatedAt: nowIso(),
+        })
+        .returning();
+    } catch (error) {
+      if (isPathUniqueConflict(error)) {
+        throw new ApiError(409, "path_conflict", "Path already exists");
+      }
+      throw error;
+    }
+    if (!folder) throw new ApiError(500, "internal_error", "Folder was not created");
 
     await logEvent(db, {
       eventType: "folder.created",

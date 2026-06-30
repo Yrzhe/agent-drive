@@ -46,6 +46,15 @@ export function descendantPattern(path: string): string {
   return normalized === "/" ? "/%" : `${normalized}/%`;
 }
 
+export function escapeLikePattern(input: string): string {
+  return input.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_");
+}
+
+export function escapedDescendantPattern(path: string): string {
+  const normalized = normalizePath(path);
+  return normalized === "/" ? "/%" : `${escapeLikePattern(normalized)}/%`;
+}
+
 export function relativePath(fullPath: string, basePath: string): string {
   const full = normalizePath(fullPath);
   const base = normalizePath(basePath);

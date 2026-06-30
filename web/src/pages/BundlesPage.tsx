@@ -96,11 +96,11 @@ async function listAllFiles(): Promise<DriveFile[]> {
 async function loadBundles(): Promise<BundleRow[]> {
   const allFiles = await listAllFiles();
   const manifestFiles = allFiles.filter((file) => !file.isFolder && file.name === "manifest.json");
-  const rows = await Promise.all(manifestFiles.map(async (file) => {
+  const rows = await Promise.all(manifestFiles.map(async (file): Promise<BundleRow | null> => {
     const bundlePath = parentPath(file.path);
     try {
       const current = await driveApi.getBundleCurrent(bundlePath);
-      if (!current.currentVersion) throw new Error("Bundle has manifest.json but no current bundle version.");
+      if (!current.currentVersion) return null;
       const result = await driveApi.getBundleManifest(bundlePath, current.currentVersion.versionId);
       const manifest = validateManifest(result.manifest);
       return {
@@ -121,16 +121,17 @@ async function loadBundles(): Promise<BundleRow[]> {
     }
   }));
 
-  return rows.sort((a, b) => {
+  return rows.filter((row): row is BundleRow => row !== null).sort((a, b) => {
     const aTime = a.manifest?.pushedAt ? new Date(a.manifest.pushedAt).getTime() : 0;
     const bTime = b.manifest?.pushedAt ? new Date(b.manifest.pushedAt).getTime() : 0;
     return bTime - aTime || a.path.localeCompare(b.path);
   });
 }
 
-function dashboardPathLink(path?: string): string {
-  if (!path) return "/";
-  return `/?${new URLSearchParams({ path: parentPath(path) }).toString()}`;
+function dashboardPathLink(bundlePath: string, filePath?: string): string {
+  if (!filePath) return "/";
+  const fullPath = filePath.startsWith("/") ? normalizePath(filePath) : normalizePath(`${bundlePath}/${filePath}`);
+  return `/?${new URLSearchParams({ path: parentPath(fullPath) }).toString()}`;
 }
 
 function BundleDetails({ bundle }: { bundle: BundleRow }) {
@@ -168,7 +169,7 @@ function BundleDetails({ bundle }: { bundle: BundleRow }) {
                 <td className="py-2 pr-4 font-mono text-xs text-slate-800">{file.path ?? "-"}</td>
                 <td className="py-2 pr-4 text-slate-700">{formatBytes(file.size)}</td>
                 <td className="py-2 pr-4 font-mono text-xs text-slate-600">{file.hash ?? "-"}</td>
-                <td className="py-2 pr-4 text-right">{file.path ? <Link className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-700 hover:bg-white" to={dashboardPathLink(file.path)}>view</Link> : null}</td>
+                <td className="py-2 pr-4 text-right">{file.path ? <Link className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-700 hover:bg-white" to={dashboardPathLink(bundle.path, file.path)}>view</Link> : null}</td>
               </tr>
             ))}
           </tbody>

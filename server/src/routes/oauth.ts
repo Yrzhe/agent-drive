@@ -123,10 +123,11 @@ async function assertClientSecret(client: typeof oauthClients.$inferSelect, clie
   }
 }
 
-function assertSameOrigin(c: { req: { header: (name: string) => string | undefined; url: string } }): void {
-  const origin = c.req.header("origin");
-  const expected = new URL(c.req.url).origin;
-  if (!origin || origin !== expected) {
+async function assertSameOrigin(c: { req: { header: (name: string) => string | undefined; url: string } }): Promise<void> {
+  const origin = c.req.header("origin")?.replace(/\/+$/u, "");
+  const requestOrigin = new URL(c.req.url).origin;
+  const expectedPublicOrigin = await publicOrigin(c.req.url);
+  if (!origin || (origin !== requestOrigin && origin !== expectedPublicOrigin)) {
     throw new ApiError(403, "csrf_error", "Origin header missing or mismatch");
   }
 }
@@ -250,16 +251,23 @@ oauthRoutes.post(
     const { auth } = await import("edgespark/http");
     if (!auth.isAuthenticated()) throw new ApiError(401, "unauthorized", "Sign in before authorizing this client");
 
-    assertSameOrigin(c);
+    await assertSameOrigin(c);
     const body = await readBody(c);
-    if (body.approved !== "true") throw new ApiError(403, "access_denied", "User denied consent");
-    assertPkceS256(body.code_challenge_method ?? null, body.code_challenge ?? null);
 
     const { db } = await import("edgespark");
     const [client] = await db.select().from(oauthClients).where(eq(oauthClients.id, body.client_id ?? "")).limit(1);
     if (!client) throw new ApiError(400, "invalid_client", "Unknown client_id");
     const redirectUri = body.redirect_uri ?? "";
     assertExactRedirectUri(client, redirectUri);
+
+    if (body.approved !== "true") {
+      const redirect = new URL(redirectUri);
+      redirect.searchParams.set("error", "access_denied");
+      if (body.state) redirect.searchParams.set("state", body.state);
+      return c.json({ redirect_uri: redirect.toString() });
+    }
+
+    assertPkceS256(body.code_challenge_method ?? null, body.code_challenge ?? null);
 
     const allowedScopes = normalizeScopes(client.scopeDefault);
     const grantedScopes = filterAllowedScopes(parseScopeParam(body.scope ?? client.scopeDefault), allowedScopes.length > 0 ? allowedScopes : FULL_MCP_SCOPES);

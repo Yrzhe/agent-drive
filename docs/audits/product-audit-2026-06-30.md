@@ -80,7 +80,15 @@ Status is updated as fixes land on this PR.
 | Done | P1 | Prevent sharing trashed targets | Share creation now validates only non-trashed files/folders. |
 | Done | P1 | Exclude trash from drive stats | File/folder/count/size stats now ignore soft-deleted rows. |
 | Done | P1 | Folder creation vs trashed path behavior | Folder creation now purges same-path trash before checking active conflicts. |
+| Done | P1 | Folder creation unique-race handling | Concurrent path insert races now normalize to `409 path_conflict`. |
 | Done | P2 | Fix web lint | Removed the control-character regex lint violation and scoped the React directory attribute augmentation. |
+| Done | Follow-up | OAuth Deny open redirect | Deny now posts to the server and uses server-validated `redirect_uri`. |
+| Done | Follow-up | OAuth custom public origin | Consent CSRF origin check now accepts configured `ALLOWED_ORIGIN` as well as request origin. |
+| Done | Follow-up | Auth UI cleanup | Login panel now calls the auth UI destroy handle on unmount/remount. |
+| Done | Follow-up | Bundle relative file links and orphan manifests | Bundle file links include the bundle prefix; orphan `manifest.json` files are ignored. |
+| Done | Follow-up | Bundle soft-deleted manifests | Bundle commit/manifest/history paths now avoid soft-deleted manifest rows. |
+| Done | Follow-up | Escaped descendant path matching | Recursive path queries now escape `%`, `_`, and `\\` to avoid sibling leaks/purges. |
+| Backlog | Follow-up | Root folder shares | Needs product decision: support virtual `/` folder shares or reject them explicitly. |
 | Backlog | P1 | Reduce `AGENT_TOKEN` blast radius | Requires product/security design. |
 | Backlog | P1 | Re-check webhook destinations at delivery time | Not yet changed in this PR. |
 | Backlog | P1 | Harden CLI sync concurrency | Not yet changed in this PR. |
@@ -229,8 +237,10 @@ Sources reviewed:
 
 ## Suggested next PRs
 
-1. OAuth consent fix and login gate.
-2. Bundle page rewrite to use the bundle APIs.
-3. Deleted-file filtering across shares and stats.
-4. Web lint and audit dependency updates.
-5. Dashboard/CLI docs refresh plus structured agent handoff block design.
+1. Decide root folder share semantics: support virtual `/` shares or reject them explicitly.
+2. Reduce `AGENT_TOKEN` blast radius.
+3. Re-check webhook destinations at delivery time.
+4. Harden CLI sync concurrency.
+5. Address npm audit dependency findings.
+6. Add server and web tests.
+7. Refresh Dashboard/CLI docs plus structured agent handoff block design.

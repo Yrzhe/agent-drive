@@ -12,8 +12,9 @@ export function AuthLoginPanel({ redirectTo = "/" }: AuthLoginPanelProps) {
     const container = mountRef.current;
     if (!container) return;
     container.innerHTML = "";
-    client.authUI.mount(container, { redirectTo });
+    const mounted = client.authUI.mount(container, { redirectTo }) as { destroy?: () => void } | undefined;
     return () => {
+      mounted?.destroy?.();
       container.innerHTML = "";
     };
   }, [redirectTo]);
