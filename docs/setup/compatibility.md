@@ -39,9 +39,9 @@ Which AI agent / IDE / CLI clients work with Agent Drive, and how.
 
 |  | OAuth | AGENT_TOKEN |
 |---|---|---|
-| **Setup** | Browser click | Manual paste from `edgespark var get AGENT_TOKEN` |
-| **Scope** | Whatever user approved | Full (`FULL_MCP_SCOPES`) |
-| **Revocable** | Per-token, via dashboard | All-or-nothing (rotate the var) |
+| **Setup** | Browser click | Manual paste of the configured `AGENT_TOKEN` |
+| **Scope** | Whatever user approved | MCP defaults to `read:drive write:drive share:create path:/`; can be narrowed with `AGENT_TOKEN_SCOPES` |
+| **Revocable** | Per-token, via dashboard | All-or-nothing (rotate the secret) |
 | **Expires** | 30 min access + refresh rotation | Long-lived |
 | **Good for** | Real users; multi-tool setups | Personal automations, CI, when you want zero friction |
 

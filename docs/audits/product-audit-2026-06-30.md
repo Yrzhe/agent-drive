@@ -89,7 +89,7 @@ Status is updated as fixes land on this PR.
 | Done | Follow-up | Bundle soft-deleted manifests | Bundle commit/manifest/history paths now avoid soft-deleted manifest rows. |
 | Done | Follow-up | Escaped descendant path matching | Recursive path queries now escape `%`, `_`, and `\\` to avoid sibling leaks/purges. |
 | Done | Follow-up | Root folder shares | `/` is now supported as a virtual root folder share for REST, MCP, metadata, listing, single download, and ZIP. |
-| Backlog | P1 | Reduce `AGENT_TOKEN` blast radius | Requires product/security design. |
+| Done | P1 | Reduce `AGENT_TOKEN` blast radius | MCP `AGENT_TOKEN` now defaults to implemented drive/share scopes and can be narrowed with `AGENT_TOKEN_SCOPES`, including path scopes. |
 | Backlog | P1 | Re-check webhook destinations at delivery time | Not yet changed in this PR. |
 | Backlog | P1 | Harden CLI sync concurrency | Not yet changed in this PR. |
 | Backlog | P2 | Address npm audit findings | Not yet changed in this PR. |
@@ -140,7 +140,7 @@ Status is updated as fixes land on this PR.
    - Folder creation returns path conflict for the same condition.
 
 8. **Reduce `AGENT_TOKEN` blast radius**
-   - `AGENT_TOKEN` currently grants full MCP scopes.
+   - `AGENT_TOKEN` previously granted full MCP scopes.
    - Prefer per-agent OAuth or first-class scoped Drive tokens for routine
      automation.
 
@@ -203,7 +203,7 @@ Sources reviewed:
 2. **Promote scoped tokens over `AGENT_TOKEN`**
    - Agent Drive already has OAuth scopes and path scopes.
    - A first-class "Create agent token" flow in the dashboard would be easier
-     than asking agents to reuse owner sessions or the full-power secret.
+     than asking agents to reuse owner sessions or a long-lived bypass secret.
 
 3. **Add pasteable share/token handoff blocks**
    - Current shares are human-friendly links plus passwords.
@@ -237,9 +237,8 @@ Sources reviewed:
 
 ## Suggested next PRs
 
-1. Reduce `AGENT_TOKEN` blast radius.
-2. Re-check webhook destinations at delivery time.
-3. Harden CLI sync concurrency.
-4. Address npm audit dependency findings.
-5. Add server and web tests.
-6. Refresh Dashboard/CLI docs plus structured agent handoff block design.
+1. Re-check webhook destinations at delivery time.
+2. Harden CLI sync concurrency.
+3. Address npm audit dependency findings.
+4. Add server and web tests.
+5. Refresh Dashboard/CLI docs plus structured agent handoff block design.

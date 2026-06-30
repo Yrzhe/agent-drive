@@ -77,7 +77,7 @@ Use Agent Drive to list files at /
 
 ## Self-hosted single-user mode
 
-If you set `AGENT_TOKEN` as an EdgeSpark var on your deployment, you can paste it as a Bearer token to skip the OAuth dance entirely. Useful for personal automations and CI. See [`docs/api/mcp.md`](../api/mcp.md#authentication) for details.
+If you set `AGENT_TOKEN` as an EdgeSpark secret on your deployment, you can paste it as a Bearer token to skip the OAuth dance entirely. Useful for personal automations and CI. See [`docs/api/mcp.md`](../api/mcp.md#authentication) for details.
 
 ## Reference
 
