@@ -90,7 +90,7 @@ Status is updated as fixes land on this PR.
 | Done | Follow-up | Escaped descendant path matching | Recursive path queries now escape `%`, `_`, and `\\` to avoid sibling leaks/purges. |
 | Done | Follow-up | Root folder shares | `/` is now supported as a virtual root folder share for REST, MCP, metadata, listing, single download, and ZIP. |
 | Done | P1 | Reduce `AGENT_TOKEN` blast radius | MCP `AGENT_TOKEN` now defaults to implemented drive/share scopes and can be narrowed with `AGENT_TOKEN_SCOPES`, including path scopes. |
-| Backlog | P1 | Re-check webhook destinations at delivery time | Not yet changed in this PR. |
+| Done | P1 | Re-check webhook destinations at delivery time | Registration/delivery validate public HTTPS plus DNS A/AAAA results and delivery does not automatically follow redirects; pinned-resolution TOCTOU remains a platform/proxy concern. |
 | Backlog | P1 | Harden CLI sync concurrency | Not yet changed in this PR. |
 | Backlog | P2 | Address npm audit findings | Not yet changed in this PR. |
 | Backlog | P2 | Add server and web tests | Not yet changed in this PR. |
@@ -145,9 +145,13 @@ Status is updated as fixes land on this PR.
      automation.
 
 9. **Re-check webhook destinations at delivery time**
-   - Registration validates public HTTPS URLs.
-   - Delivery fetches the stored URL directly, which leaves DNS-rebinding style
-     SSRF risk.
+   - Registration and delivery now validate public HTTPS URLs and DNS A/AAAA
+     results before sending.
+   - Delivery uses manual redirect handling so 3xx responses cannot redirect to
+     private/internal targets.
+   - Residual DNS TOCTOU remains because Worker `fetch(url)` resolves again;
+     eliminating that requires a platform-supported pinned origin or webhook
+     egress proxy.
 
 10. **Harden CLI sync concurrency**
     - `sync pull` should record the current version even when hashes already
@@ -237,8 +241,7 @@ Sources reviewed:
 
 ## Suggested next PRs
 
-1. Re-check webhook destinations at delivery time.
-2. Harden CLI sync concurrency.
-3. Address npm audit dependency findings.
-4. Add server and web tests.
-5. Refresh Dashboard/CLI docs plus structured agent handoff block design.
+1. Harden CLI sync concurrency.
+2. Address npm audit dependency findings.
+3. Add server and web tests.
+4. Refresh Dashboard/CLI docs plus structured agent handoff block design.

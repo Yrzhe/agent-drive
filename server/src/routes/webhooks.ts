@@ -4,7 +4,7 @@ import { nanoid } from "nanoid";
 
 import { webhooks } from "@defs";
 
-import { getWebhookById, createWebhookSecret, deliverWebhook } from "../lib/webhooks";
+import { getWebhookById, createWebhookSecret, deliverWebhook, validateWebhookUrlForDelivery } from "../lib/webhooks";
 import { ApiError, withErrorHandling } from "../lib/errors";
 import { nowIso } from "../lib/files";
 
@@ -41,23 +41,6 @@ function toWebhookObject(row: typeof webhooks.$inferSelect) {
   };
 }
 
-function isPrivateUrl(rawUrl: string): boolean {
-  let parsed: URL;
-  try {
-    parsed = new URL(rawUrl);
-  } catch {
-    throw new ApiError(400, "validation_error", "url must be a valid URL");
-  }
-
-  if (parsed.protocol !== "https:") return true;
-  const hostname = parsed.hostname.toLowerCase();
-  if (hostname.includes(":")) return true;
-  if (/^\d+\.\d+\.\d+\.\d+$/.test(hostname)) return true;
-  if (hostname === "localhost" || hostname.endsWith(".localhost") || hostname.endsWith(".internal")) return true;
-
-  return false;
-}
-
 webhooksRoutes.post(
   "/",
   withErrorHandling(async (c) => {
@@ -65,9 +48,8 @@ webhooksRoutes.post(
     const url = (body.url ?? "").trim();
     if (!url) throw new ApiError(400, "validation_error", "url is required");
 
-    if (isPrivateUrl(url)) {
-      throw new ApiError(400, "validation_error", "url must be public https and cannot target IP literals, localhost, or .internal hosts");
-    }
+    const validationError = await validateWebhookUrlForDelivery(url);
+    if (validationError) throw new ApiError(400, "validation_error", validationError);
 
     const secret = body.secret?.trim() || createWebhookSecret();
     const eventTypes = parseEventTypes(body.eventTypes);
