@@ -92,7 +92,7 @@ Status is updated as fixes land on this PR.
 | Done | P1 | Reduce `AGENT_TOKEN` blast radius | MCP `AGENT_TOKEN` now defaults to implemented drive/share scopes and can be narrowed with `AGENT_TOKEN_SCOPES`, including path scopes. |
 | Done | P1 | Re-check webhook destinations at delivery time | Registration/delivery validate public HTTPS plus DNS A/AAAA results and delivery does not automatically follow redirects; pinned-resolution TOCTOU remains a platform/proxy concern. |
 | Done | P1 | Harden CLI sync concurrency | Push preflights current version before upload/delete, pull records exact version anchors, and orphan cleanup pages through scoped MCP listings. |
-| Backlog | P2 | Address npm audit findings | Not yet changed in this PR. |
+| Done | P2 | Address npm audit findings | Server/web/CLI `npm audit --audit-level=moderate` now report 0 vulnerabilities; unused vulnerable `drizzle-kit` was removed and CLI lockfile updated. |
 | Backlog | P2 | Add server and web tests | Not yet changed in this PR. |
 | Backlog | P2 | Refresh README and skill docs | Not yet changed in this PR. |
 
@@ -246,6 +246,5 @@ Sources reviewed:
 
 ## Suggested next PRs
 
-1. Address npm audit dependency findings.
-2. Add server and web tests.
-3. Refresh Dashboard/CLI docs plus structured agent handoff block design.
+1. Add server and web tests.
+2. Refresh README and skill docs.
