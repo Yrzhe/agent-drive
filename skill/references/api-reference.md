@@ -2,10 +2,12 @@
 
 ## Auth
 
-All management endpoints (`/api/public/v1/*`) require:
+All management endpoints (`/api/public/v1/*`) require browser session auth or:
 ```
 Authorization: Bearer {AGENT_TOKEN}
 ```
+
+For MCP, `AGENT_TOKEN` defaults to `read:drive write:drive share:create path:/` and may be narrowed with `AGENT_TOKEN_SCOPES`.
 
 Public endpoints (`/api/public/s/*` and `/api/public/guide`) require no auth, but download/files endpoints need `X-Access-Token` from the `/access` endpoint.
 
@@ -36,10 +38,12 @@ Returns: { file: FileObject }
 #### List
 ```
 GET /api/public/v1/files?path={path}&recursive={true|false}
-Returns: { files: FileObject[], path: string }
+Returns: { files: FileObject[], path: string, limit: number, offset: number }
 ```
 - `path`: default `"/"`
 - `recursive=true`: flat list of all descendants
+- `limit`: default `100`, max `500`
+- `offset`: default `0`
 
 #### Get Details
 ```
@@ -59,9 +63,9 @@ Returns: { file: FileObject }
 #### Delete
 ```
 DELETE /api/public/v1/files/{id}
-Returns: { deleted: number }
+Returns: { trashed: number, targetId: string }
 ```
-- Folder delete is recursive (deletes everything inside)
+- Soft-delete to trash; folder delete is recursive (trashes everything inside)
 - Associated shares cleaned up via cascade
 
 ### Folders
@@ -89,6 +93,8 @@ Body: {
 }
 Returns: { share: ShareObject, shareUrl: string, guideUrl: string }
 ```
+- `folderPath: "/"` explicitly creates a virtual whole-drive root share
+- blank or whitespace-only `folderPath` is invalid
 
 #### List Active
 ```
@@ -113,6 +119,39 @@ Returns: { success: true }
 ```
 GET /api/public/v1/stats
 Returns: { totalFiles, totalFolders, totalSize, totalShares, totalDownloads }
+```
+- File/folder counts and size exclude trashed rows
+
+### Bundles
+
+Bundles are versioned manifests used by `adrive sync`. File bytes are uploaded separately; the bundle endpoints manage the version pointer and manifest history.
+
+#### Commit
+```
+POST /api/public/v1/bundles/commit
+Body: { prefix: string, ifMatch?: string|null|"*", manifest: BundleManifest }
+Returns: { versionId, previousVersionId, pushedAt, manifestPath, hash, fileCount, totalSize }
+```
+- `prefix` must be a non-root folder path.
+- `ifMatch` protects against stale writes. Use the last seen `versionId`, `null` for a fresh bundle, or `"*"` to force.
+- File/artifact writes are not fully atomic with the pointer swap; failed racing commits can leave non-current artifacts behind.
+
+#### Current
+```
+GET /api/public/v1/bundles/current?prefix={prefix}
+Returns: { prefix, currentVersion: BundleVersion|null }
+```
+
+#### History
+```
+GET /api/public/v1/bundles/history?prefix={prefix}&limit=50
+Returns: { prefix, currentVersionId, history: BundleVersion[] }
+```
+
+#### Manifest
+```
+GET /api/public/v1/bundles/manifest?prefix={prefix}&versionId={versionId}
+Returns: { prefix, versionId, manifest }
 ```
 
 ---
@@ -174,6 +213,7 @@ Returns: binary ZIP file (Content-Type: application/zip)
 - Omit `path` to download entire share
 - Increments download counter
 - Only for folder shares
+- ZIP size limit: 30MB
 
 ---
 
@@ -218,7 +258,8 @@ Returns: binary ZIP file (Content-Type: application/zip)
 | HTTP | Code | Description |
 |------|------|-------------|
 | 400 | `validation_error` | Bad request (missing fields, invalid values) |
-| 401 | `unauthorized` | No auth header or invalid AGENT_TOKEN |
+| 401 | `unauthorized` | No auth header |
+| 401 | `invalid_token` | Invalid bearer token |
 | 401 | `invalid_access_token` | Share access token expired or invalid |
 | 403 | `wrong_password` | Share password incorrect |
 | 404 | `file_not_found` | File or folder not found |

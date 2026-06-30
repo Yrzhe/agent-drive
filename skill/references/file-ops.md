@@ -97,10 +97,10 @@ Body: { "name": "renamed.pdf", "parentPath": "/archive" }
 
 ```bash
 DELETE {apiBase}/files/{fileId}
-Returns: { deleted: N }
+Returns: { trashed: N, targetId: string }
 ```
 
-**Deleting a folder removes everything inside it.** Associated share links are cleaned up via cascade.
+Delete is a soft-delete to trash. Deleting a folder trashes everything inside it, and associated share links are cleaned up via cascade. Trashed files are excluded from share downloads and drive stats.
 
 ## Download Your Own File
 

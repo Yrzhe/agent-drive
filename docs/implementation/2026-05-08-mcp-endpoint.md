@@ -29,7 +29,7 @@ OAuth + MCP collapses that into "paste URL → click consent in browser → call
 | T1.2 | Dynamic client registration `POST /oauth/register` | ✅ | `e0f0bd5` | YRZ-204 |
 | T1.3 | Authorization code + PKCE: `GET /oauth/authorize` + `POST /oauth/authorize/consent` + `POST /oauth/token`. Consent UI is SPA route `/connect/authorize`. | ✅ | `a7800bf` (server), `e987615` (web) | YRZ-205 |
 | T1.4 | Token store: D1 tables `oauth_clients`, `oauth_authorization_codes`, `oauth_tokens` (migration 0005); `oauth_tokens.source_code_id` added in 0006 for chained revoke | ✅ | `54ce505` (initial), `60d2b05` (chained-revoke schema) | YRZ-206 |
-| T1.5 | MCP endpoint `POST /mcp` Streamable HTTP JSON-RPC: `initialize`, `tools/list`, `tools/call`. Unauthorized → 401 with `WWW-Authenticate: Bearer resource_metadata=...`. AGENT_TOKEN granted FULL_MCP_SCOPES for back-compat. | ✅ | `cb4f622` | YRZ-207 |
+| T1.5 | MCP endpoint `POST /mcp` Streamable HTTP JSON-RPC: `initialize`, `tools/list`, `tools/call`. Unauthorized → 401 with `WWW-Authenticate: Bearer resource_metadata=...`. Historical note: AGENT_TOKEN initially granted full MCP scopes; current behavior defaults to drive/share scopes and supports `AGENT_TOKEN_SCOPES`. | ✅ | `cb4f622` | YRZ-207 |
 | T1.6 | First-pass tools: `list_files`, `read_file`, `write_file`, `search_files`, `create_share` | ✅ | `c309f5a` | YRZ-208 |
 | T1.7 | Scope model and enforcement (`read:drive`/`write:drive`/`read:memory`/`write:memory`/`read:skills`/`write:skills`/`share:create`); `tools/list` filters; `tools/call` rejects with `invalid_scope`. | ✅ | `14d1f14` | YRZ-209 |
 | T1.8 | Setup guides for Claude / Codex / Cursor; API smoke test via curl with `AGENT_TOKEN` | ✅ docs + ✅ API smoke; ⏳ IDE smoke (CEO) | `c899e52` | YRZ-210 |
@@ -256,7 +256,7 @@ c899e52  docs(setup): MCP connector setup guides (YRZ-210)
 1. **Routes moved to `/api/public/*`.** Original plan had `/.well-known/*`, `/mcp`, `/oauth/*` at origin root. EdgeSpark enforces `/api/*` prefix for all backend routes; root paths are reserved for the SPA. Mitigated by surfacing absolute URLs from the `oauth-protected-resource` discovery doc — clients still autodiscover correctly.
 2. **No SSE.** Held to A6 — Streamable HTTP only.
 3. **Audit added 2 schema migrations beyond the planned 0005.** Migration 0006 adds `oauth_tokens.source_code_id` (chained revoke) — discovered during reviewer Round 1.
-4. **AGENT_TOKEN given full MCP scopes.** Confirmed in audit; documented in `docs/setup/mcp-*.md`.
+4. **AGENT_TOKEN initially given full MCP scopes.** Later hardening narrowed the default MCP scopes to drive/share capabilities plus `path:/`, with optional `AGENT_TOKEN_SCOPES`.
 5. **Public-IPv4 webhook URLs no longer accepted** (carryover side effect from the prior pre-MCP review pass; not scoped here).
 
 ### Open issues to track

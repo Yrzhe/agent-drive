@@ -2,9 +2,9 @@
 
 Date: 2026-06-30
 
-This audit captures the current shipped surface, obvious bugs found by code review
-and local verification, and product lessons from here.now Drive. It is intended to
-be a reviewable backlog source rather than a full remediation PR.
+This audit captures the shipped surface, bugs found by code review and local
+verification, product lessons from here.now Drive, and the remediation work
+completed in this PR.
 
 ## Current product surface
 
@@ -96,9 +96,13 @@ Status is updated as fixes land on this PR.
 | Done | P1 | Harden CLI sync concurrency | Push preflights current version before upload/delete, pull records exact version anchors, and orphan cleanup pages through scoped MCP listings. |
 | Done | P2 | Address npm audit findings | Server/web/CLI `npm audit --audit-level=moderate` now report 0 vulnerabilities; unused vulnerable `drizzle-kit` was removed and CLI lockfile updated. |
 | Done | P2 | Add server and web tests | Added Vitest suites for server path/scope/webhook helpers and web path/OAuth-scope helpers. |
-| Backlog | P2 | Refresh README and skill docs | Not yet changed in this PR. |
+| Done | P2 | Refresh README and skill docs | Root README and skill references now reflect current AGENT_TOKEN scopes, root shares, trash semantics, ZIP limits, bundle sync, and test commands. |
 
-## Proposed issue backlog
+## Original proposed issue backlog (completed in this PR)
+
+These were the initial repair candidates from the audit. They are retained as
+historical context; current status is tracked in the Repair progress table
+above.
 
 ### P0
 
@@ -248,4 +252,4 @@ Sources reviewed:
 
 ## Suggested next PRs
 
-1. Refresh README and skill docs.
+All audit backlog items in this PR are now complete. Future follow-ups can focus on product enhancements from the here.now comparison.
