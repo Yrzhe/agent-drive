@@ -61,6 +61,7 @@ export const MCP_TOOLS: McpToolDefinition[] = [
         path: { type: "string", description: "Folder path to list. Defaults to /." },
         recursive: { type: "boolean", description: "Whether to list descendants recursively." },
         limit: { type: "number", description: "Maximum entries to return." },
+        offset: { type: "number", description: "Number of entries to skip." },
       },
     },
   },
@@ -138,6 +139,7 @@ export async function callMcpTool(db: AppDb, origin: string, scopes: readonly st
     const path = normalizePath(typeof input.path === "string" ? input.path : "/");
     const recursive = input.recursive === true;
     const limit = Math.max(1, Math.min(200, Math.trunc(numberArg(input, "limit", 100))));
+    const offset = Math.max(0, Math.trunc(numberArg(input, "offset", 0)));
     // If the caller has path scopes and `path` is fully outside them, reject —
     // they shouldn't even know whether anything is inside.
     if (!pathAllowed(scopes, path)) {
@@ -147,13 +149,34 @@ export async function callMcpTool(db: AppDb, origin: string, scopes: readonly st
       const allowAsAncestor = grantedPrefixes.some((prefix) => prefix.startsWith(`${path === "/" ? "" : path}/`));
       if (!allowAsAncestor) throw new Error(`invalid_scope:path:${path}`);
     }
-    const rows = recursive
-      ? path === "/"
-        ? await db.select().from(files).where(isNull(files.deletedAt)).orderBy(asc(files.path)).limit(limit)
-        : await db.select().from(files).where(and(sql`${files.path} LIKE ${escapedDescendantPattern(path)} ESCAPE '\\'`, isNull(files.deletedAt))).orderBy(asc(files.path)).limit(limit)
-      : await db.select().from(files).where(and(eq(files.parentPath, path), isNull(files.deletedAt))).orderBy(desc(files.isFolder), asc(files.name)).limit(limit);
-    const visible = rows.filter((row) => pathAllowed(scopes, row.path));
-    return textResult({ path, files: visible.map(toFileObject) });
+    const loadRows = async (pageLimit: number, pageOffset: number): Promise<Array<typeof files.$inferSelect>> => {
+      if (recursive) {
+        return path === "/"
+          ? db.select().from(files).where(isNull(files.deletedAt)).orderBy(asc(files.path)).limit(pageLimit).offset(pageOffset)
+          : db.select().from(files).where(and(sql`${files.path} LIKE ${escapedDescendantPattern(path)} ESCAPE '\\'`, isNull(files.deletedAt))).orderBy(asc(files.path)).limit(pageLimit).offset(pageOffset);
+      }
+      return db.select().from(files).where(and(eq(files.parentPath, path), isNull(files.deletedAt))).orderBy(desc(files.isFolder), asc(files.name)).limit(pageLimit).offset(pageOffset);
+    };
+
+    const visible: Array<typeof files.$inferSelect> = [];
+    let skippedVisible = 0;
+    let rawOffset = 0;
+    const rawPageSize = 200;
+    while (visible.length < limit) {
+      const rows = await loadRows(rawPageSize, rawOffset);
+      for (const row of rows) {
+        if (!pathAllowed(scopes, row.path)) continue;
+        if (skippedVisible < offset) {
+          skippedVisible += 1;
+          continue;
+        }
+        visible.push(row);
+        if (visible.length >= limit) break;
+      }
+      rawOffset += rawPageSize;
+      if (rows.length < rawPageSize) break;
+    }
+    return textResult({ path, limit, offset, files: visible.map(toFileObject) });
   }
 
   if (name === "read_file") {

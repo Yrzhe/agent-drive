@@ -145,12 +145,15 @@ Input:
 | `path` | string | `/` | Folder path to list |
 | `recursive` | boolean | `false` | List descendants |
 | `limit` | number | `100` | 1–200 |
+| `offset` | number | `0` | Number of visible entries to skip after scope filtering |
 
 Output (`text` payload, parsed):
 
 ```json
 {
   "path": "/",
+  "limit": 100,
+  "offset": 0,
   "files": [
     { "id": "...", "name": "...", "path": "...", "isFolder": 0|1, "size": 1234, "contentType": "text/plain", "createdAt": "...", "updatedAt": "..." }
   ]

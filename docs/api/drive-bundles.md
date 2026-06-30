@@ -88,7 +88,7 @@ Atomically swing the bundle's current version.
 }
 ```
 
-**Atomicity:** the pointer UPDATE is conditional on the prior `currentVersionId`. Two concurrent commits with the same `ifMatch` resolve to one winner and one 412 — no race window. R2 object writes (new manifest + history snapshot) happen before the DB swap; if the DB swap fails, R2 has orphan objects but the visible state didn't change (GC future-work).
+**Concurrency:** the version pointer update is conditional on the prior `currentVersionId`. Two concurrent commits with the same `ifMatch` resolve to one winner and one 412 for the pointer update. File bodies are uploaded separately, and manifest/history artifacts are prepared around that pointer swap, so failed or racing commits can leave bytes/artifacts behind; in a narrow race, the discoverability `manifest.json` artifact can temporarily disagree with the version pointer. Fully staged atomic bundle writes plus cleanup are future work.
 
 **Notes:**
 

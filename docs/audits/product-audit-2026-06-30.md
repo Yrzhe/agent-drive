@@ -91,7 +91,7 @@ Status is updated as fixes land on this PR.
 | Done | Follow-up | Root folder shares | `/` is now supported as a virtual root folder share for REST, MCP, metadata, listing, single download, and ZIP. |
 | Done | P1 | Reduce `AGENT_TOKEN` blast radius | MCP `AGENT_TOKEN` now defaults to implemented drive/share scopes and can be narrowed with `AGENT_TOKEN_SCOPES`, including path scopes. |
 | Done | P1 | Re-check webhook destinations at delivery time | Registration/delivery validate public HTTPS plus DNS A/AAAA results and delivery does not automatically follow redirects; pinned-resolution TOCTOU remains a platform/proxy concern. |
-| Backlog | P1 | Harden CLI sync concurrency | Not yet changed in this PR. |
+| Done | P1 | Harden CLI sync concurrency | Push preflights current version before upload/delete, pull records exact version anchors, and orphan cleanup pages through scoped MCP listings. |
 | Backlog | P2 | Address npm audit findings | Not yet changed in this PR. |
 | Backlog | P2 | Add server and web tests | Not yet changed in this PR. |
 | Backlog | P2 | Refresh README and skill docs | Not yet changed in this PR. |
@@ -154,11 +154,16 @@ Status is updated as fixes land on this PR.
      egress proxy.
 
 10. **Harden CLI sync concurrency**
-    - `sync pull` should record the current version even when hashes already
-      match.
-    - `sync push` should avoid uploading file changes before detecting an
-      unanchored remote bundle conflict.
-    - Orphan cleanup should paginate beyond the current 200-file cap.
+    - `sync pull` records the exact current version it read, including when
+      hashes already match.
+    - `sync push` avoids uploading file changes before detecting stale or
+      unanchored remote bundle conflicts.
+    - Orphan cleanup paginates through scoped MCP listings beyond the original
+      200-file cap.
+    - Residual: file bytes and manifest artifacts are not staged atomically with
+      the bundle pointer, so a remote move after preflight can still leave
+      uploaded bytes or a temporarily inconsistent `manifest.json` artifact if
+      the manifest commit loses the race.
 
 ### P2
 
@@ -241,7 +246,6 @@ Sources reviewed:
 
 ## Suggested next PRs
 
-1. Harden CLI sync concurrency.
-2. Address npm audit dependency findings.
-3. Add server and web tests.
-4. Refresh Dashboard/CLI docs plus structured agent handoff block design.
+1. Address npm audit dependency findings.
+2. Add server and web tests.
+3. Refresh Dashboard/CLI docs plus structured agent handoff block design.
