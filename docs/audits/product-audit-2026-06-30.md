@@ -62,8 +62,10 @@ Initial audit failed or warned:
 Latest repair verification:
 
 - `server`: `npm run typecheck`
+- `server`: `npm test` (3 files, 11 tests)
 - `web`: `npm run lint`
 - `web`: `npm run build`
+- `web`: `npm test` (2 files, 7 tests)
 - `cli`: `npm run check`
 - `cli`: `npm test` (6 files, 30 tests)
 
@@ -93,7 +95,7 @@ Status is updated as fixes land on this PR.
 | Done | P1 | Re-check webhook destinations at delivery time | Registration/delivery validate public HTTPS plus DNS A/AAAA results and delivery does not automatically follow redirects; pinned-resolution TOCTOU remains a platform/proxy concern. |
 | Done | P1 | Harden CLI sync concurrency | Push preflights current version before upload/delete, pull records exact version anchors, and orphan cleanup pages through scoped MCP listings. |
 | Done | P2 | Address npm audit findings | Server/web/CLI `npm audit --audit-level=moderate` now report 0 vulnerabilities; unused vulnerable `drizzle-kit` was removed and CLI lockfile updated. |
-| Backlog | P2 | Add server and web tests | Not yet changed in this PR. |
+| Done | P2 | Add server and web tests | Added Vitest suites for server path/scope/webhook helpers and web path/OAuth-scope helpers. |
 | Backlog | P2 | Refresh README and skill docs | Not yet changed in this PR. |
 
 ## Proposed issue backlog
@@ -246,5 +248,4 @@ Sources reviewed:
 
 ## Suggested next PRs
 
-1. Add server and web tests.
-2. Refresh README and skill docs.
+1. Refresh README and skill docs.
