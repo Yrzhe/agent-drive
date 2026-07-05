@@ -100,7 +100,7 @@ DELETE {apiBase}/files/{fileId}
 Returns: { trashed: N, targetId: string }
 ```
 
-Delete is a soft-delete to trash. Deleting a folder trashes everything inside it, and associated share links are cleaned up via cascade. Trashed files are excluded from share downloads and drive stats.
+Delete is a soft-delete to trash. Deleting a folder trashes everything inside it, and associated share links are cleaned up via cascade. Trashed files are excluded from share downloads and drive stats. Trashed items are moved to an internal tombstone namespace, so re-creating a file or folder at the same path is safe and does not destroy the trashed copy; restoring returns 409 `path_conflict` if the original path is occupied again.
 
 ## Download Your Own File
 
