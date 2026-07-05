@@ -111,7 +111,9 @@ export async function rememberMemory(db: AppDb, input: RememberInput): Promise<{
       .set({ content, tags, source, updatedAt: timestamp })
       .where(eq(memories.key, key))
       .returning();
-    return updated ? toMemoryObject(updated) : null;
+    if (!updated) return null;
+    await syncFtsRow(db, updated.id, content, tags);
+    return toMemoryObject(updated);
   };
 
   const updated = await updateByKey();
@@ -122,6 +124,7 @@ export async function rememberMemory(db: AppDb, input: RememberInput): Promise<{
       .insert(memories)
       .values({ id: nanoid(), key, content, tags, source, createdAt: timestamp, updatedAt: timestamp })
       .returning();
+    await syncFtsRow(db, created.id, content, tags);
     return { memory: toMemoryObject(created), created: true };
   } catch (error) {
     // Concurrent remember with the same new key: the loser of the unique
@@ -135,6 +138,15 @@ export async function rememberMemory(db: AppDb, input: RememberInput): Promise<{
   }
 }
 
+// The memories_fts FTS5 index is maintained from application code because
+// D1's migration executor cannot apply CREATE TRIGGER statements
+// (multi-statement BEGIN...END bodies fail with "incomplete input").
+// Delete-then-insert keeps the index write idempotent.
+async function syncFtsRow(db: AppDb, id: string, content: string, tags: string | null): Promise<void> {
+  await db.run(sql`DELETE FROM memories_fts WHERE id = ${id}`);
+  await db.run(sql`INSERT INTO memories_fts(id, content, tags) VALUES (${id}, ${content}, ${tags ?? ""})`);
+}
+
 /** Full-text search via the memories_fts FTS5 index, best match first. */
 export async function recallMemories(db: AppDb, query: string, limit: number): Promise<MemoryObject[]> {
   const match = buildFtsMatchQuery(query);
@@ -142,7 +154,7 @@ export async function recallMemories(db: AppDb, query: string, limit: number): P
   const boundedLimit = Math.max(1, Math.min(MEMORY_LIST_MAX_LIMIT, Math.trunc(limit)));
   const rows = await db.all<Record<string, unknown>>(sql`
     SELECT m.* FROM ${memories} m
-    JOIN memories_fts f ON m.rowid = f.rowid
+    JOIN memories_fts f ON m.id = f.id
     WHERE memories_fts MATCH ${match}
     ORDER BY f.rank
     LIMIT ${boundedLimit}
@@ -182,5 +194,6 @@ export async function forgetMemory(db: AppDb, idOrKey: string): Promise<MemoryOb
   const existing = await getMemory(db, idOrKey);
   if (!existing) return null;
   await db.delete(memories).where(eq(memories.id, existing.id));
+  await db.run(sql`DELETE FROM memories_fts WHERE id = ${existing.id}`);
   return toMemoryObject(existing);
 }
