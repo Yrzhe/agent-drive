@@ -1,0 +1,1 @@
+ALTER TABLE `oauth_tokens` ADD `label` text;

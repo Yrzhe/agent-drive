@@ -148,6 +148,20 @@ DELETE /api/public/v1/memory/{idOrKey}  Returns { forgotten }
 
 MCP tools: `remember`, `recall`, `list_memories`, `forget`.
 
+### Scoped Drive Tokens (owner/session-only)
+
+Minting and revoking tokens requires browser session auth — bearer tokens are rejected with 403 `session_required` (no privilege escalation). The owner uses the `/connect` page UI; the endpoints behind it:
+
+```
+POST   /api/public/v1/tokens      Body { label?, scopes: [...], pathPrefix?, expiresInDays? }
+Returns: 201 { token, hint, tokenInfo } — token shown once
+
+GET    /api/public/v1/tokens      List minted tokens (label, scopes, expiry, status)
+DELETE /api/public/v1/tokens/:id  Revoke immediately
+```
+
+Mintable scopes: `read:drive write:drive share:create read:memory write:memory` (+ optional path prefix). Minted tokens authenticate exactly like OAuth bearers on MCP and REST.
+
 ### Bundles
 
 Bundles are versioned manifests used by `adrive sync`. File bytes are uploaded separately; the bundle endpoints manage the version pointer and manifest history.

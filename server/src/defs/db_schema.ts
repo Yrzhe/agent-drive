@@ -171,6 +171,7 @@ export const oauthTokens = sqliteTable(
     createdAt: text("created_at").notNull(),
     revokedAt: text("revoked_at"),
     sourceCodeId: text("source_code_id"),
+    label: text("label"),
   },
   (table) => [
     index("idx_oauth_tokens_access").on(table.accessTokenHash),
