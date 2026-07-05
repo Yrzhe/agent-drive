@@ -12,8 +12,9 @@ import { oauthDiscoveryRoutes } from "./routes/oauth-discovery";
 import { publicSharesRoutes } from "./routes/public-shares";
 import { sharesRoutes } from "./routes/shares";
 import { webhooksRoutes } from "./routes/webhooks";
+import type { AppEnv } from "./types";
 
-const app = new Hono();
+const app = new Hono<AppEnv>();
 
 app.route("/api/public/.well-known", oauthDiscoveryRoutes);
 app.route("/api/public/mcp", mcpRoutes);

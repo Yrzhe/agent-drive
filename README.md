@@ -166,7 +166,7 @@ agent-drive/
 
 ### Management (requires session auth or `Authorization: Bearer {TOKEN}`)
 
-For MCP, OAuth bearer tokens are scoped and revocable. The self-hosted `AGENT_TOKEN` bypass defaults to `read:drive write:drive share:create path:/` for MCP and can be narrowed with the optional `AGENT_TOKEN_SCOPES` var.
+OAuth bearer tokens are scoped and revocable; scopes (including `path:` prefixes) are enforced on MCP tools and all REST `/api/public/v1/*` endpoints. The self-hosted `AGENT_TOKEN` bypass defaults to `read:drive write:drive share:create path:/` and can be narrowed with the optional `AGENT_TOKEN_SCOPES` var.
 Use `/api/public/mcp` as the remote MCP URL. OAuth/MCP discovery is served from `/api/public/.well-known/*` because EdgeSpark requires server routes to live under `/api/*`.
 
 | Method | Endpoint | Description |

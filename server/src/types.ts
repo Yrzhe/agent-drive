@@ -10,6 +10,13 @@ export type WebhookRow = typeof webhooks.$inferSelect;
 export type ActivityTargetType = "file" | "folder" | "share";
 export type ActivityActor = "owner" | "agent" | "public";
 
+/** Resolved once by requireDualAuth and read by REST route scope helpers. */
+export type RestAuth =
+  | { kind: "session" }
+  | { kind: "bearer"; scopes: readonly string[] };
+
+export type AppEnv = { Variables: { restAuth?: RestAuth } };
+
 export interface FileObject {
   id: string;
   name: string;

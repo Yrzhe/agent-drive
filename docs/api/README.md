@@ -33,10 +33,10 @@ The four public surfaces:
 
 ## Authentication
 
-Two paths into the same scope-checked surface:
+Two paths into the same scope-checked surface (scopes are enforced on MCP tools and on every REST `/api/public/v1/*` endpoint — capability scopes centrally in middleware, path scopes per resolved target):
 
 1. **OAuth 2.1 access token** — primary path for IDE integrations. Bearer token obtained via dynamic client registration (RFC 7591) + authorization-code-with-PKCE grant (RFC 7636). Scope is whatever the user approved on the consent screen. See [`oauth.md`](./oauth.md).
-2. **`AGENT_TOKEN` bypass** — secondary path for self-hosted single-user mode. Set `AGENT_TOKEN` as an EdgeSpark secret; pasting it as `Authorization: Bearer <token>` skips OAuth. MCP defaults to `read:drive write:drive share:create path:/`; set the optional `AGENT_TOKEN_SCOPES` var to narrow it further. Malformed or unsupported configured scopes fail closed for MCP tools.
+2. **`AGENT_TOKEN` bypass** — secondary path for self-hosted single-user mode. Set `AGENT_TOKEN` as an EdgeSpark secret; pasting it as `Authorization: Bearer <token>` skips OAuth. Defaults to `read:drive write:drive share:create path:/`; set the optional `AGENT_TOKEN_SCOPES` var to narrow it further. Malformed or unsupported configured scopes fail closed for both MCP tools and REST endpoints.
 
 In both cases, the token is sent as `Authorization: Bearer <token>` on every MCP request.
 

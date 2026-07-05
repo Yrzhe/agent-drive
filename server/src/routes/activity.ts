@@ -2,8 +2,10 @@ import { Hono } from "hono";
 
 import { listActivities, parseActivityMetadata } from "../lib/activity";
 import { ApiError, withErrorHandling } from "../lib/errors";
+import { restPathFilter } from "../lib/rest-scopes";
+import type { AppEnv } from "../types";
 
-export const activityRoutes = new Hono();
+export const activityRoutes = new Hono<AppEnv>();
 
 activityRoutes.get(
   "/",
@@ -21,17 +23,22 @@ activityRoutes.get(
     const { db } = await import("edgespark");
     const activities = await listActivities(db, { type, since, limit });
 
+    // Events without a target path (share/webhook admin events) are only
+    // visible to tokens without path restrictions.
+    const pathVisible = restPathFilter(c);
     return c.json({
-      activities: activities.map((row) => ({
-        id: row.id,
-        eventType: row.eventType,
-        targetType: row.targetType,
-        targetId: row.targetId,
-        targetPath: row.targetPath,
-        actor: row.actor,
-        metadata: parseActivityMetadata(row),
-        createdAt: row.createdAt,
-      })),
+      activities: activities
+        .filter((row) => pathVisible(row.targetPath ?? "/"))
+        .map((row) => ({
+          id: row.id,
+          eventType: row.eventType,
+          targetType: row.targetType,
+          targetId: row.targetId,
+          targetPath: row.targetPath,
+          actor: row.actor,
+          metadata: parseActivityMetadata(row),
+          createdAt: row.createdAt,
+        })),
     });
   })
 );
