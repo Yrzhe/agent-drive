@@ -121,10 +121,8 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function postWebhook(url: string, eventType: string, payload: string, signature: string): Promise<Response> {
-  const validationError = await validateWebhookUrlForDelivery(url);
-  if (validationError) throw new Error(`Blocked webhook URL: ${validationError}`);
-
+// Callers must run validateWebhookUrlForDelivery first; deliverWebhook is the only caller.
+async function postValidatedWebhook(url: string, eventType: string, payload: string, signature: string): Promise<Response> {
   return fetch(url, {
     method: "POST",
     redirect: "manual",
@@ -156,10 +154,10 @@ export async function deliverWebhook(
     const validationError = await validateWebhookUrlForDelivery(webhook.url);
     if (validationError) throw new Error(`Blocked webhook URL: ${validationError}`);
 
-    let response = await postWebhook(webhook.url, event.eventType, payload, signature);
+    let response = await postValidatedWebhook(webhook.url, event.eventType, payload, signature);
     if (response.status >= 500) {
       await sleep(WEBHOOK_RETRY_DELAY_MS);
-      response = await postWebhook(webhook.url, event.eventType, payload, signature);
+      response = await postValidatedWebhook(webhook.url, event.eventType, payload, signature);
     }
     status = response.status;
     failed = !response.ok;
