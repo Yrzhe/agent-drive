@@ -9,15 +9,24 @@ import { hashPassword } from "../lib/crypto";
 import { nowIso } from "../lib/files";
 import { ApiError, withErrorHandling } from "../lib/errors";
 import { normalizePath } from "../lib/paths";
-import type { AppDb, ShareObject, ShareRow } from "../types";
+import { assertRestPathAllowed, restPathFilter } from "../lib/rest-scopes";
+import type { AppDb, AppEnv, ShareObject, ShareRow } from "../types";
 
-export const sharesRoutes = new Hono();
+export const sharesRoutes = new Hono<AppEnv>();
 const ROOT_SHARE_NAME = "Drive";
 
 function getShareId(c: { req: { param: (name: string) => string | undefined } }): string {
   const id = c.req.param("id");
   if (!id) throw new ApiError(400, "validation_error", "Missing path param: id");
   return id;
+}
+
+async function shareTargetPath(db: AppDb, share: ShareRow): Promise<string> {
+  if (share.fileId) {
+    const [file] = await db.select({ path: files.path }).from(files).where(eq(files.id, share.fileId)).limit(1);
+    return file?.path ?? "/";
+  }
+  return normalizePath(share.folderPath ?? "/");
 }
 
 async function getShareById(db: AppDb, id: string): Promise<ShareRow> {
@@ -154,10 +163,14 @@ sharesRoutes.post(
     if (fileId) {
       const [file] = await db.select().from(files).where(and(eq(files.id, fileId), eq(files.isFolder, 0), isNull(files.deletedAt))).limit(1);
       if (!file) throw new ApiError(404, "file_not_found", "File not found");
+      assertRestPathAllowed(c, file.path);
     }
-    if (folderPath && folderPath !== "/") {
-      const [folder] = await db.select().from(files).where(and(eq(files.path, folderPath), eq(files.isFolder, 1), isNull(files.deletedAt))).limit(1);
-      if (!folder) throw new ApiError(404, "file_not_found", "Folder not found");
+    if (folderPath) {
+      assertRestPathAllowed(c, folderPath);
+      if (folderPath !== "/") {
+        const [folder] = await db.select().from(files).where(and(eq(files.path, folderPath), eq(files.isFolder, 1), isNull(files.deletedAt))).limit(1);
+        if (!folder) throw new ApiError(404, "file_not_found", "Folder not found");
+      }
     }
 
     const [created] = await db
@@ -211,7 +224,17 @@ sharesRoutes.get(
       if (row.maxDownloads !== null && row.downloadCount >= row.maxDownloads) return false;
       return true;
     });
-    return c.json({ shares: await toShareObjects(db, activeRows, origin) });
+
+    const pathVisible = restPathFilter(c);
+    const shareFileIds = activeRows.map((row) => row.fileId).filter((id): id is string => Boolean(id));
+    const filePathRows = shareFileIds.length > 0
+      ? await db.select({ id: files.id, path: files.path }).from(files).where(inArray(files.id, shareFileIds))
+      : [];
+    const filePathById = new Map(filePathRows.map((row) => [row.id, row.path]));
+    const visibleRows = activeRows.filter((row) =>
+      pathVisible(row.fileId ? filePathById.get(row.fileId) ?? "/" : normalizePath(row.folderPath ?? "/"))
+    );
+    return c.json({ shares: await toShareObjects(db, visibleRows, origin) });
   })
 );
 
@@ -220,6 +243,7 @@ sharesRoutes.get(
   withErrorHandling(async (c) => {
     const { db } = await import("edgespark");
     const share = await getShareById(db, getShareId(c));
+    assertRestPathAllowed(c, await shareTargetPath(db, share));
     return c.json({ share: await toShareObject(db, share, new URL(c.req.url).origin) });
   })
 );
@@ -229,6 +253,7 @@ sharesRoutes.get(
   withErrorHandling(async (c) => {
     const { db } = await import("edgespark");
     const share = await getShareById(db, getShareId(c));
+    assertRestPathAllowed(c, await shareTargetPath(db, share));
     const shareObject = await toShareObject(db, share, new URL(c.req.url).origin);
     const [summary] = await db
       .select({
@@ -288,7 +313,9 @@ sharesRoutes.delete(
   "/shares/:id",
   withErrorHandling(async (c) => {
     const { db } = await import("edgespark");
-    const deleted = await db.delete(shares).where(eq(shares.id, getShareId(c))).returning();
+    const share = await getShareById(db, getShareId(c));
+    assertRestPathAllowed(c, await shareTargetPath(db, share));
+    const deleted = await db.delete(shares).where(eq(shares.id, share.id)).returning();
     const deletedShare = deleted[0];
     if (!deletedShare) throw new ApiError(404, "share_not_found", "Share link not found");
     await logEvent(db, {
@@ -309,6 +336,8 @@ sharesRoutes.delete(
 sharesRoutes.get(
   "/stats",
   withErrorHandling(async (c) => {
+    // Stats aggregate the whole drive; require an unrestricted token.
+    assertRestPathAllowed(c, "/");
     const { db } = await import("edgespark");
     const [filesCount, foldersCount, sizeSum, shareCount, downloadSum] = await Promise.all([
       db.select({ count: sql<number>`count(*)` }).from(files).where(and(eq(files.isFolder, 0), isNull(files.deletedAt))),

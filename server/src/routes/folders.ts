@@ -8,9 +8,11 @@ import { getRequestActor, logEvent } from "../lib/activity";
 import { ensureFolderChain, nowIso, toFileObject } from "../lib/files";
 import { ApiError, withErrorHandling } from "../lib/errors";
 import { joinPath, normalizeName, normalizePath } from "../lib/paths";
+import { assertRestPathAllowed } from "../lib/rest-scopes";
 import { purgeConflictingTrashAtPath } from "../lib/trash";
+import type { AppEnv } from "../types";
 
-export const foldersRoutes = new Hono();
+export const foldersRoutes = new Hono<AppEnv>();
 
 function isPathUniqueConflict(error: unknown): boolean {
   const message = (error as { message?: string } | null)?.message?.toLowerCase() ?? "";
@@ -24,10 +26,12 @@ foldersRoutes.post(
     const name = normalizeName(body.name);
     const parentPath = normalizePath(body.path ?? "/");
 
+    const folderPath = joinPath(parentPath, name);
+    assertRestPathAllowed(c, folderPath);
+
     const { db, storage } = await import("edgespark");
     await ensureFolderChain(db, parentPath);
 
-    const folderPath = joinPath(parentPath, name);
     await purgeConflictingTrashAtPath(db, storage, folderPath);
     const [conflict] = await db.select().from(files).where(and(eq(files.path, folderPath), isNull(files.deletedAt))).limit(1);
     if (conflict) throw new ApiError(409, "path_conflict", "Path already exists");

@@ -1,51 +1,31 @@
 import { and, asc, desc, eq, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
-import { Hono, type Context } from "hono";
+import { Hono } from "hono";
 import { nanoid } from "nanoid";
 import { buckets, files, shares } from "@defs";
 import { getRequestActor, logEvent } from "../lib/activity";
-import { authenticateMcpBearer } from "../lib/mcp-auth";
-import { requirePathAllowed, requireScope, type McpScope } from "../lib/mcp-scopes";
 import { ensureFolderChain, nowIso, toFileObject } from "../lib/files";
 import { ApiError, withErrorHandling } from "../lib/errors";
 import { escapedDescendantPattern, joinPath, normalizeName, normalizePath, parentOfPath } from "../lib/paths";
+import { assertRestListPathAllowed, assertRestPathAllowed, restPathFilter } from "../lib/rest-scopes";
 import {
+  displayTrashPath,
   hardPurgeSubtree,
   maybePurgeStaleTrash,
+  originalTrashPath,
   purgeConflictingTrashAtPath,
   restoreSubtree,
   softDeleteSubtree,
   trashRetentionInfo,
 } from "../lib/trash";
-import { PRESIGNED_URL_TTL_SECS } from "../types";
+import { PRESIGNED_URL_TTL_SECS, type AppEnv } from "../types";
 
-export const filesRoutes = new Hono();
+export const filesRoutes = new Hono<AppEnv>();
 const PENDING_UPLOAD_PREFIX = "pending:";
 const FILE_SIZE_TOLERANCE_RATIO = 0.1;
 
 function isPathUniqueConflict(error: unknown): boolean {
   const message = (error as { message?: string } | null)?.message?.toLowerCase() ?? "";
   return message.includes("unique constraint failed: files.path") || (message.includes("duplicate key") && message.includes("files.path"));
-}
-
-async function getBearerAuthContext(c: Context): Promise<Awaited<ReturnType<typeof authenticateMcpBearer>> | null> {
-  const authorization = c.req.header("authorization");
-  if (!authorization) return null;
-  const { db } = await import("edgespark");
-  return authenticateMcpBearer(db, authorization);
-}
-
-async function requireBearerFileAccess(c: Context, requiredScope: McpScope, path: string): Promise<void> {
-  const auth = await getBearerAuthContext(c);
-  if (!auth) return;
-  try {
-    requireScope(auth.scopes, requiredScope);
-    requirePathAllowed(auth.scopes, path);
-  } catch (error) {
-    if (error instanceof Error && error.message.startsWith("invalid_scope:")) {
-      throw new ApiError(403, "invalid_scope", error.message);
-    }
-    throw error;
-  }
 }
 
 function createPendingUploadMarker(declaredSize: number): string {
@@ -91,10 +71,12 @@ filesRoutes.post(
     }
 
     const parentPath = normalizePath(body.path ?? "/");
+    const targetPath = joinPath(parentPath, filename);
+    assertRestPathAllowed(c, targetPath);
+
     const { db, storage } = await import("edgespark");
     await ensureFolderChain(db, parentPath);
 
-    const targetPath = joinPath(parentPath, filename);
     await purgeConflictingTrashAtPath(db, storage, targetPath);
     const [conflict] = await db
       .select()
@@ -151,6 +133,7 @@ filesRoutes.post(
     const filename = normalizeName(body.filename);
     const parentPath = normalizePath(body.path ?? "/");
     const targetPath = joinPath(parentPath, filename);
+    assertRestPathAllowed(c, targetPath);
 
     const { db, storage } = await import("edgespark");
     const [pending] = await db.select().from(files).where(eq(files.id, fileId)).limit(1);
@@ -217,6 +200,8 @@ filesRoutes.get(
     const offsetRaw = Number(c.req.query("offset") ?? "0");
     const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(500, Math.trunc(limitRaw))) : 100;
     const offset = Number.isFinite(offsetRaw) ? Math.max(0, Math.trunc(offsetRaw)) : 0;
+    assertRestListPathAllowed(c, path);
+    const pathVisible = restPathFilter(c);
     const { db } = await import("edgespark");
 
     const result = recursive
@@ -225,7 +210,7 @@ filesRoutes.get(
         : await db.select().from(files).where(and(sql`${files.path} LIKE ${escapedDescendantPattern(path)} ESCAPE '\\'`, isNull(files.deletedAt))).orderBy(asc(files.path)).limit(limit).offset(offset)
       : await db.select().from(files).where(and(eq(files.parentPath, path), isNull(files.deletedAt))).orderBy(desc(files.isFolder), asc(files.name)).limit(limit).offset(offset);
 
-    return c.json({ files: result.map(toFileObject), path, limit, offset });
+    return c.json({ files: result.filter((row) => pathVisible(row.path)).map(toFileObject), path, limit, offset });
   })
 );
 
@@ -256,7 +241,9 @@ filesRoutes.get(
       .orderBy(desc(files.isFolder), asc(files.name))
       .limit(limit);
 
-    return c.json({ files: result.map(toFileObject), query, count: result.length });
+    const pathVisible = restPathFilter(c);
+    const visible = result.filter((row) => pathVisible(row.path));
+    return c.json({ files: visible.map(toFileObject), query, count: visible.length });
   })
 );
 
@@ -309,11 +296,16 @@ filesRoutes.delete(
     const trashedFileIds: string[] = [];
     const trashedFolderIds: string[] = [];
     const actor = await getRequestActor();
+    const pathVisible = restPathFilter(c);
 
     for (const id of ids) {
       const target = byId.get(id);
       if (!target) {
         failures.push({ id, error: "file_not_found", message: "File not found" });
+        continue;
+      }
+      if (!pathVisible(target.path)) {
+        failures.push({ id, error: "invalid_scope", message: `invalid_scope:path:${target.path}` });
         continue;
       }
       try {
@@ -382,11 +374,16 @@ filesRoutes.patch(
     const movedIds: string[] = [];
     const updatedAt = nowIso();
     const actor = await getRequestActor();
+    const pathVisible = restPathFilter(c);
 
     for (const id of ids) {
       const existing = byId.get(id);
       if (!existing) {
         failures.push({ id, error: "file_not_found", message: "File not found" });
+        continue;
+      }
+      if (!pathVisible(existing.path) || !pathVisible(joinPath(nextParentPath, existing.name))) {
+        failures.push({ id, error: "invalid_scope", message: `invalid_scope:path:${existing.path}` });
         continue;
       }
       try {
@@ -480,12 +477,17 @@ filesRoutes.get(
       .from(files)
       .where(isNotNull(files.deletedAt))
       .orderBy(desc(files.deletedAt));
+    const pathVisible = restPathFilter(c);
     return c.json({
-      files: rows.map((row) => ({
-        ...toFileObject(row),
-        deletedAt: row.deletedAt,
-        retention: row.deletedAt ? trashRetentionInfo(row.deletedAt) : null,
-      })),
+      files: rows
+        .filter((row) => pathVisible(displayTrashPath(row.path)))
+        .map((row) => ({
+          ...toFileObject(row),
+          path: displayTrashPath(row.path),
+          parentPath: displayTrashPath(row.parentPath),
+          deletedAt: row.deletedAt,
+          retention: row.deletedAt ? trashRetentionInfo(row.deletedAt) : null,
+        })),
       retentionDays: 30,
     });
   })
@@ -501,6 +503,7 @@ filesRoutes.get(
       .where(and(eq(files.id, getIdParam(c)), isNull(files.deletedAt)))
       .limit(1);
     if (!file) throw new ApiError(404, "file_not_found", "File not found");
+    assertRestPathAllowed(c, file.path);
     return c.json({ file: toFileObject(file) });
   })
 );
@@ -515,6 +518,7 @@ filesRoutes.get(
       .where(and(eq(files.id, getIdParam(c)), isNull(files.deletedAt)))
       .limit(1);
     if (!file) throw new ApiError(404, "file_not_found", "File not found");
+    assertRestPathAllowed(c, file.path);
     if (file.isFolder === 1) throw new ApiError(400, "validation_error", "Folders cannot be previewed");
     if (!file.s3Uri) throw new ApiError(409, "upload_pending", "File has not finished uploading");
     const parsed = storage.tryParseS3Uri(file.s3Uri);
@@ -546,6 +550,7 @@ filesRoutes.patch(
       .where(and(eq(files.id, getIdParam(c)), isNull(files.deletedAt)))
       .limit(1);
     if (!existing) throw new ApiError(404, "file_not_found", "File not found");
+    assertRestPathAllowed(c, existing.path);
 
     const nextName = body.name === undefined ? existing.name : normalizeName(body.name);
     const nextParentPath = body.parentPath === undefined ? existing.parentPath : normalizePath(body.parentPath);
@@ -553,8 +558,9 @@ filesRoutes.patch(
       throw new ApiError(400, "validation_error", "Cannot move a folder into itself");
     }
 
-    await ensureFolderChain(db, nextParentPath);
     const nextPath = joinPath(nextParentPath, nextName);
+    assertRestPathAllowed(c, nextPath);
+    await ensureFolderChain(db, nextParentPath);
 
     if (nextPath !== existing.path) {
       await purgeConflictingTrashAtPath(db, storage, nextPath);
@@ -643,7 +649,7 @@ filesRoutes.delete(
       .where(and(eq(files.id, getIdParam(c)), isNull(files.deletedAt)))
       .limit(1);
     if (!target) throw new ApiError(404, "file_not_found", "File not found");
-    await requireBearerFileAccess(c, "write:drive", target.path);
+    assertRestPathAllowed(c, target.path);
 
     const { rows, fileIds } = await softDeleteSubtree(db, target);
     await maybePurgeStaleTrash(db, storage);
@@ -675,13 +681,15 @@ filesRoutes.post(
       .limit(1);
     if (!target) throw new ApiError(404, "file_not_found", "Trashed item not found");
 
+    const originalPath = originalTrashPath(target);
+    assertRestPathAllowed(c, originalPath);
     const [conflict] = await db
       .select()
       .from(files)
-      .where(and(eq(files.path, target.path), ne(files.id, target.id), isNull(files.deletedAt)))
+      .where(and(eq(files.path, originalPath), ne(files.id, target.id), isNull(files.deletedAt)))
       .limit(1);
     if (conflict) {
-      throw new ApiError(409, "path_conflict", `An item already exists at ${target.path}. Rename or move it before restoring.`);
+      throw new ApiError(409, "path_conflict", `An item already exists at ${originalPath}. Rename or move it before restoring.`);
     }
 
     await ensureFolderChain(db, target.parentPath);
@@ -692,11 +700,11 @@ filesRoutes.post(
       eventType: "file.restored",
       targetType: target.isFolder === 1 ? "folder" : "file",
       targetId: target.id,
-      targetPath: target.path,
+      targetPath: originalPath,
       actor: await getRequestActor(),
       metadata: { restoredPaths: restored },
     });
-    return c.json({ restored, file: toFileObject({ ...target, deletedAt: null }) });
+    return c.json({ restored, file: toFileObject({ ...target, path: originalPath, deletedAt: null }) });
   })
 );
 
@@ -710,13 +718,14 @@ filesRoutes.delete(
       .where(and(eq(files.id, getIdParam(c)), isNotNull(files.deletedAt)))
       .limit(1);
     if (!target) throw new ApiError(404, "file_not_found", "Trashed item not found");
+    assertRestPathAllowed(c, originalTrashPath(target));
 
     const { rowCount, objectCount } = await hardPurgeSubtree(db, storage, target);
     await logEvent(db, {
       eventType: "file.purged",
       targetType: target.isFolder === 1 ? "folder" : "file",
       targetId: target.id,
-      targetPath: target.path,
+      targetPath: displayTrashPath(target.path),
       actor: await getRequestActor(),
       metadata: { rowCount, objectCount },
     });

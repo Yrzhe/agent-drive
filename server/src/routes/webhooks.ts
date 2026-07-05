@@ -7,8 +7,17 @@ import { webhooks } from "@defs";
 import { getWebhookById, createWebhookSecret, deliverWebhook, validateWebhookUrlForDelivery } from "../lib/webhooks";
 import { ApiError, withErrorHandling } from "../lib/errors";
 import { nowIso } from "../lib/files";
+import { assertRestPathAllowed } from "../lib/rest-scopes";
+import type { AppEnv } from "../types";
 
-export const webhooksRoutes = new Hono();
+export const webhooksRoutes = new Hono<AppEnv>();
+
+// Webhook deliveries carry events for the whole drive, so a path-restricted
+// bearer token may not read or manage webhooks: require root path access.
+webhooksRoutes.use("*", async (c, next) => {
+  assertRestPathAllowed(c, "/");
+  await next();
+});
 
 function parseEventTypes(value: unknown): string[] {
   if (!Array.isArray(value)) throw new ApiError(400, "validation_error", "eventTypes must be an array of strings");
