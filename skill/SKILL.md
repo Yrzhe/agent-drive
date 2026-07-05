@@ -5,7 +5,7 @@ description: Agent-native private cloud drive. Upload, manage, and share files v
 
 # Agent Drive
 
-Your private cloud drive that agents operate via API. Upload files, organize folders, create password-protected share links (including whole-drive root shares), sync versioned bundles, and let other agents download directly.
+Your private cloud drive that agents operate via API. Upload files, organize folders, create password-protected share links (including whole-drive root shares), sync versioned bundles, persist cross-session memories, and let other agents download directly.
 
 ## When to Use
 
@@ -13,6 +13,7 @@ Your private cloud drive that agents operate via API. Upload files, organize fol
 - You need to manage files in your cloud drive (list, move, rename, delete)
 - You need to create or manage share links (with password, expiration, download limits)
 - You need to sync a local project folder to Agent Drive with version checks
+- You need to persist decisions/context across sessions and recall them later (memory)
 - You need to send files to another agent and need the handoff message format
 - You're setting up Agent Drive for the first time
 
@@ -30,6 +31,7 @@ Your private cloud drive that agents operate via API. Upload files, organize fol
 | **File Operations** | `references/file-ops.md` | Upload, download, list, move, rename, delete files and folders |
 | **Share Management** | `references/sharing.md` | Create/delete share links, set password/expiration/limits, handoff message format |
 | **Receiving Downloads** | `references/receiving.md` | When another agent needs to download from a share link (pure API, no browser) |
+| **Memory** | `references/memory.md` | Persist decisions/context across sessions (`remember`/`recall` MCP tools, full-text search) |
 | **API Reference** | `references/api-reference.md` | Quick lookup for all endpoints, parameters, and response formats |
 
 ## Configuration
@@ -46,7 +48,7 @@ Config files are in this skill's directory, use relative paths:
 - `.env` — contains `AGENT_TOKEN=xxx`
 - `drive.json` — contains `{ "url": "...", "apiBase": "...", "guideUrl": "..." }`
 
-All management API calls require header: `Authorization: Bearer {AGENT_TOKEN}` unless you are using browser session auth. For MCP, this bypass token defaults to drive/share scopes and can be narrowed by deployment var `AGENT_TOKEN_SCOPES`.
+All management API calls require header: `Authorization: Bearer {AGENT_TOKEN}` unless you are using browser session auth. This bypass token defaults to drive/share/memory scopes (`read:drive write:drive share:create read:memory write:memory path:/`) and can be narrowed by deployment var `AGENT_TOKEN_SCOPES`; scopes are enforced on both MCP tools and REST endpoints.
 
 ## Share Handoff Message (IMPORTANT)
 

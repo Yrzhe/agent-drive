@@ -7,6 +7,7 @@ This directory documents the public HTTP surface of an Agent Drive deployment.
 | [`mcp.md`](./mcp.md) | Anyone integrating an AI agent over Remote MCP |
 | [`oauth.md`](./oauth.md) | OAuth client implementers, security reviewers |
 | [`drive-bundles.md`](./drive-bundles.md) | `adrive sync` users + anyone building versioned bundle workflows |
+| [`memory.md`](./memory.md) | Agents persisting/recalling cross-session context (remember/recall) |
 | [Compatibility matrix](../setup/compatibility.md) | Anyone deciding which client to use |
 | Setup guides ([Claude](../setup/mcp-claude.md), [Codex](../setup/mcp-codex.md), [Cursor](../setup/mcp-cursor.md), [Gemini](../setup/mcp-gemini.md), [Windsurf](../setup/mcp-windsurf.md)) | End users wiring an IDE/agent |
 
@@ -36,7 +37,7 @@ The four public surfaces:
 Two paths into the same scope-checked surface (scopes are enforced on MCP tools and on every REST `/api/public/v1/*` endpoint — capability scopes centrally in middleware, path scopes per resolved target):
 
 1. **OAuth 2.1 access token** — primary path for IDE integrations. Bearer token obtained via dynamic client registration (RFC 7591) + authorization-code-with-PKCE grant (RFC 7636). Scope is whatever the user approved on the consent screen. See [`oauth.md`](./oauth.md).
-2. **`AGENT_TOKEN` bypass** — secondary path for self-hosted single-user mode. Set `AGENT_TOKEN` as an EdgeSpark secret; pasting it as `Authorization: Bearer <token>` skips OAuth. Defaults to `read:drive write:drive share:create path:/`; set the optional `AGENT_TOKEN_SCOPES` var to narrow it further. Malformed or unsupported configured scopes fail closed for both MCP tools and REST endpoints.
+2. **`AGENT_TOKEN` bypass** — secondary path for self-hosted single-user mode. Set `AGENT_TOKEN` as an EdgeSpark secret; pasting it as `Authorization: Bearer <token>` skips OAuth. Defaults to `read:drive write:drive share:create read:memory write:memory path:/`; set the optional `AGENT_TOKEN_SCOPES` var to narrow it further. Malformed or unsupported configured scopes fail closed for both MCP tools and REST endpoints.
 
 In both cases, the token is sent as `Authorization: Bearer <token>` on every MCP request.
 

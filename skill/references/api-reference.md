@@ -7,7 +7,7 @@ All management endpoints (`/api/public/v1/*`) require browser session auth or:
 Authorization: Bearer {AGENT_TOKEN}
 ```
 
-For MCP, `AGENT_TOKEN` defaults to `read:drive write:drive share:create path:/` and may be narrowed with `AGENT_TOKEN_SCOPES`.
+For MCP, `AGENT_TOKEN` defaults to `read:drive write:drive share:create read:memory write:memory path:/` and may be narrowed with `AGENT_TOKEN_SCOPES`.
 
 Public endpoints (`/api/public/s/*` and `/api/public/guide`) require no auth, but download/files endpoints need `X-Access-Token` from the `/access` endpoint.
 
@@ -121,6 +121,23 @@ GET /api/public/v1/stats
 Returns: { totalFiles, totalFolders, totalSize, totalShares, totalDownloads }
 ```
 - File/folder counts and size exclude trashed rows
+- Requires an unrestricted (`path:/`) token — aggregates span the whole drive
+
+### Memory
+
+Persistent agent memory with FTS5 full-text search. Scopes: `read:memory` / `write:memory`. Full guide: `memory.md`.
+
+```
+POST   /api/public/v1/memory            Body { content, key?, tags?, source? }
+Returns: 201 { memory, created } — same key updates in place (created: false)
+
+GET    /api/public/v1/memory            ?limit=20&offset=0
+GET    /api/public/v1/memory/search     ?q={query}&limit=10   (best match first)
+GET    /api/public/v1/memory/{idOrKey}
+DELETE /api/public/v1/memory/{idOrKey}  Returns { forgotten }
+```
+
+MCP tools: `remember`, `recall`, `list_memories`, `forget`.
 
 ### Bundles
 

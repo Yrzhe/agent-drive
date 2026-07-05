@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **Memory layer (#10)** — persistent agent memory with FTS5 full-text search, the agent's cross-session external brain. New `memories` table (D1) + `memories_fts` FTS5 index kept in sync by triggers (migration `0009_empty_praxagora.sql`). MCP tools: `remember` (upsert by optional stable `key`), `recall` (relevance-ranked prefix search), `list_memories`, `forget` — gated on the previously reserved `read:memory` / `write:memory` scopes, which are now part of the default `AGENT_TOKEN` grant. REST: `POST/GET /api/public/v1/memory`, `GET /memory/search?q=`, `GET|DELETE /memory/:idOrKey`, with `read:memory`/`write:memory` mapping in the scope middleware. Content capped at 8 KB per memory; activity events `memory.created/updated/deleted` (metadata never includes content). Docs: `docs/api/memory.md`, `skill/references/memory.md`.
+- **Agent-facing site surfaces** — `/llms.txt` (plain-text agent index of every machine entry point) and an `agentSurfaces` section in `GET /api/public/guide` so an agent landing anywhere on the deployment can discover MCP, REST, memory, and OAuth discovery without a human.
+
 ### Security
 
 - **Scope enforcement on every REST v1 endpoint (#3)** — `requireDualAuth` now resolves the bearer auth context once, enforces a capability scope derived from method + route (`GET/HEAD` → `read:drive`, `/v1/shares*` mutations → `share:create`, all other mutations → `write:drive`), and stores the context in Hono `c.var` for route-level checks. Routes enforce `path:` scopes wherever the target path is resolvable: file get/preview/upload/complete/move/rename/delete/restore/purge, batch delete/move (per-id `invalid_scope` failures), folder create, bundle commit/current/history/manifest, share create/get/stats/delete, and list endpoints (`/files`, `/files/search`, `/files/trash`, `/shares`, `/activity`) filter rows to the granted prefixes. Webhook management requires unrestricted (`path:/`) access since deliveries span the whole drive. Session (web) auth is unchanged. The ad-hoc `requireBearerFileAccess` / `requireBearerBundleAccess` helpers are replaced by shared `server/src/lib/rest-scopes.ts`.

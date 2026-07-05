@@ -5,6 +5,7 @@ import { buckets, files, shares } from "@defs";
 
 import { hashPassword } from "./crypto";
 import { ensureFolderChain, nowIso, toFileObject } from "./files";
+import { forgetMemory, listMemories, recallMemories, rememberMemory } from "./memory";
 import { escapedDescendantPattern, joinPath, normalizeName, normalizePath, parentOfPath } from "./paths";
 import { extractPathPrefixes, hasScope, pathAllowed, requirePathAllowed, type McpScope } from "./mcp-scopes";
 import { purgeConflictingTrashAtPath } from "./trash";
@@ -116,6 +117,58 @@ export const MCP_TOOLS: McpToolDefinition[] = [
         max_downloads: { type: "number" },
         expires_in: { type: "number", description: "Expiration in seconds." },
       },
+    },
+  },
+  {
+    name: "remember",
+    description: "Save a memory (note, decision, fact) to Agent Drive. Pass a stable key to update the same memory later instead of creating a new one.",
+    requiredScope: "write:memory",
+    inputSchema: {
+      type: "object",
+      properties: {
+        content: { type: "string", description: "The memory text. Max 8KB." },
+        key: { type: "string", description: "Optional stable key (e.g. project:agent-drive:decisions) for upsert semantics." },
+        tags: { type: "array", items: { type: "string" }, description: "Optional tags for filtering." },
+        source: { type: "string", description: "Optional note about who/what wrote this memory." },
+      },
+      required: ["content"],
+    },
+  },
+  {
+    name: "recall",
+    description: "Full-text search saved memories, best match first. Use before starting work to recover prior context.",
+    requiredScope: "read:memory",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Free-text search query." },
+        limit: { type: "number", description: "Max results, default 10, max 100." },
+      },
+      required: ["query"],
+    },
+  },
+  {
+    name: "list_memories",
+    description: "List saved memories, most recently updated first.",
+    requiredScope: "read:memory",
+    inputSchema: {
+      type: "object",
+      properties: {
+        limit: { type: "number", description: "Max results, default 20, max 100." },
+        offset: { type: "number", description: "Number of entries to skip." },
+      },
+    },
+  },
+  {
+    name: "forget",
+    description: "Delete a saved memory by id or key.",
+    requiredScope: "write:memory",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "Memory id or key to delete." },
+      },
+      required: ["id"],
     },
   },
 ];
@@ -305,6 +358,37 @@ export async function callMcpTool(db: AppDb, origin: string, scopes: readonly st
       createdAt: nowIso(),
     }).returning();
     return textResult({ shareId: share.id, shareUrl: `${origin}/s/${share.id}`, hasPassword: Boolean(password), maxDownloads, expiresAt: share.expiresAt });
+  }
+
+  if (name === "remember") {
+    const { memory, created } = await rememberMemory(db, {
+      content: rawStringArg(input, "content") ?? "",
+      key: stringArg(input, "key", false),
+      tags: input.tags,
+      source: stringArg(input, "source", false),
+    });
+    return textResult({ memory, created });
+  }
+
+  if (name === "recall") {
+    const query = stringArg(input, "query") ?? "";
+    const limit = numberArg(input, "limit", 10);
+    const results = await recallMemories(db, query, limit);
+    return textResult({ query, count: results.length, memories: results });
+  }
+
+  if (name === "list_memories") {
+    const limit = numberArg(input, "limit", 20);
+    const offset = Math.max(0, Math.trunc(numberArg(input, "offset", 0)));
+    const results = await listMemories(db, limit, offset);
+    return textResult({ count: results.length, offset, memories: results });
+  }
+
+  if (name === "forget") {
+    const idOrKey = stringArg(input, "id") ?? "";
+    const forgotten = await forgetMemory(db, idOrKey);
+    if (!forgotten) throw new Error("memory_not_found");
+    return textResult({ forgotten });
   }
 
   throw new Error(`unknown_tool:${name}`);

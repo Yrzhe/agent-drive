@@ -12,7 +12,7 @@ export type McpScope = typeof MCP_SCOPES[number];
 
 export const DEFAULT_MCP_SCOPES: McpScope[] = ["read:drive"];
 export const FULL_MCP_SCOPES: McpScope[] = [...MCP_SCOPES];
-export const DEFAULT_AGENT_TOKEN_SCOPES = ["read:drive", "write:drive", "share:create", "path:/"] as const;
+export const DEFAULT_AGENT_TOKEN_SCOPES = ["read:drive", "write:drive", "share:create", "read:memory", "write:memory", "path:/"] as const;
 
 const SCOPE_DESCRIPTIONS: Record<McpScope, string> = {
   "read:drive": "Read files and folders in Agent Drive",

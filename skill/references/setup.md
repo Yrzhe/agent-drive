@@ -72,9 +72,15 @@ The second command prints a URL. **STOP and tell the user:**
 
 ### Optional: Narrow MCP scopes for AGENT_TOKEN
 
-For MCP, `AGENT_TOKEN` defaults to `read:drive write:drive share:create path:/`. To restrict automation to a subtree, set the deployment var `AGENT_TOKEN_SCOPES` in EdgeSpark:
+For MCP, `AGENT_TOKEN` defaults to `read:drive write:drive share:create read:memory write:memory path:/`. To restrict automation to a subtree, set the deployment var `AGENT_TOKEN_SCOPES` in EdgeSpark:
 
 ```text
+AGENT_TOKEN_SCOPES=read:drive write:drive share:create path:/handoffs/*
+```
+
+Note: path scopes do not apply to memories (they have no path). If you narrow a token to a subtree and it should not touch memories either, omit `read:memory` / `write:memory` from `AGENT_TOKEN_SCOPES`:
+
+```
 AGENT_TOKEN_SCOPES=read:drive write:drive share:create path:/handoffs/*
 ```
 

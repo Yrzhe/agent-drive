@@ -20,7 +20,7 @@ Content-Type: application/json
 `<token>` is one of:
 
 1. An OAuth 2.1 access token obtained via the [OAuth flow](./oauth.md). Scope is whatever the user approved.
-2. The `AGENT_TOKEN` EdgeSpark secret on the deployment. Bypass path for self-hosted single-user mode; defaults to `read:drive write:drive share:create path:/`.
+2. The `AGENT_TOKEN` EdgeSpark secret on the deployment. Bypass path for self-hosted single-user mode; defaults to `read:drive write:drive share:create read:memory write:memory path:/`.
 
 Set the optional `AGENT_TOKEN_SCOPES` var to narrow the bypass token for MCP, for example:
 
@@ -131,6 +131,8 @@ The `content[0].text` payload is a JSON string. Clients should `JSON.parse` it.
 ## Tools
 
 All tool input/output schemas are sourced from `server/src/lib/mcp-tools.ts`.
+
+Memory tools (`remember`, `recall`, `list_memories`, `forget`) are documented in [`memory.md`](./memory.md); they follow the same JSON-RPC calling convention and require the `read:memory` / `write:memory` scopes.
 
 ### `list_files`
 

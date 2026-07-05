@@ -20,6 +20,13 @@ describe("requiredRestScope", () => {
     expect(requiredRestScope("POST", "/api/public/v1/sharesx")).toBe("write:drive");
   });
 
+  it("maps memory routes to memory scopes", () => {
+    expect(requiredRestScope("GET", "/api/public/v1/memory")).toBe("read:memory");
+    expect(requiredRestScope("GET", "/api/public/v1/memory/search")).toBe("read:memory");
+    expect(requiredRestScope("POST", "/api/public/v1/memory")).toBe("write:memory");
+    expect(requiredRestScope("DELETE", "/api/public/v1/memory/abc")).toBe("write:memory");
+  });
+
   it("maps every other mutation to write:drive", () => {
     expect(requiredRestScope("POST", "/api/public/v1/files/upload")).toBe("write:drive");
     expect(requiredRestScope("PATCH", "/api/public/v1/files/abc")).toBe("write:drive");
