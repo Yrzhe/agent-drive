@@ -32,6 +32,14 @@ export function getRestAuth(c: Context<AppEnv>): RestAuth {
   return auth;
 }
 
+/** Token minting/revocation is owner-only: reject any bearer-authenticated caller. */
+export function requireSessionAuth(c: Context<AppEnv>): void {
+  const auth = getRestAuth(c);
+  if (auth.kind !== "session") {
+    throw new ApiError(403, "session_required", "This endpoint requires browser session authentication");
+  }
+}
+
 function invalidPathScope(path: string): ApiError {
   return new ApiError(403, "invalid_scope", `invalid_scope:path:${path}`);
 }

@@ -26,6 +26,9 @@ const SCOPE_DESCRIPTIONS: Record<McpScope, string> = {
 
 const SCOPE_SET = new Set<string>(MCP_SCOPES);
 
+/** Capability scopes the owner can mint standalone drive tokens with. */
+export const MINTABLE_TOKEN_SCOPES: McpScope[] = (DEFAULT_AGENT_TOKEN_SCOPES as readonly string[]).filter(isMcpScope);
+
 const PATH_SCOPE_PREFIX = "path:";
 
 export function isMcpScope(value: string): value is McpScope {
@@ -51,6 +54,9 @@ export function parsePathScope(value: string): string | null {
   // Reject double-slash / .. / control chars / glob anywhere except trailing
   if (prefix.includes("//") || prefix.includes("/../") || prefix.endsWith("/..") || prefix.includes("*")) return null;
   if (/[\x00-\x1f]/u.test(prefix)) return null;
+  // Scopes are space-delimited strings: any whitespace inside a prefix would
+  // be re-split at auth time and silently BROADEN the grant ("/ x" -> path:/).
+  if (/\s/u.test(prefix)) return null;
   // Strip trailing slash (except root)
   if (prefix.length > 1 && prefix.endsWith("/")) prefix = prefix.slice(0, -1);
   return prefix;

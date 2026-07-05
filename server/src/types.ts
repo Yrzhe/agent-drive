@@ -7,7 +7,7 @@ export type ShareRow = typeof shares.$inferSelect;
 export type ActivityLogRow = typeof activityLog.$inferSelect;
 export type WebhookRow = typeof webhooks.$inferSelect;
 
-export type ActivityTargetType = "file" | "folder" | "share" | "memory";
+export type ActivityTargetType = "file" | "folder" | "share" | "memory" | "token";
 export type ActivityActor = "owner" | "agent" | "public";
 
 /** Resolved once by requireDualAuth and read by REST route scope helpers. */

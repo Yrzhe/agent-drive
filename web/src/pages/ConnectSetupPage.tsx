@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { ConnectorUrlBlock } from "@/components/ConnectorUrlBlock";
+import { TokenMintPanel } from "@/components/TokenMintPanel";
 import { PlatformTabs } from "@/components/PlatformTabs";
 import { OAUTH_SCOPE_DESCRIPTIONS } from "@/lib/oauth-scopes";
 
 const ALL_SCOPES = ["read:drive", "write:drive", "share:create", "read:memory", "write:memory", "read:skills", "write:skills"] as const;
 const DEFAULT_SCOPES = new Set<string>(["read:drive", "write:drive", "share:create"]);
-const UNIMPLEMENTED_SCOPES = new Set<string>(["read:memory", "write:memory", "read:skills", "write:skills"]);
+const UNIMPLEMENTED_SCOPES = new Set<string>(["read:skills", "write:skills"]);
 const API_DOCS_URL = "https://github.com/Yrzhe/agent-drive/tree/main/docs/api";
 const SCOPE_STORAGE_KEY = "agent-drive:connect:selected-scopes";
 const PATH_SCOPE_STORAGE_KEY = "agent-drive:connect:path-prefix";
@@ -30,6 +31,9 @@ function normalizePathInput(raw: string): { ok: true; canonical: string } | { ok
   }
   if (hasControlCharacter(prefix)) {
     return { ok: false, reason: "Path cannot contain control characters." };
+  }
+  if (/\s/u.test(prefix)) {
+    return { ok: false, reason: "Path cannot contain spaces — scopes are space-delimited." };
   }
   const scope = prefix === "/" ? "path:/" : `path:${prefix}/*`;
   return { ok: true, canonical: scope };
@@ -196,7 +200,7 @@ export default function ConnectSetupPage() {
 
         <section className="rounded-xl border border-slate-200 bg-white p-5">
           <h2 className="text-base font-semibold text-slate-900">Scope picker</h2>
-          <p className="mt-1 text-sm text-slate-600">Drive scopes are active today. Memory and skills scopes are reserved for upcoming sync features (use the <code>adrive</code> CLI for now).</p>
+          <p className="mt-1 text-sm text-slate-600">Drive, share, and memory scopes are active today. Skills scopes are reserved for upcoming sync features.</p>
           <p className="mt-1 text-sm text-slate-600">These scopes are inserted into the Generic / JSON-RPC snippet for advanced OAuth setup.</p>
           <div className="mt-4 grid gap-2 md:grid-cols-2">
             {ALL_SCOPES.map((scope) => {
@@ -252,6 +256,8 @@ export default function ConnectSetupPage() {
             ) : null}
           </div>
         </section>
+
+        <TokenMintPanel />
 
         <section className="rounded-xl border border-slate-200 bg-white p-5">
           <div className="flex flex-wrap items-center justify-between gap-3">

@@ -185,6 +185,9 @@ Use `/api/public/mcp` as the remote MCP URL. OAuth/MCP discovery is served from 
 | GET | `/api/public/v1/memory/search?q=` | Full-text search memories |
 | GET | `/api/public/v1/memory` | List memories |
 | DELETE | `/api/public/v1/memory/:idOrKey` | Delete a memory |
+| POST | `/api/public/v1/tokens` | Mint a scoped drive token (session-only) |
+| GET | `/api/public/v1/tokens` | List minted tokens (session-only) |
+| DELETE | `/api/public/v1/tokens/:id` | Revoke a minted token (session-only) |
 | POST | `/api/public/v1/bundles/commit` | Commit a versioned bundle manifest |
 | GET | `/api/public/v1/bundles/current?prefix=/path` | Read current bundle version |
 | GET | `/api/public/v1/bundles/history?prefix=/path` | List prior bundle versions |

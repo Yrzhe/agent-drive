@@ -72,6 +72,10 @@ The second command prints a URL. **STOP and tell the user:**
 
 ### Optional: Narrow MCP scopes for AGENT_TOKEN
 
+### Handing a narrow token to a third-party agent
+
+Prefer minting a scoped drive token over sharing `AGENT_TOKEN`. This is an owner (human) action: open `{url}/connect` in a browser, use the **Scoped drive tokens** panel to pick capabilities + an optional path prefix + expiry, then copy the token (shown once) and give it to the agent. Revoke it from the same panel any time. Minting is session-only — a bearer token can never mint more tokens.
+
 For MCP, `AGENT_TOKEN` defaults to `read:drive write:drive share:create read:memory write:memory path:/`. To restrict automation to a subtree, set the deployment var `AGENT_TOKEN_SCOPES` in EdgeSpark:
 
 ```text

@@ -48,6 +48,16 @@ type BundleManifestResponse = {
   manifest: unknown;
 };
 
+export type DriveToken = {
+  id: string;
+  label: string | null;
+  scopes: string[];
+  createdAt: string;
+  expiresAt: string;
+  revokedAt: string | null;
+  expired: boolean;
+};
+
 const normalizeShareStats = (stats: ShareStatsResponse): ShareStats => ({
   ...stats,
   fileBreakdown: stats.fileBreakdown ?? [],
@@ -130,6 +140,14 @@ export const driveApi = {
     apiFetchJson<{ restored: number; file: DriveFile }>(`/api/public/v1/files/${fileId}/restore`, { method: "POST" }),
   purgeFile: (fileId: string) =>
     apiFetchJson<{ purged: number; objectsRemoved: number }>(`/api/public/v1/files/${fileId}/purge`, { method: "DELETE" }),
+  mintToken: (input: { label?: string; scopes: string[]; pathPrefix?: string; expiresInDays?: number }) =>
+    apiFetchJson<{ token: string; hint: string; tokenInfo: DriveToken }>("/api/public/v1/tokens", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  listTokens: () => apiFetchJson<{ tokens: DriveToken[] }>("/api/public/v1/tokens"),
+  revokeToken: (tokenId: string) =>
+    apiFetchJson<{ revoked: DriveToken }>(`/api/public/v1/tokens/${tokenId}`, { method: "DELETE" }),
   moveFiles: (ids: string[], parentPath: string) =>
     apiFetchJson<{
       requested: number;

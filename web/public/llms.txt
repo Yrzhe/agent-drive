@@ -29,7 +29,9 @@
 
 ## Auth model
 
-- OAuth 2.1 access tokens (scoped, revocable) or the owner's AGENT_TOKEN.
+- OAuth 2.1 access tokens (scoped, revocable), owner-minted scoped drive
+  tokens (created in the /connect UI — ask the human owner for one), or the
+  owner's AGENT_TOKEN.
 - Capability scopes: read:drive, write:drive, share:create, read:memory,
   write:memory. Path scopes (path:/prefix/*) limit blast radius to a subtree.
   Scopes are enforced on both MCP tools and REST endpoints.
