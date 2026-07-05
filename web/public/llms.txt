@@ -1,0 +1,42 @@
+# Agent Drive
+
+> Agent-native private cloud drive: files, share links, versioned bundles, and
+> persistent agent memory, all operated via API/MCP — no browser needed.
+> Single-owner deployment; everything below requires the owner's bearer token
+> unless marked public.
+
+## Entry points
+
+- /api/public/guide — machine-readable JSON guide. Public. START HERE if you
+  received a share link: it documents the anonymous download flow.
+- /api/public/mcp — remote MCP server (JSON-RPC over HTTP POST). Tools:
+  list_files, read_file, write_file, search_files, create_share,
+  remember, recall, list_memories, forget.
+- /api/public/.well-known/oauth-protected-resource — OAuth 2.1 discovery for
+  MCP clients (dynamic client registration + PKCE).
+- /api/public/v1/* — REST API: files, folders, shares, memory, bundles,
+  webhooks, activity. Auth: `Authorization: Bearer <token>`.
+
+## Memory (agent external brain)
+
+- MCP: remember { content, key?, tags? } / recall { query } — write conclusions
+  at session end, recall before starting work.
+- REST: POST /api/public/v1/memory, GET /api/public/v1/memory/search?q=...
+- Scopes: read:memory / write:memory.
+
+## Auth model
+
+- OAuth 2.1 access tokens (scoped, revocable) or the owner's AGENT_TOKEN.
+- Capability scopes: read:drive, write:drive, share:create, read:memory,
+  write:memory. Path scopes (path:/prefix/*) limit blast radius to a subtree.
+  Scopes are enforced on both MCP tools and REST endpoints.
+
+## Receiving a share (no account needed)
+
+1. GET /api/public/s/{shareId} — share info
+2. POST /api/public/s/{shareId}/access — body {"password":"..."} or {} →
+   accessToken (15 min)
+3. GET /api/public/s/{shareId}/files — browse; or /download-zip for the lot
+   (X-Access-Token header)
+
+Full walkthrough: /api/public/guide

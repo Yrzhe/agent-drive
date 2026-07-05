@@ -166,7 +166,7 @@ agent-drive/
 
 ### Management (requires session auth or `Authorization: Bearer {TOKEN}`)
 
-OAuth bearer tokens are scoped and revocable; scopes (including `path:` prefixes) are enforced on MCP tools and all REST `/api/public/v1/*` endpoints. The self-hosted `AGENT_TOKEN` bypass defaults to `read:drive write:drive share:create path:/` and can be narrowed with the optional `AGENT_TOKEN_SCOPES` var.
+OAuth bearer tokens are scoped and revocable; scopes (including `path:` prefixes) are enforced on MCP tools and all REST `/api/public/v1/*` endpoints. The self-hosted `AGENT_TOKEN` bypass defaults to `read:drive write:drive share:create read:memory write:memory path:/` and can be narrowed with the optional `AGENT_TOKEN_SCOPES` var.
 Use `/api/public/mcp` as the remote MCP URL. OAuth/MCP discovery is served from `/api/public/.well-known/*` because EdgeSpark requires server routes to live under `/api/*`.
 
 | Method | Endpoint | Description |
@@ -181,6 +181,10 @@ Use `/api/public/mcp` as the remote MCP URL. OAuth/MCP discovery is served from 
 | GET | `/api/public/v1/shares` | List active shares |
 | DELETE | `/api/public/v1/shares/:id` | Delete share |
 | GET | `/api/public/v1/stats` | Storage stats |
+| POST | `/api/public/v1/memory` | Save a memory (upsert by `key`) |
+| GET | `/api/public/v1/memory/search?q=` | Full-text search memories |
+| GET | `/api/public/v1/memory` | List memories |
+| DELETE | `/api/public/v1/memory/:idOrKey` | Delete a memory |
 | POST | `/api/public/v1/bundles/commit` | Commit a versioned bundle manifest |
 | GET | `/api/public/v1/bundles/current?prefix=/path` | Read current bundle version |
 | GET | `/api/public/v1/bundles/history?prefix=/path` | List prior bundle versions |
@@ -190,7 +194,8 @@ Use `/api/public/mcp` as the remote MCP URL. OAuth/MCP discovery is served from 
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/api/public/guide` | API guide for receiving agents |
+| GET | `/api/public/guide` | API guide for receiving agents (also lists all agent surfaces) |
+| GET | `/llms.txt` | Plain-text agent index of this deployment |
 | GET | `/api/public/s/:id` | Share info |
 | POST | `/api/public/s/:id/access` | Get access token |
 | GET | `/api/public/s/:id/files` | Browse shared files |

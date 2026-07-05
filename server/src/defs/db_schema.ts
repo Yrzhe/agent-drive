@@ -78,6 +78,20 @@ export const webhooks = sqliteTable(
   (table) => [index("idx_webhooks_enabled").on(table.enabled), index("idx_webhooks_created_at").on(table.createdAt)]
 );
 
+export const memories = sqliteTable(
+  "memories",
+  {
+    id: text("id").primaryKey(),
+    key: text("key").unique(),
+    content: text("content").notNull(),
+    tags: text("tags"),
+    source: text("source"),
+    createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
+    updatedAt: text("updated_at").notNull().default(sql`(datetime('now'))`),
+  },
+  (table) => [index("idx_memories_updated_at").on(table.updatedAt)]
+);
+
 export const rateLimits = sqliteTable("rate_limits", {
   key: text("key").primaryKey(),
   count: integer("count").notNull().default(0),

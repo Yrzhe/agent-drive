@@ -5,15 +5,19 @@ import { extractPathPrefixes, pathAllowed, type McpScope } from "./mcp-scopes";
 import type { AppEnv, RestAuth } from "../types";
 
 const SHARE_ROUTE_PATTERN = /^\/api\/public\/v1\/shares(\/|$)/u;
+const MEMORY_ROUTE_PATTERN = /^\/api\/public\/v1\/memory(\/|$)/u;
 
 /**
  * Capability scope required for a REST v1 request, derived from method + path.
- * Reads are `read:drive`, share mutations are `share:create`, every other
- * mutation is `write:drive`. Enforced centrally in `requireDualAuth`.
+ * Reads are `read:drive` (`read:memory` under /memory), share mutations are
+ * `share:create`, every other mutation is `write:drive` (`write:memory` under
+ * /memory). Enforced centrally in `requireDualAuth`.
  */
 export function requiredRestScope(method: string, path: string): McpScope {
   const normalizedMethod = method.toUpperCase();
-  if (normalizedMethod === "GET" || normalizedMethod === "HEAD") return "read:drive";
+  const isRead = normalizedMethod === "GET" || normalizedMethod === "HEAD";
+  if (MEMORY_ROUTE_PATTERN.test(path)) return isRead ? "read:memory" : "write:memory";
+  if (isRead) return "read:drive";
   if (SHARE_ROUTE_PATTERN.test(path)) return "share:create";
   return "write:drive";
 }

@@ -10,8 +10,15 @@ guideRoutes.get(
     const origin = new URL(c.req.url).origin;
     return c.json({
       name: "Agent Drive",
-      version: "1.1",
-      description: "Agent-native private cloud drive. Agents upload files, create share links, and other agents download via API — no browser needed.",
+      version: "1.2",
+      description: "Agent-native private cloud drive. Agents upload files, create share links, persist cross-session memories, and other agents download via API — no browser needed.",
+      agentSurfaces: {
+        description: "All machine-facing entry points of this deployment (owner auth required except shares)",
+        mcp: `${origin}/api/public/mcp — remote MCP server. Tools: list_files, read_file, write_file, search_files, create_share, remember, recall, list_memories, forget. Auth: OAuth 2.1 (discovery at ${origin}/api/public/.well-known/oauth-protected-resource) or owner AGENT_TOKEN bearer.`,
+        restApi: `${origin}/api/public/v1/* — files, folders, shares, memory, bundles, webhooks, activity. Same bearer auth and scopes as MCP.`,
+        memory: `Persistent agent memory with full-text search. MCP remember/recall, or REST: POST ${origin}/api/public/v1/memory, GET ${origin}/api/public/v1/memory/search?q=... Scopes: read:memory / write:memory.`,
+        llmsTxt: `${origin}/llms.txt — plain-text index of everything above`,
+      },
       quickStart: {
         step1: `GET ${origin}/api/public/s/{shareId} → Get share info (type, hasPassword, fileCount, expired)`,
         step2: `POST ${origin}/api/public/s/{shareId}/access with body {"password":"xxx"} (or {} if no password) → Get accessToken (15 min TTL)`,
