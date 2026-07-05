@@ -6,8 +6,26 @@ Fullstack EdgeSpark project.
 
 - `server/` — Hono API on Cloudflare Workers (see server/CLAUDE.md)
 - `web/` — React SPA via Vite (see web/CLAUDE.md)
+- `skill/` — Distributable agent skill (SKILL.md + references/), the agent-facing manual for this product
 - `configs/` — Project config files (auth)
 - `edgespark.toml` — Project configuration
+
+## Agent-Facing Surfaces (MANDATORY sync on every feature)
+
+This product's primary users are agents. Every feature change that adds, removes, or alters an endpoint, MCP tool, scope, or behavior MUST update the matching agent-facing surfaces in the same PR — an undocumented capability does not exist for an agent:
+
+| Surface | File | What it is |
+|---|---|---|
+| llms.txt | `web/public/llms.txt` | Plain-text index of every machine entry point, served at `/llms.txt` |
+| Guide endpoint | `server/src/routes/guide.ts` | `GET /api/public/guide` — JSON guide; `agentSurfaces` section lists MCP tools, REST areas, auth |
+| Skill | `skill/SKILL.md` + `skill/references/*.md` | The distributable manual agents install; add a reference module for each feature area |
+| API docs | `docs/api/*.md` + `docs/api/README.md` index | Endpoint contracts, scopes, error codes |
+| README | `README.md` endpoint tables | Human + agent quick reference |
+| CHANGELOG | `CHANGELOG.md` | Keep a Changelog format, every feature |
+
+Also check: default scope strings (`read:drive write:drive share:create read:memory write:memory path:/`) are quoted in several docs — grep for the old string when scopes change. After deploy, if `src/defs/runtime.ts` gained a var/secret key, set it online (`edgespark var set` / `edgespark secret set`) or deploy is blocked.
+
+Definition of done for any feature: code + tests green + all six surfaces above updated + deployed + smoke-tested against production (unauth 401s, plus an authed happy path when a token is available via `drive.json` → `envFile`; never print the token).
 
 ## Setup
 
