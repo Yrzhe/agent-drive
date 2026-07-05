@@ -13,6 +13,15 @@ Public endpoints (`/api/public/s/*` and `/api/public/guide`) require no auth, bu
 
 ---
 
+## Discovery
+
+```
+GET /api/public/.well-known/agent.json        A2A-compatible Agent Card (public, no auth)
+GET /api/public/.well-known/agent-card.json   Same document, newer A2A naming
+```
+
+The card carries this deployment's Ed25519 public key (`signing.publicKeyJwk`), capability list, and all machine endpoints under `x-agent-drive`. Give another agent this URL (or just the drive URL — it can find `/llms.txt`) to introduce your Drive.
+
 ## Management Endpoints
 
 ### Files

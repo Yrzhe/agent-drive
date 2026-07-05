@@ -196,6 +196,7 @@ Use `/api/public/mcp` as the remote MCP URL. OAuth/MCP discovery is served from 
 |--------|----------|-------------|
 | GET | `/api/public/guide` | API guide for receiving agents (also lists all agent surfaces) |
 | GET | `/llms.txt` | Plain-text agent index of this deployment |
+| GET | `/api/public/.well-known/agent.json` | A2A-compatible Agent Card (identity + capabilities) |
 | GET | `/api/public/s/:id` | Share info |
 | POST | `/api/public/s/:id/access` | Get access token |
 | GET | `/api/public/s/:id/files` | Browse shared files |

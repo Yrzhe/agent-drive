@@ -78,6 +78,14 @@ export const webhooks = sqliteTable(
   (table) => [index("idx_webhooks_enabled").on(table.enabled), index("idx_webhooks_created_at").on(table.createdAt)]
 );
 
+export const agentIdentity = sqliteTable("agent_identity", {
+  id: text("id").primaryKey(),
+  publicKeyJwk: text("public_key_jwk").notNull(),
+  privateKeyJwk: text("private_key_jwk").notNull(),
+  algorithm: text("algorithm").notNull().default("Ed25519"),
+  createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
+});
+
 export const memories = sqliteTable(
   "memories",
   {

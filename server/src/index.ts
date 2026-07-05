@@ -2,6 +2,7 @@ import { Hono } from "hono";
 
 import { requireDualAuth } from "./middleware/auth";
 import { activityRoutes } from "./routes/activity";
+import { agentCardRoutes } from "./routes/agent-card";
 import { bundlesRoutes } from "./routes/bundles";
 import { filesRoutes } from "./routes/files";
 import { foldersRoutes } from "./routes/folders";
@@ -18,6 +19,7 @@ import type { AppEnv } from "./types";
 const app = new Hono<AppEnv>();
 
 app.route("/api/public/.well-known", oauthDiscoveryRoutes);
+app.route("/api/public/.well-known", agentCardRoutes);
 app.route("/api/public/mcp", mcpRoutes);
 app.route("/api/public/oauth", oauthRoutes);
 app.use("/api/public/v1/*", requireDualAuth);
