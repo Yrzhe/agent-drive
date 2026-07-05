@@ -14,6 +14,9 @@
   remember, recall, list_memories, forget.
 - /api/public/.well-known/oauth-protected-resource — OAuth 2.1 discovery for
   MCP clients (dynamic client registration + PKCE).
+- /api/public/.well-known/agent.json — A2A-compatible Agent Card: this
+  deployment's identity (Ed25519 public key), capabilities, and endpoints.
+  Public. (agent-card.json serves the same document.)
 - /api/public/v1/* — REST API: files, folders, shares, memory, bundles,
   webhooks, activity. Auth: `Authorization: Bearer <token>`.
 
