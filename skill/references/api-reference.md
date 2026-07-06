@@ -246,12 +246,14 @@ Returns: { accessToken, expiresAt }
 
 ### List Shared Files
 ```
-GET /api/public/s/{shareId}/files
+GET /api/public/s/{shareId}/files?limit=200&offset=0
 Header: X-Access-Token: {accessToken}
-Returns: { files: [{ id, name, path, isFolder, size, contentType }] }
+Returns: { files: [{ id, name, path, isFolder, size, contentType }], limit: number, offset: number }
 ```
 - `path` is relative to share root
 - Includes folders for structure visibility
+- `limit`: default `200`, max `500`
+- `offset`: default `0`
 
 ### Download Single File
 ```
@@ -274,6 +276,7 @@ Returns: binary ZIP file (Content-Type: application/zip)
 - Increments download counter
 - Only for folder shares
 - ZIP size limit: 30MB
+- ZIP file-count limit: 400 files; larger folders return 413 `zip_file_count_exceeded` with a hint to page `/files` and use `/download?fileId=...`
 
 ---
 
@@ -327,6 +330,8 @@ Returns: binary ZIP file (Content-Type: application/zip)
 | 404 | `upload_not_found` | File not in R2 (upload incomplete) |
 | 409 | `path_conflict` | Path already exists |
 | 410 | `share_expired` | Share link expired |
+| 413 | `zip_file_count_exceeded` | Folder ZIP has more than 400 files |
+| 413 | `zip_too_large` | Folder ZIP exceeds 30MB |
 | 429 | `share_exhausted` | Download limit reached |
 | 500 | `internal_error` | Server error |
 
