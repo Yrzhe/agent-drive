@@ -6,6 +6,7 @@ import { getRequestActor, logEvent } from "../lib/activity";
 import { ensureFolderChain, nowIso, toFileObject } from "../lib/files";
 import { ApiError, withErrorHandling } from "../lib/errors";
 import { escapedDescendantPattern, joinPath, normalizeName, normalizePath, parentOfPath } from "../lib/paths";
+import { parseListPagination } from "../lib/pagination";
 import { assertRestListPathAllowed, assertRestPathAllowed, restPathFilter } from "../lib/rest-scopes";
 import {
   displayTrashPath,
@@ -475,11 +476,16 @@ filesRoutes.get(
   "/trash",
   withErrorHandling(async (c) => {
     const { db } = await import("edgespark");
+    const { limit, offset } = parseListPagination((name) => c.req.query(name), { defaultLimit: 100, maxLimit: 500 });
     const rows = await db
       .select()
       .from(files)
       .where(isNotNull(files.deletedAt))
-      .orderBy(desc(files.deletedAt));
+      .orderBy(desc(files.deletedAt))
+      .limit(limit)
+      .offset(offset);
+    // Path-scoped bearers may see short pages: scope filtering happens after
+    // the SQL page (documented in the API reference).
     const pathVisible = restPathFilter(c);
     return c.json({
       files: rows
@@ -492,6 +498,8 @@ filesRoutes.get(
           retention: row.deletedAt ? trashRetentionInfo(row.deletedAt) : null,
         })),
       retentionDays: 30,
+      limit,
+      offset,
     });
   })
 );

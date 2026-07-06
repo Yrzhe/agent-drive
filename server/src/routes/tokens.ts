@@ -8,6 +8,7 @@ import { getRequestActor, logEvent } from "../lib/activity";
 import { hashPassword } from "../lib/crypto";
 import { ApiError, withErrorHandling } from "../lib/errors";
 import { nowIso } from "../lib/files";
+import { parseListPagination } from "../lib/pagination";
 import { MINTABLE_TOKEN_SCOPES, formatPathScope, isMcpScope, parsePathScope, serializeScopes, type McpScope } from "../lib/mcp-scopes";
 import { requireSessionAuth } from "../lib/rest-scopes";
 
@@ -131,13 +132,16 @@ tokensRoutes.get(
   "/",
   withErrorHandling(async (c) => {
     requireSessionAuth(c);
+    const { limit, offset } = parseListPagination((name) => c.req.query(name), { defaultLimit: 100, maxLimit: 500 });
     const { db } = await import("edgespark");
     const rows = await db
       .select()
       .from(oauthTokens)
       .where(eq(oauthTokens.clientId, DRIVE_TOKEN_CLIENT_ID))
-      .orderBy(desc(oauthTokens.createdAt));
-    return c.json({ tokens: rows.map(toTokenObject) });
+      .orderBy(desc(oauthTokens.createdAt))
+      .limit(limit)
+      .offset(offset);
+    return c.json({ tokens: rows.map(toTokenObject), limit, offset });
   })
 );
 

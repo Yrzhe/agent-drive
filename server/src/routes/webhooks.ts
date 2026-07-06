@@ -7,6 +7,7 @@ import { webhooks } from "@defs";
 import { getWebhookById, createWebhookSecret, deliverWebhook, validateWebhookUrlForDelivery } from "../lib/webhooks";
 import { ApiError, withErrorHandling } from "../lib/errors";
 import { nowIso } from "../lib/files";
+import { parseListPagination } from "../lib/pagination";
 import { assertRestPathAllowed } from "../lib/rest-scopes";
 import type { AppEnv } from "../types";
 
@@ -86,9 +87,10 @@ webhooksRoutes.post(
 webhooksRoutes.get(
   "/",
   withErrorHandling(async (c) => {
+    const { limit, offset } = parseListPagination((name) => c.req.query(name), { defaultLimit: 100, maxLimit: 500 });
     const { db } = await import("edgespark");
-    const rows = await db.select().from(webhooks).orderBy(desc(webhooks.createdAt));
-    return c.json({ webhooks: rows.map(toWebhookObject) });
+    const rows = await db.select().from(webhooks).orderBy(desc(webhooks.createdAt)).limit(limit).offset(offset);
+    return c.json({ webhooks: rows.map(toWebhookObject), limit, offset });
   })
 );
 
