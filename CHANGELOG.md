@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Security
+
+- **OAuth consent no longer falls back to full scopes (#9)** — a registered client with an empty `scopeDefault` previously let any requested scope through up to the full set; the authorize and consent paths now fall back to `DEFAULT_MCP_SCOPES` (`read:drive`) instead.
+
 ### Added
 
 - **Scoped drive tokens (#12)** — the `/connect` page gains a **Scoped drive tokens** panel: mint a bearer token limited to selected capabilities (`read:drive write:drive share:create read:memory write:memory`) plus an optional path prefix and expiry (1–365 days, default 90), with a revocation list. Endpoints `POST/GET /api/public/v1/tokens`, `DELETE /tokens/:id` are **session-only** (bearer callers get 403 `session_required`, so tokens cannot mint tokens). Minted tokens live in `oauth_tokens` under synthetic client `drive_token` (id prefix `dtk_`, new `label` column, migration `0011`) and authenticate through the existing bearer path, so scope enforcement (#3) applies everywhere. Plaintext shown once; activity events `token.minted`/`token.revoked`. The stale "planned" badge on memory scopes in the `/connect` scope picker is fixed. Docs: `docs/api/tokens.md`.

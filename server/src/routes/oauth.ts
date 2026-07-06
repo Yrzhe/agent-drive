@@ -229,7 +229,8 @@ oauthRoutes.get(
     assertExactRedirectUri(client, redirectUri);
 
     const allowedScopes = normalizeScopes(client.scopeDefault);
-    const requestedScopes = filterAllowedScopes(parseScopeParam(c.req.query("scope") ?? client.scopeDefault), allowedScopes.length > 0 ? allowedScopes : FULL_MCP_SCOPES);
+    // Empty scopeDefault must fail toward least privilege, not full grant.
+    const requestedScopes = filterAllowedScopes(parseScopeParam(c.req.query("scope") ?? client.scopeDefault), allowedScopes.length > 0 ? allowedScopes : DEFAULT_MCP_SCOPES);
     const params = new URLSearchParams({
       client_id: client.id,
       client_name: client.clientName ?? "Agent Drive MCP Client",
@@ -270,7 +271,7 @@ oauthRoutes.post(
     assertPkceS256(body.code_challenge_method ?? null, body.code_challenge ?? null);
 
     const allowedScopes = normalizeScopes(client.scopeDefault);
-    const grantedScopes = filterAllowedScopes(parseScopeParam(body.scope ?? client.scopeDefault), allowedScopes.length > 0 ? allowedScopes : FULL_MCP_SCOPES);
+    const grantedScopes = filterAllowedScopes(parseScopeParam(body.scope ?? client.scopeDefault), allowedScopes.length > 0 ? allowedScopes : DEFAULT_MCP_SCOPES);
     const code = generateSecretToken("code");
     await db.insert(oauthAuthorizationCodes).values({
       id: code.id,
