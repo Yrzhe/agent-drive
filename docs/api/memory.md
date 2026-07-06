@@ -6,8 +6,8 @@ Persistent agent memory with FTS5 full-text search. Designed as the agent's exte
 
 | Operation | Scope |
 |---|---|
-| recall / list / get | `read:memory` |
-| remember / forget | `write:memory` |
+| recall / list / get / index status | `read:memory` |
+| remember / forget / rebuild index | `write:memory` |
 
 Both are included in the default `AGENT_TOKEN` grant and can be approved on the OAuth consent screen. Path scopes do not apply to memories (they have no path).
 
@@ -33,8 +33,28 @@ All under owner auth (`Authorization: Bearer <token>`).
 | POST | `/api/public/v1/memory` | `{ content, key?, tags?, source? }` | `201 { memory, created }` (200 on key update) |
 | GET | `/api/public/v1/memory` | `?limit=20&offset=0` | `{ memories, count }` |
 | GET | `/api/public/v1/memory/search` | `?q={query}&limit=10` | `{ query, memories, count }` |
+| GET | `/api/public/v1/memory/index-status` | — | `{ memories, indexed, consistent }` |
+| POST | `/api/public/v1/memory/rebuild-index` | — | `{ rebuilt }` |
 | GET | `/api/public/v1/memory/{idOrKey}` | — | `{ memory }` |
 | DELETE | `/api/public/v1/memory/{idOrKey}` | — | `{ forgotten }` |
+
+## Index repair
+
+`memories_fts` is maintained by application code because D1 migrations cannot install triggers. Normal writes batch the memory row and FTS update together, but agents can self-check the index:
+
+```bash
+curl https://your-drive.edgespark.app/api/public/v1/memory/index-status \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+If `consistent` is `false` or `recall` misses a memory that appears in `list_memories`, rebuild the FTS index over REST:
+
+```bash
+curl -X POST https://your-drive.edgespark.app/api/public/v1/memory/rebuild-index \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+The rebuild wipes `memories_fts`, repopulates it from `memories` in batches of 100, and returns `{ "rebuilt": <count> }`. No MCP repair tool is exposed; keep using REST for this maintenance path.
 
 ## Memory object
 

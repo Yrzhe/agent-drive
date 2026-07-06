@@ -142,6 +142,8 @@ Returns: 201 { memory, created } — same key updates in place (created: false)
 
 GET    /api/public/v1/memory            ?limit=20&offset=0
 GET    /api/public/v1/memory/search     ?q={query}&limit=10   (best match first)
+GET    /api/public/v1/memory/index-status                    Returns { memories, indexed, consistent }
+POST   /api/public/v1/memory/rebuild-index                   Returns { rebuilt }
 GET    /api/public/v1/memory/{idOrKey}
 DELETE /api/public/v1/memory/{idOrKey}  Returns { forgotten }
 ```

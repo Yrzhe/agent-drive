@@ -184,6 +184,8 @@ Use `/api/public/mcp` as the remote MCP URL. OAuth/MCP discovery is served from 
 | POST | `/api/public/v1/memory` | Save a memory (upsert by `key`) |
 | GET | `/api/public/v1/memory/search?q=` | Full-text search memories |
 | GET | `/api/public/v1/memory` | List memories |
+| GET | `/api/public/v1/memory/index-status` | Check FTS index consistency |
+| POST | `/api/public/v1/memory/rebuild-index` | Rebuild the memory FTS index |
 | DELETE | `/api/public/v1/memory/:idOrKey` | Delete a memory |
 | POST | `/api/public/v1/tokens` | Mint a scoped drive token (session-only) |
 | GET | `/api/public/v1/tokens` | List minted tokens (session-only) |

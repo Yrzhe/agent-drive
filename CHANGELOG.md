@@ -13,6 +13,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Fixed
 
 - **Published bundle lifecycle invalidation (#22)** — folder rename/move now rewrites `bundle_versions.prefix` so existing public subscription ids keep resolving; trash immediately unpublishes affected bundles while preserving private version rows for restore; hard purge deletes bundle version rows under the purged prefix.
+- **Memory FTS drift repair (#21)** — `remember` updates and deletes now batch base-row writes with app-maintained `memories_fts` sync statements so normal writes cannot leave recall missing a saved memory. Added REST-only maintenance endpoints: `GET /api/public/v1/memory/index-status` reports `{ memories, indexed, consistent }`, and `POST /api/public/v1/memory/rebuild-index` wipes and rebuilds the FTS index from `memories` in 100-row batches (recall is empty mid-rebuild; re-run is safe).
 
 ### Security
 

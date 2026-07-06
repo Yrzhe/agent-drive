@@ -1,6 +1,6 @@
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 
-import { activityLog, bundleVersions, files } from "@defs";
+import { activityLog, bundleVersions, files, memories } from "@defs";
 import { eq } from "drizzle-orm";
 
 import app from "../../src/index";
@@ -279,5 +279,52 @@ describe("route-level integration security behaviors", () => {
     const purgeResponse = await app.request(`/api/public/v1/files/${folder.id}/purge`, { method: "DELETE" });
     expect(purgeResponse.status).toBe(200);
     expect(await getBundleRow(movedPrefix)).toBeUndefined();
+  });
+
+  it("detects and rebuilds a drifted memory FTS index", async () => {
+    await runtime.db.insert(memories).values({
+      id: "memory-drift-1",
+      key: "integration:drift",
+      content: "Known memory with rebuiltneedle token",
+      tags: JSON.stringify(["drift"]),
+      source: "integration-test",
+      createdAt: "2026-07-06T00:00:00.000Z",
+      updatedAt: "2026-07-06T00:00:00.000Z",
+    });
+
+    const headers = useBearer(["read:memory", "write:memory"]);
+    const driftedStatusResponse = await app.request("/api/public/v1/memory/index-status", { headers });
+    expect(driftedStatusResponse.status).toBe(200);
+    await expect(driftedStatusResponse.json()).resolves.toEqual({
+      memories: 1,
+      indexed: 0,
+      consistent: false,
+    });
+
+    const missedRecallResponse = await app.request("/api/public/v1/memory/search?q=rebuiltneedle", { headers });
+    expect(missedRecallResponse.status).toBe(200);
+    const missedRecall = await missedRecallResponse.json() as { count: number };
+    expect(missedRecall.count).toBe(0);
+
+    const rebuildResponse = await app.request("/api/public/v1/memory/rebuild-index", {
+      method: "POST",
+      headers,
+    });
+    expect(rebuildResponse.status).toBe(200);
+    await expect(rebuildResponse.json()).resolves.toEqual({ rebuilt: 1 });
+
+    const repairedStatusResponse = await app.request("/api/public/v1/memory/index-status", { headers });
+    expect(repairedStatusResponse.status).toBe(200);
+    await expect(repairedStatusResponse.json()).resolves.toEqual({
+      memories: 1,
+      indexed: 1,
+      consistent: true,
+    });
+
+    const repairedRecallResponse = await app.request("/api/public/v1/memory/search?q=rebuiltneedle", { headers });
+    expect(repairedRecallResponse.status).toBe(200);
+    const repairedRecall = await repairedRecallResponse.json() as { count: number; memories: Array<{ key: string | null }> };
+    expect(repairedRecall.count).toBe(1);
+    expect(repairedRecall.memories[0]?.key).toBe("integration:drift");
   });
 });
