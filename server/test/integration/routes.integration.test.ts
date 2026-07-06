@@ -1,0 +1,209 @@
+import { afterAll, beforeEach, describe, expect, it } from "vitest";
+
+import { files } from "@defs";
+import { eq } from "drizzle-orm";
+
+import app from "../../src/index";
+import {
+  jsonHeaders,
+  resetRuntime,
+  runtime,
+  seedContact,
+  seedDriveFile,
+  seedPublishedBundle,
+  useBearer,
+  useSession,
+} from "./edge-runtime";
+
+async function errorCode(response: Response): Promise<string | undefined> {
+  const body = await response.json() as { error?: { code?: string } };
+  return body.error?.code;
+}
+
+async function generatePeerKeyPair() {
+  const subtle = crypto.subtle as SubtleCrypto;
+  const pair = await subtle.generateKey({ name: "Ed25519" }, true, ["sign", "verify"]) as CryptoKeyPair;
+  const publicKeyJwk = await subtle.exportKey("jwk", pair.publicKey);
+  return { privateKey: pair.privateKey, publicKeyJwk };
+}
+
+function base64Url(bytes: Uint8Array): string {
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/gu, "-").replace(/\//gu, "_").replace(/=+$/u, "");
+}
+
+async function signBody(privateKey: CryptoKey, body: string): Promise<string> {
+  const subtle = crypto.subtle as SubtleCrypto;
+  const signature = await subtle.sign({ name: "Ed25519" }, privateKey, new TextEncoder().encode(body));
+  return base64Url(new Uint8Array(signature));
+}
+
+function inboxPayload(from = "https://peer.example") {
+  return {
+    from,
+    filename: "hello.txt",
+    contentType: "text/plain",
+    contentBase64: btoa("hello"),
+    message: "for review",
+    sentAt: new Date().toISOString(),
+  };
+}
+
+describe("route-level integration security behaviors", () => {
+  beforeEach(() => {
+    resetRuntime();
+  });
+
+  afterAll(() => {
+    runtime.sqlite?.close();
+  });
+
+  it("rejects bearer tokens with narrow capability or path scopes", async () => {
+    let response = await app.request("/api/public/v1/files/upload", {
+      method: "POST",
+      headers: jsonHeaders(useBearer(["read:drive", "path:/"])),
+      body: JSON.stringify({ filename: "blocked.txt", path: "/", contentType: "text/plain", size: 1 }),
+    });
+    expect(response.status).toBe(403);
+    expect(await errorCode(response)).toBe("invalid_scope");
+
+    response = await app.request("/api/public/v1/shares/share-id", {
+      method: "DELETE",
+      headers: jsonHeaders(useBearer(["read:drive", "write:drive", "path:/"])),
+    });
+    expect(response.status).toBe(403);
+    expect(await errorCode(response)).toBe("invalid_scope");
+
+    response = await app.request("/api/public/v1/files?path=/bar", {
+      headers: useBearer(["read:drive", "path:/foo/*"]),
+    });
+    expect(response.status).toBe(403);
+    expect(await errorCode(response)).toBe("invalid_scope");
+  });
+
+  it("lets browser session auth bypass bearer scope checks", async () => {
+    useSession();
+
+    const response = await app.request("/api/public/v1/files/upload", {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ filename: "session.txt", path: "/bar", contentType: "text/plain", size: 7 }),
+    });
+
+    expect(response.status).toBe(200);
+    const body = await response.json() as { fileId?: string; uploadUrl?: string };
+    expect(body.fileId).toBeTruthy();
+    expect(body.uploadUrl).toMatch(/^memory:\/\/put\/drive\//u);
+  });
+
+  it("rejects bearer callers from session-only token and contact management endpoints", async () => {
+    const headers = jsonHeaders(useBearer(["read:drive", "write:drive", "share:create", "path:/"]));
+
+    const tokenResponse = await app.request("/api/public/v1/tokens", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ scopes: ["read:drive"], expiresInDays: 1 }),
+    });
+    expect(tokenResponse.status).toBe(403);
+    expect(await errorCode(tokenResponse)).toBe("session_required");
+
+    const contactsResponse = await app.request("/api/public/v1/contacts", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ url: "https://peer.example", name: "peer" }),
+    });
+    expect(contactsResponse.status).toBe(403);
+    expect(await errorCode(contactsResponse)).toBe("session_required");
+  });
+
+  it("keeps trashed files tombstoned until restore conflict is cleared", async () => {
+    useSession();
+    const originalId = await seedDriveFile({ id: "original-report", path: "/docs/report.txt", body: "old" });
+
+    const deleteResponse = await app.request(`/api/public/v1/files/${originalId}`, { method: "DELETE" });
+    expect(deleteResponse.status).toBe(200);
+
+    const createResponse = await app.request("/api/public/v1/files/upload", {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ filename: "report.txt", path: "/docs", contentType: "text/plain", size: 3 }),
+    });
+    expect(createResponse.status).toBe(200);
+    const created = await createResponse.json() as { fileId: string };
+
+    const blockedRestore = await app.request(`/api/public/v1/files/${originalId}/restore`, { method: "POST" });
+    expect(blockedRestore.status).toBe(409);
+    expect(await errorCode(blockedRestore)).toBe("path_conflict");
+
+    const moveResponse = await app.request(`/api/public/v1/files/${created.fileId}`, {
+      method: "PATCH",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ name: "report-new.txt" }),
+    });
+    expect(moveResponse.status).toBe(200);
+
+    const restoreResponse = await app.request(`/api/public/v1/files/${originalId}/restore`, { method: "POST" });
+    expect(restoreResponse.status).toBe(200);
+    const restored = await restoreResponse.json() as { file: { path: string } };
+    expect(restored.file.path).toBe("/docs/report.txt");
+  });
+
+  it("requires signed inbox delivery from a pinned Ed25519 contact", async () => {
+    const unsigned = await app.request("/api/public/inbox", {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify(inboxPayload()),
+    });
+    expect(unsigned.status).toBe(401);
+    expect(await errorCode(unsigned)).toBe("signature_required");
+
+    const peer = await generatePeerKeyPair();
+    const unknownBody = JSON.stringify(inboxPayload());
+    const unknown = await app.request("/api/public/inbox", {
+      method: "POST",
+      headers: jsonHeaders({ "x-agent-signature": await signBody(peer.privateKey, unknownBody) }),
+      body: unknownBody,
+    });
+    expect(unknown.status).toBe(403);
+    expect(await errorCode(unknown)).toBe("unknown_sender");
+
+    await seedContact({
+      name: "peer",
+      url: "https://peer.example",
+      publicKeyJwk: peer.publicKeyJwk,
+      autoRelease: false,
+    });
+    const validBody = JSON.stringify(inboxPayload());
+    const valid = await app.request("/api/public/inbox", {
+      method: "POST",
+      headers: jsonHeaders({ "x-agent-signature": await signBody(peer.privateKey, validBody) }),
+      body: validBody,
+    });
+    expect(valid.status).toBe(201);
+    const delivered = await valid.json() as { path: string; quarantined: boolean };
+    expect(delivered.quarantined).toBe(true);
+    expect(delivered.path).toBe("/inbox/pending/peer/hello.txt");
+
+    const [row] = await runtime.db.select().from(files).where(eq(files.path, delivered.path)).limit(1);
+    expect(row?.size).toBe(5);
+  });
+
+  it("only exposes manifest-listed files for published public bundles", async () => {
+    const { publicId } = await seedPublishedBundle();
+
+    const listed = await app.request(`/api/public/b/${publicId}/file?path=ok.txt`);
+    expect(listed.status).toBe(200);
+    const listedBody = await listed.json() as { downloadUrl: string; path: string };
+    expect(listedBody.path).toBe("ok.txt");
+    expect(listedBody.downloadUrl).toMatch(/^memory:\/\/get\/drive\//u);
+
+    const unlisted = await app.request(`/api/public/b/${publicId}/file?path=secret.txt`);
+    expect(unlisted.status).toBe(404);
+    expect(await errorCode(unlisted)).toBe("file_not_found");
+
+    const unpublished = await app.request("/api/public/b/pb_missing/current");
+    expect(unpublished.status).toBe(404);
+    expect(await errorCode(unpublished)).toBe("bundle_not_found");
+  });
+});
