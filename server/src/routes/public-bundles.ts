@@ -43,7 +43,11 @@ async function loadManifestPaths(db: AppDb, storage: typeof import("edgespark")[
   }
   const paths = new Set<string>();
   for (const entry of manifest.files ?? []) {
-    if (entry && typeof entry.path === "string") paths.add(entry.path);
+    // .history snapshots are server-managed internals — never publicly
+    // downloadable even if a crafted manifest lists them.
+    if (entry && typeof entry.path === "string" && !entry.path.split("/").includes(".history")) {
+      paths.add(entry.path);
+    }
   }
   return { manifestBytes, paths };
 }
@@ -102,7 +106,7 @@ publicBundlesRoutes.get(
     // Defense in depth: the exact-match DB lookup below can never resolve a
     // traversal, but reject unsafe shapes outright so a future query change
     // cannot reintroduce it.
-    if (relPath.startsWith("/") || relPath.includes("\\") || relPath.split("/").some((segment) => segment === "" || segment === "." || segment === "..")) {
+    if (relPath.startsWith("/") || relPath.includes("\\") || relPath.split("/").some((segment) => segment === "" || segment === "." || segment === ".." || segment === ".history")) {
       throw new ApiError(400, "validation_error", "path must be a safe relative path");
     }
     const fullPath = joinPath(bundle.prefix, relPath);

@@ -52,6 +52,11 @@ export function parseInboxPayload(raw: unknown): InboxPayload {
 }
 
 export function decodeInboxContent(contentBase64: string): Uint8Array {
+  // Reject by encoded length BEFORE atob so oversized payloads never allocate
+  // the decoded string (4/3 expansion + padding).
+  if (contentBase64.length > Math.ceil((INBOX_MAX_FILE_BYTES * 4) / 3) + 4) {
+    throw new Error(`invalid_payload:content exceeds ${INBOX_MAX_FILE_BYTES} bytes`);
+  }
   let binary: string;
   try {
     binary = atob(contentBase64);

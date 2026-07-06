@@ -36,6 +36,9 @@ inboxRoutes.post(
     }
 
     const rawBody = await c.req.text();
+    if (rawBody.length > 8 * 1024 * 1024) {
+      throw new ApiError(413, "payload_too_large", "Inbox deliveries are limited to 5MB of content");
+    }
     let payload;
     try {
       payload = parseInboxPayload(JSON.parse(rawBody));
