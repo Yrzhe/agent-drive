@@ -55,3 +55,5 @@ adrive subscribe https://their-drive.example.com/api/public/b/pb_xxx/current --t
 ```
 
 Re-run the same command to pull updates. `--no-verify` skips signature verification (not recommended). Unpublish with `{ "public": false }` — the publicId is invalidated immediately.
+
+If the published folder is renamed or moved, the bundle prefix follows it and the same `publicId` keeps working. If the folder is trashed, Agent Drive unpublishes it immediately (`publicId` becomes null and old public URLs 404) but keeps the private version row; restore does not re-publish. Purging the folder deletes its bundle version row.

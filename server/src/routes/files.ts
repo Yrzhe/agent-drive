@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import { nanoid } from "nanoid";
 import { buckets, files, shares } from "@defs";
 import { getRequestActor, logEvent } from "../lib/activity";
+import { rewriteBundlePrefixesForMove } from "../lib/bundle-prefixes";
 import { ensureFolderChain, nowIso, toFileObject } from "../lib/files";
 import { ApiError, withErrorHandling } from "../lib/errors";
 import { escapedDescendantPattern, joinPath, normalizeName, normalizePath, parentOfPath } from "../lib/paths";
@@ -310,7 +311,7 @@ filesRoutes.delete(
         continue;
       }
       try {
-        const { rows, fileIds: childFileIds } = await softDeleteSubtree(db, target);
+        const { rows, fileIds: childFileIds } = await softDeleteSubtree(db, target, { actor });
         if (target.isFolder === 1) {
           trashedFolderIds.push(target.id);
           await logEvent(db, {
@@ -434,7 +435,8 @@ filesRoutes.patch(
             return [db.update(shares).set({ folderPath: updatedFolderPath }).where(eq(shares.id, linkedShare.id))];
           });
 
-          const updates = [...descendantUpdates, ...shareUpdates];
+          const bundleUpdates = [rewriteBundlePrefixesForMove(db, existing.path, nextPath, updatedAt)];
+          const updates = [...descendantUpdates, ...shareUpdates, ...bundleUpdates];
           if (updates.length > 0) await db.batch(updates as [typeof updates[number], ...Array<typeof updates[number]>]);
         }
 
@@ -606,7 +608,8 @@ filesRoutes.patch(
         return [db.update(shares).set({ folderPath: updatedFolderPath }).where(eq(shares.id, linkedShare.id))];
       });
 
-      const updates = [...descendantUpdates, ...shareUpdates];
+      const bundleUpdates = [rewriteBundlePrefixesForMove(db, existing.path, nextPath, updatedAt)];
+      const updates = [...descendantUpdates, ...shareUpdates, ...bundleUpdates];
       if (updates.length > 0) await db.batch(updates as [typeof updates[number], ...Array<typeof updates[number]>]);
     }
 
@@ -662,7 +665,8 @@ filesRoutes.delete(
     if (!target) throw new ApiError(404, "file_not_found", "File not found");
     assertRestPathAllowed(c, target.path);
 
-    const { rows, fileIds } = await softDeleteSubtree(db, target);
+    const actor = await getRequestActor();
+    const { rows, fileIds } = await softDeleteSubtree(db, target, { actor });
     await maybePurgeStaleTrash(db, storage);
 
     const targetType = target.isFolder === 1 ? "folder" : "file";
@@ -671,7 +675,7 @@ filesRoutes.delete(
       targetType,
       targetId: target.id,
       targetPath: target.path,
-      actor: await getRequestActor(),
+      actor,
       metadata:
         target.isFolder === 1
           ? { trashedFiles: fileIds.length, trashedPaths: rows.length }

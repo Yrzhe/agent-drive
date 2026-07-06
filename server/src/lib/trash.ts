@@ -1,6 +1,12 @@
 import { and, eq, inArray, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
 import { buckets, files, shares } from "@defs";
-import type { AppDb, FileRow } from "../types";
+import type { ActivityActor, AppDb, FileRow } from "../types";
+import { logEvent } from "./activity";
+import {
+  deleteBundlePrefixesInSubtree,
+  selectPublishedBundleRowsInSubtree,
+  unpublishBundlePrefixesInSubtree,
+} from "./bundle-prefixes";
 import { nowIso } from "./files";
 import { escapedDescendantPattern } from "./paths";
 
@@ -51,11 +57,13 @@ export async function expandSubtree(db: AppDb, root: FileRow): Promise<FileRow[]
 
 export async function softDeleteSubtree(
   db: AppDb,
-  root: FileRow
-): Promise<{ rows: FileRow[]; fileIds: string[] }> {
+  root: FileRow,
+  options: { actor?: ActivityActor } = {}
+): Promise<{ rows: FileRow[]; fileIds: string[]; unpublishedBundlePublicIds: string[] }> {
   const rows = await expandSubtree(db, root);
   const fileIds = rows.filter((x) => x.isFolder === 0).map((x) => x.id);
   const timestamp = nowIso();
+  const publishedBundles = await selectPublishedBundleRowsInSubtree(db, root.path);
 
   const folderShareCondition =
     root.isFolder === 1
@@ -63,6 +71,7 @@ export async function softDeleteSubtree(
       : undefined;
 
   const ops: any[] = [];
+  if (publishedBundles.length > 0) ops.push(unpublishBundlePrefixesInSubtree(db, root.path, timestamp));
   if (folderShareCondition) ops.push(db.delete(shares).where(folderShareCondition));
   if (fileIds.length > 0) ops.push(db.delete(shares).where(inArray(shares.fileId, fileIds)));
 
@@ -87,7 +96,23 @@ export async function softDeleteSubtree(
   if (ops.length === 1) await ops[0];
   else if (ops.length > 1) await db.batch(ops as [any, ...any[]]);
 
-  return { rows, fileIds };
+  for (const bundle of publishedBundles) {
+    if (!bundle.publicId) continue;
+    await logEvent(db, {
+      eventType: "bundle.unpublished",
+      targetType: "folder",
+      targetId: bundle.publicId,
+      targetPath: bundle.prefix,
+      actor: options.actor ?? "agent",
+      metadata: { publicId: bundle.publicId, reason: "trashed" },
+    });
+  }
+
+  return {
+    rows,
+    fileIds,
+    unpublishedBundlePublicIds: publishedBundles.flatMap((bundle) => bundle.publicId ? [bundle.publicId] : []),
+  };
 }
 
 export async function restoreSubtree(db: AppDb, root: FileRow): Promise<number> {
@@ -133,11 +158,14 @@ export async function hardPurgeSubtree(
   if (storagePaths.length > 0) await storage.from(buckets.drive).delete(storagePaths);
 
   if (root.isFolder === 1) {
+    const originalBundleRoot = originalTrashPath(root);
     const ops: any[] = [
+      deleteBundlePrefixesInSubtree(db, originalBundleRoot),
       db
         .delete(shares)
         .where(or(eq(shares.folderPath, root.path), sql`${shares.folderPath} LIKE ${escapedDescendantPattern(root.path)} ESCAPE '\\'`)),
     ];
+    if (originalBundleRoot !== root.path) ops.push(deleteBundlePrefixesInSubtree(db, root.path));
     if (fileIds.length > 0) ops.push(db.delete(shares).where(inArray(shares.fileId, fileIds)));
     ops.push(
       db.delete(files).where(or(eq(files.path, root.path), sql`${files.path} LIKE ${escapedDescendantPattern(root.path)} ESCAPE '\\'`))
