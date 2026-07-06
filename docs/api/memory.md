@@ -54,7 +54,7 @@ curl -X POST https://your-drive.edgespark.app/api/public/v1/memory/rebuild-index
   -H "Authorization: Bearer $TOKEN"
 ```
 
-The rebuild wipes `memories_fts`, repopulates it from `memories` in batches of 100, and returns `{ "rebuilt": <count> }`. No MCP repair tool is exposed; keep using REST for this maintenance path.
+The rebuild wipes `memories_fts`, repopulates it from `memories` in batches of 100, and returns `{ "rebuilt": <count> }`. No MCP repair tool is exposed; keep using REST for this maintenance path. **Caveat:** the rebuild is not a single transaction — `recall`/`/memory/search` returns nothing between the wipe and the last batch, and a mid-rebuild failure leaves the index partially populated (re-running rebuild is safe and self-healing). Run it during a quiet window.
 
 ## Memory object
 
