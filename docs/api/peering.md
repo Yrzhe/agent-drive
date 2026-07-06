@@ -43,6 +43,8 @@ Accepted files land in `/inbox/pending/<contact>/` (or `/inbox/<contact>/` for `
 
 CLI: `adrive subscribe <subscribeUrl> --to <dir>` downloads everything and verifies the signature against the publisher's Agent Card (`--no-verify` to skip). Re-run to update.
 
+Lifecycle: folder rename/move rewrites the bundle prefix, so the same `publicId` keeps resolving at the new location. Trashing a published bundle prefix immediately unpublishes it (`publicId = null`, old public URLs return `404 bundle_not_found`) but keeps the private version row; restore does not re-publish, so publish again explicitly if the subscription should become public. Hard purge deletes bundle version rows under the purged prefix.
+
 ## Error codes
 
 | Status | Code | Meaning |

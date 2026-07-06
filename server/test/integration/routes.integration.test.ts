@@ -1,6 +1,6 @@
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 
-import { files } from "@defs";
+import { activityLog, bundleVersions, files } from "@defs";
 import { eq } from "drizzle-orm";
 
 import app from "../../src/index";
@@ -37,6 +37,18 @@ async function signBody(privateKey: CryptoKey, body: string): Promise<string> {
   const subtle = crypto.subtle as SubtleCrypto;
   const signature = await subtle.sign({ name: "Ed25519" }, privateKey, new TextEncoder().encode(body));
   return base64Url(new Uint8Array(signature));
+}
+
+async function getBundleRow(prefix: string) {
+  const [row] = await runtime.db.select().from(bundleVersions).where(eq(bundleVersions.prefix, prefix)).limit(1);
+  return row;
+}
+
+async function expectBundleCurrent(prefix: string): Promise<void> {
+  const response = await app.request(`/api/public/v1/bundles/current?prefix=${encodeURIComponent(prefix)}`);
+  expect(response.status).toBe(200);
+  const body = await response.json() as { currentVersion: { versionId: string } | null };
+  expect(body.currentVersion?.versionId).toBe("dv_current");
 }
 
 function inboxPayload(from = "https://peer.example") {
@@ -205,5 +217,67 @@ describe("route-level integration security behaviors", () => {
     const unpublished = await app.request("/api/public/b/pb_missing/current");
     expect(unpublished.status).toBe(404);
     expect(await errorCode(unpublished)).toBe("bundle_not_found");
+  });
+
+  it("keeps published bundle rows coherent through folder rename, trash, restore, and purge", async () => {
+    useSession();
+    const { publicId, prefix } = await seedPublishedBundle();
+    const [folder] = await runtime.db.select().from(files).where(eq(files.path, prefix)).limit(1);
+    expect(folder?.isFolder).toBe(1);
+
+    const renamedPrefix = "/bundle-renamed";
+    const renameResponse = await app.request(`/api/public/v1/files/${folder.id}`, {
+      method: "PATCH",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ name: "bundle-renamed" }),
+    });
+    expect(renameResponse.status).toBe(200);
+    expect(await getBundleRow(prefix)).toBeUndefined();
+    expect((await getBundleRow(renamedPrefix))?.publicId).toBe(publicId);
+    await expectBundleCurrent(renamedPrefix);
+
+    const publicAfterRename = await app.request(`/api/public/b/${publicId}/current`);
+    expect(publicAfterRename.status).toBe(200);
+
+    const movedPrefix = "/archive/bundle-renamed";
+    const batchMoveResponse = await app.request("/api/public/v1/files/batch", {
+      method: "PATCH",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ ids: [folder.id], parentPath: "/archive" }),
+    });
+    expect(batchMoveResponse.status).toBe(200);
+    expect(await getBundleRow(renamedPrefix)).toBeUndefined();
+    expect((await getBundleRow(movedPrefix))?.publicId).toBe(publicId);
+    await expectBundleCurrent(movedPrefix);
+
+    const publicAfterMove = await app.request(`/api/public/b/${publicId}/current`);
+    expect(publicAfterMove.status).toBe(200);
+
+    const trashResponse = await app.request(`/api/public/v1/files/${folder.id}`, { method: "DELETE" });
+    expect(trashResponse.status).toBe(200);
+    expect((await getBundleRow(movedPrefix))?.publicId).toBeNull();
+
+    const publicAfterTrash = await app.request(`/api/public/b/${publicId}/current`);
+    expect(publicAfterTrash.status).toBe(404);
+    expect(await errorCode(publicAfterTrash)).toBe("bundle_not_found");
+
+    const unpublishedEvents = await runtime.db.select().from(activityLog).where(eq(activityLog.eventType, "bundle.unpublished"));
+    expect(unpublishedEvents).toHaveLength(1);
+    const metadata = JSON.parse(unpublishedEvents[0].metadata ?? "{}") as { publicId?: string; reason?: string };
+    expect(metadata.publicId).toBe(publicId);
+    expect(metadata.reason).toBe("trashed");
+
+    const restoreResponse = await app.request(`/api/public/v1/files/${folder.id}/restore`, { method: "POST" });
+    expect(restoreResponse.status).toBe(200);
+    expect((await getBundleRow(movedPrefix))?.publicId).toBeNull();
+    const publicAfterRestore = await app.request(`/api/public/b/${publicId}/current`);
+    expect(publicAfterRestore.status).toBe(404);
+    await expectBundleCurrent(movedPrefix);
+
+    const secondTrashResponse = await app.request(`/api/public/v1/files/${folder.id}`, { method: "DELETE" });
+    expect(secondTrashResponse.status).toBe(200);
+    const purgeResponse = await app.request(`/api/public/v1/files/${folder.id}/purge`, { method: "DELETE" });
+    expect(purgeResponse.status).toBe(200);
+    expect(await getBundleRow(movedPrefix)).toBeUndefined();
   });
 });
