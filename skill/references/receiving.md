@@ -104,7 +104,7 @@ Header: X-Access-Token: {accessToken}
 
 **List files:**
 ```bash
-GET https://{host}/api/public/s/{shareId}/files
+GET https://{host}/api/public/s/{shareId}/files?limit=200&offset=0
 Header: X-Access-Token: {accessToken}
 ```
 
@@ -115,11 +115,13 @@ Returns:
     {"id": "abc", "name": "SKILL.md", "path": "SKILL.md", "isFolder": false, "size": 9026},
     {"id": "def", "name": "scripts", "path": "scripts", "isFolder": true, "size": 0},
     {"id": "ghi", "name": "main.py", "path": "scripts/main.py", "isFolder": false, "size": 3057}
-  ]
+  ],
+  "limit": 200,
+  "offset": 0
 }
 ```
 
-`path` is relative to the share root. Folders are included for structure visibility.
+`limit` defaults to 200 and is capped at 500. `offset` defaults to 0. `path` is relative to the share root. Folders are included for structure visibility.
 
 **Download a specific file:**
 ```bash
@@ -153,7 +155,7 @@ GET https://{host}/api/public/s/{shareId}/download
 Header: X-Access-Token: {accessToken}
 ```
 
-## Handling Large Folders (>30MB)
+## Handling Large Folders (>30MB or >400 files)
 
 ZIP download has a 30MB limit. If the folder exceeds it, the server returns 413 with a helpful response:
 
@@ -170,9 +172,24 @@ ZIP download has a 30MB limit. If the folder exceeds it, the server returns 413 
 }
 ```
 
+ZIP download also has a 400-file limit. If the folder has more than 400 files, the server returns 413:
+
+```json
+{
+  "error": {
+    "code": "zip_file_count_exceeded",
+    "message": "ZIP download is limited to 400 files. This folder has 401 files.",
+    "hint": "Use GET /files?limit=500&offset=0 to page through all files, then GET /download?fileId=<id> to download each file individually. Preserve the relative path from the paginated file list to maintain folder structure.",
+    "filesEndpoint": "/api/public/s/{shareId}/files?limit=500&offset=0",
+    "fileCount": 401,
+    "maxFileCount": 400
+  }
+}
+```
+
 **When you get a 413, follow this fallback flow:**
 
-1. Call `/files` to get the complete file list with relative paths
+1. Page through `/files?limit=500&offset=0`, then `offset=500`, etc. to get the complete file list with relative paths
 2. For each file (where `isFolder` is false):
    - Call `/download?fileId={id}` to get the presigned URL
    - Download the file
@@ -180,8 +197,9 @@ ZIP download has a 30MB limit. If the folder exceeds it, the server returns 413 
 3. Access token expires in 15 min — if downloading many files, request a new token midway
 
 ```bash
-# Fallback: download files individually, preserving structure
-FILES=$(curl -s $HOST/api/public/s/$SHARE/files -H "X-Access-Token: $TOKEN")
+# Fallback: download files individually, preserving structure.
+# Repeat with offset=500,1000,... while each page returns files.
+FILES=$(curl -s "$HOST/api/public/s/$SHARE/files?limit=500&offset=0" -H "X-Access-Token: $TOKEN")
 
 # For each file, download to the correct relative path
 echo "$FILES" | jq -c '.files[] | select(.isFolder == false)' | while read -r file; do
@@ -203,7 +221,7 @@ done
 ```
 Try /download-zip
   ├─ 200 → done (save ZIP, unzip)
-  ├─ 413 → folder too large, switch to individual downloads
+  ├─ 413 → folder too large or too many files, switch to paginated individual downloads
   └─ other error → handle normally
 ```
 
@@ -214,6 +232,7 @@ Try /download-zip
 | 404 | `share_not_found` | Share doesn't exist or deleted | Nothing — link is dead |
 | 410 | `share_expired` | Past expiration time | Request a new share from the sender |
 | 413 | `zip_too_large` | Folder exceeds 30MB ZIP limit | Download files individually (see above) |
+| 413 | `zip_file_count_exceeded` | Folder exceeds 400-file ZIP limit | Page `/files` and download files individually |
 | 429 | `share_exhausted` | Download limit reached | Request a new share from the sender |
 | 403 | `wrong_password` | Wrong password | Check password and retry |
 | 401 | `invalid_access_token` | Token expired (15 min) | Call `/access` again for a new token |
