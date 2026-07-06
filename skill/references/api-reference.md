@@ -148,6 +148,10 @@ DELETE /api/public/v1/memory/{idOrKey}  Returns { forgotten }
 
 MCP tools: `remember`, `recall`, `list_memories`, `forget`.
 
+### List pagination
+
+All list endpoints (`GET /v1/files/trash`, `/v1/shares`, `/v1/contacts`, `/v1/tokens`, `/v1/webhooks`) accept `?limit=` (default 100, max 500) and `?offset=`, and echo `{ limit, offset }` in the response. Note for path-scoped tokens: trash/share rows outside your prefix are filtered AFTER the SQL page, so a page may come back short — keep paging until an empty page.
+
 ### Scoped Drive Tokens (owner/session-only)
 
 Minting and revoking tokens requires browser session auth — bearer tokens are rejected with 403 `session_required` (no privilege escalation). The owner uses the `/connect` page UI; the endpoints behind it:

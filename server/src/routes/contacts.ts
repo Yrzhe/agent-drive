@@ -8,6 +8,7 @@ import { getRequestActor, logEvent } from "../lib/activity";
 import { ApiError, withErrorHandling } from "../lib/errors";
 import { nowIso } from "../lib/files";
 import { normalizePath } from "../lib/paths";
+import { parseListPagination } from "../lib/pagination";
 import { hasScope } from "../lib/mcp-scopes";
 import { assertRestPathAllowed, getRestAuth, requireSessionAuth } from "../lib/rest-scopes";
 import { getContactByName, sendFileToContact, toContactObject } from "../lib/peering";
@@ -96,9 +97,10 @@ contactsRoutes.get(
   "/",
   withErrorHandling(async (c) => {
     requireSessionAuth(c);
+    const { limit, offset } = parseListPagination((name) => c.req.query(name), { defaultLimit: 100, maxLimit: 500 });
     const { db } = await import("edgespark");
-    const rows = await db.select().from(contacts).orderBy(desc(contacts.addedAt));
-    return c.json({ contacts: rows.map(toContactObject) });
+    const rows = await db.select().from(contacts).orderBy(desc(contacts.addedAt)).limit(limit).offset(offset);
+    return c.json({ contacts: rows.map(toContactObject), limit, offset });
   })
 );
 

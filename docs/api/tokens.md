@@ -13,7 +13,7 @@ Owner-minted bearer tokens with narrowed capabilities and an optional path prefi
 | Method | Endpoint | Body / Params | Returns |
 |---|---|---|---|
 | POST | `/api/public/v1/tokens` | `{ label?, scopes: string[], pathPrefix?, expiresInDays? }` | `201 { token, hint, tokenInfo }` |
-| GET | `/api/public/v1/tokens` | — | `{ tokens: [...] }` |
+| GET | `/api/public/v1/tokens` | `?limit=100&offset=0` (max 500) | `{ tokens: [...], limit, offset }` |
 | DELETE | `/api/public/v1/tokens/:id` | — | `{ revoked }` |
 
 - `scopes`: non-empty subset of `read:drive write:drive share:create read:memory write:memory`. `read:skills`/`write:skills` and raw `path:` entries are rejected — use `pathPrefix`.

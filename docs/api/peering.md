@@ -7,7 +7,7 @@ Implements roadmap 4.1b/4.2 (#13) and 4.4 (#14): direct Drive-to-Drive exchange 
 | Method | Endpoint | Body | Notes |
 |---|---|---|---|
 | POST | `/api/public/v1/contacts` | `{ url, name?, autoRelease? }` | SSRF-validates `url` (same DoH policy as webhooks), fetches the peer's Agent Card, pins `signing.publicKeyJwk`. 409 on duplicate name/url. |
-| GET | `/api/public/v1/contacts` | — | |
+| GET | `/api/public/v1/contacts` | `?limit=100&offset=0` (max 500) | |
 | PATCH | `/api/public/v1/contacts/:name` | `{ autoRelease }` | `autoRelease: true` skips quarantine for this contact |
 | DELETE | `/api/public/v1/contacts/:name` | — | |
 

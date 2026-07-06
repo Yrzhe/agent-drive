@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- **List endpoints paginated (#23)** — `GET /v1/files/trash`, `/v1/shares`, `/v1/contacts`, `/v1/tokens`, `/v1/webhooks` accept `limit` (default 100, max 500) / `offset` and echo them in the response; the shares list now filters expiry/exhaustion in SQL instead of loading every row; new indexes on `shares.created_at` and `oauth_tokens.created_at` (migration `0014`). Path-scope filtering still happens after the SQL page (short pages possible for path-scoped tokens — documented).
+
 ### Security
 
 - **Codex cross-audit round 1 fixes** — findings from a 3-agent adversarial audit of the week's features: REST `POST /v1/contacts/:name/send` now requires `share:create` for bearer callers (was `write:drive`-only, letting write-only tokens exfiltrate files; MCP parity restored); batch move checks destination path scope **before** `ensureFolderChain` (which creates/un-trashes folders as a side effect); the public inbox enforces its 8MB cap on the actual buffered body (not just `Content-Length`) and rejects oversized `contentBase64` by encoded length before `atob`; public bundle downloads exclude `.history/` segments even when a crafted manifest lists them. Doc drift fixed in `docs/api/oauth.md` (real TTL 1800s, `429 client_limit_exceeded`, silent scope filtering, live memory scopes) and `docs/api/agent-card.md` (OAuth2 flows shape, live inbox). Follow-ups filed: #20 (share ZIP memory), #21 (FTS drift rebuild), #22 (bundle publicId invalidation), #23 (list pagination).

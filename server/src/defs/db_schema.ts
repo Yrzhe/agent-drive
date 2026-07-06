@@ -38,6 +38,7 @@ export const shares = sqliteTable(
   (table) => [
     index("idx_shares_file_id").on(table.fileId),
     index("idx_shares_folder_path").on(table.folderPath),
+    index("idx_shares_created_at").on(table.createdAt),
   ]
 );
 
@@ -190,5 +191,6 @@ export const oauthTokens = sqliteTable(
     index("idx_oauth_tokens_client").on(table.clientId),
     index("idx_oauth_tokens_user").on(table.userId),
     index("idx_oauth_tokens_source_code").on(table.sourceCodeId),
+    index("idx_oauth_tokens_created_at").on(table.createdAt),
   ]
 );

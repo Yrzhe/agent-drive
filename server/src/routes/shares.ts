@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNull, or, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { nanoid } from "nanoid";
 
@@ -9,6 +9,7 @@ import { hashPassword } from "../lib/crypto";
 import { nowIso } from "../lib/files";
 import { ApiError, withErrorHandling } from "../lib/errors";
 import { normalizePath } from "../lib/paths";
+import { parseListPagination } from "../lib/pagination";
 import { assertRestPathAllowed, restPathFilter } from "../lib/rest-scopes";
 import type { AppDb, AppEnv, ShareObject, ShareRow } from "../types";
 
@@ -216,14 +217,19 @@ sharesRoutes.get(
   "/shares",
   withErrorHandling(async (c) => {
     const { db } = await import("edgespark");
-    const rows = await db.select().from(shares).orderBy(desc(shares.createdAt));
+    const { limit, offset } = parseListPagination((name) => c.req.query(name), { defaultLimit: 100, maxLimit: 500 });
+    const nowIsoString = new Date().toISOString();
+    const activeRows = await db
+      .select()
+      .from(shares)
+      .where(and(
+        or(isNull(shares.expiresAt), gt(shares.expiresAt, nowIsoString)),
+        or(isNull(shares.maxDownloads), sql`${shares.downloadCount} < ${shares.maxDownloads}`)
+      ))
+      .orderBy(desc(shares.createdAt))
+      .limit(limit)
+      .offset(offset);
     const origin = new URL(c.req.url).origin;
-    const now = Date.now();
-    const activeRows = rows.filter((row) => {
-      if (row.expiresAt && Date.parse(row.expiresAt) <= now) return false;
-      if (row.maxDownloads !== null && row.downloadCount >= row.maxDownloads) return false;
-      return true;
-    });
 
     const pathVisible = restPathFilter(c);
     const shareFileIds = activeRows.map((row) => row.fileId).filter((id): id is string => Boolean(id));
@@ -234,7 +240,7 @@ sharesRoutes.get(
     const visibleRows = activeRows.filter((row) =>
       pathVisible(row.fileId ? filePathById.get(row.fileId) ?? "/" : normalizePath(row.folderPath ?? "/"))
     );
-    return c.json({ shares: await toShareObjects(db, visibleRows, origin) });
+    return c.json({ shares: await toShareObjects(db, visibleRows, origin), limit, offset });
   })
 );
 
