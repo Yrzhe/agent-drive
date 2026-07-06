@@ -86,6 +86,16 @@ export const agentIdentity = sqliteTable("agent_identity", {
   createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
 });
 
+export const contacts = sqliteTable("contacts", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull().unique(),
+  url: text("url").notNull().unique(),
+  publicKeyJwk: text("public_key_jwk").notNull(),
+  algorithm: text("algorithm").notNull().default("Ed25519"),
+  autoRelease: integer("auto_release").notNull().default(0),
+  addedAt: text("added_at").notNull().default(sql`(datetime('now'))`),
+});
+
 export const memories = sqliteTable(
   "memories",
   {
@@ -142,6 +152,7 @@ export const bundleVersions = sqliteTable(
   "bundle_versions",
   {
     prefix: text("prefix").primaryKey(),
+    publicId: text("public_id").unique(),
     currentVersionId: text("current_version_id").notNull(),
     previousVersionId: text("previous_version_id"),
     machineId: text("machine_id").notNull(),

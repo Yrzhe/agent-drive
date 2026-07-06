@@ -35,6 +35,53 @@ interface GeneratedKeyPair {
 interface SubtleLike {
   generateKey(algorithm: { name: string }, extractable: boolean, usages: string[]): Promise<{ publicKey: unknown; privateKey: unknown }>;
   exportKey(format: "jwk", key: unknown): Promise<Jwk>;
+  importKey(format: "jwk", keyData: Jwk, algorithm: { name: string }, extractable: boolean, usages: string[]): Promise<unknown>;
+  sign(algorithm: { name: string }, key: unknown, data: Uint8Array): Promise<ArrayBuffer>;
+  verify(algorithm: { name: string }, key: unknown, signature: Uint8Array, data: Uint8Array): Promise<boolean>;
+}
+
+export function base64UrlEncode(bytes: Uint8Array): string {
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+export function base64UrlDecode(value: string): Uint8Array {
+  const padded = value.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(value.length / 4) * 4, "=");
+  const binary = atob(padded);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+  return bytes;
+}
+
+/** Sign bytes with this deployment's identity key; returns base64url. */
+export async function signWithIdentity(db: AppDb, data: Uint8Array): Promise<string> {
+  await getOrCreateAgentIdentity(db);
+  const [row] = await db.select().from(agentIdentity).where(eq(agentIdentity.id, IDENTITY_ROW_ID)).limit(1);
+  if (!row) throw new Error("agent identity missing after initialization");
+  const subtle = crypto.subtle as unknown as SubtleLike;
+  const privateKey = await subtle.importKey("jwk", JSON.parse(row.privateKeyJwk) as Jwk, { name: row.algorithm }, false, ["sign"]);
+  const signature = await subtle.sign({ name: row.algorithm }, privateKey, data);
+  return base64UrlEncode(new Uint8Array(signature));
+}
+
+/**
+ * Verify a base64url Ed25519 signature against a public JWK. The algorithm is
+ * PINNED to Ed25519 and the key must be an OKP/Ed25519 public JWK — accepting
+ * a peer-supplied algorithm (e.g. HMAC with a published symmetric key) would
+ * let anyone who can read the peer's card forge signatures.
+ */
+export async function verifyWithJwk(publicKeyJwk: Jwk, data: Uint8Array, signatureB64Url: string): Promise<boolean> {
+  try {
+    if (publicKeyJwk.kty !== "OKP" || publicKeyJwk.crv !== SIGNING_ALGORITHM || typeof publicKeyJwk.x !== "string" || publicKeyJwk.d !== undefined) {
+      return false;
+    }
+    const subtle = crypto.subtle as unknown as SubtleLike;
+    const publicKey = await subtle.importKey("jwk", publicKeyJwk, { name: SIGNING_ALGORITHM }, false, ["verify"]);
+    return await subtle.verify({ name: SIGNING_ALGORITHM }, publicKey, base64UrlDecode(signatureB64Url), data);
+  } catch {
+    return false;
+  }
 }
 
 async function generateSigningKeyPair(): Promise<GeneratedKeyPair> {
@@ -164,8 +211,8 @@ export function buildAgentCard(identity: AgentIdentity, origin: string, appVersi
       rest: `${origin}/api/public/v1`,
       guide: `${origin}/api/public/guide`,
       llmsTxt: `${origin}/llms.txt`,
-      inbox: null,
-      inboxStatus: "planned — direct Drive-to-Drive delivery is not implemented yet; use share links for handoff.",
+      inbox: `${origin}/api/public/inbox`,
+      inboxStatus: "live — POST a signed payload after the owner adds you as a contact; unknown senders are rejected, known senders land in quarantine unless trusted.",
     },
   };
 }

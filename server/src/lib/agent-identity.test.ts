@@ -26,9 +26,38 @@ describe("buildAgentCard", () => {
     expect(JSON.stringify(card)).not.toContain('"d"');
   });
 
-  it("marks the inbox as not yet available", () => {
-    expect(card["x-agent-drive"].inbox).toBeNull();
+  it("advertises the live inbox endpoint", () => {
+    expect(card["x-agent-drive"].inbox).toBe("https://drive.example.com/api/public/inbox");
     expect(card["x-agent-drive"].mcp).toBe("https://drive.example.com/api/public/mcp");
+  });
+});
+
+describe("verifyWithJwk hardening", () => {
+  const subtle = crypto.subtle as unknown as {
+    generateKey(a: { name: string }, e: boolean, u: string[]): Promise<{ publicKey: unknown; privateKey: unknown }>;
+    exportKey(f: "jwk", k: unknown): Promise<Record<string, unknown>>;
+    sign(a: { name: string }, k: unknown, d: Uint8Array): Promise<ArrayBuffer>;
+  };
+
+  it("verifies a genuine Ed25519 signature and rejects a wrong key", async () => {
+    const { verifyWithJwk, base64UrlEncode } = await import("./agent-identity");
+    const pairA = await subtle.generateKey({ name: "Ed25519" }, true, ["sign", "verify"]);
+    const pairB = await subtle.generateKey({ name: "Ed25519" }, true, ["sign", "verify"]);
+    const data = new TextEncoder().encode('{"from":"https://peer.example.com"}');
+    const signature = base64UrlEncode(new Uint8Array(await subtle.sign({ name: "Ed25519" }, pairA.privateKey, data)));
+    const publicA = (await subtle.exportKey("jwk", pairA.publicKey)) as import("./agent-identity").Jwk;
+    const publicB = (await subtle.exportKey("jwk", pairB.publicKey)) as import("./agent-identity").Jwk;
+    expect(await verifyWithJwk(publicA, data, signature)).toBe(true);
+    expect(await verifyWithJwk(publicB, data, signature)).toBe(false);
+    expect(await verifyWithJwk(publicA, new TextEncoder().encode("tampered"), signature)).toBe(false);
+  });
+
+  it("rejects non-Ed25519 keys outright (algorithm confusion guard)", async () => {
+    const { verifyWithJwk } = await import("./agent-identity");
+    const data = new TextEncoder().encode("payload");
+    expect(await verifyWithJwk({ kty: "oct", k: "c2VjcmV0" }, data, "AAAA")).toBe(false);
+    expect(await verifyWithJwk({ kty: "OKP", crv: "X25519", x: "abc" }, data, "AAAA")).toBe(false);
+    expect(await verifyWithJwk({ kty: "OKP", crv: "Ed25519", x: "abc", d: "leaked-private" }, data, "AAAA")).toBe(false);
   });
 });
 

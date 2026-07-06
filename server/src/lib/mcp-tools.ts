@@ -6,6 +6,7 @@ import { buckets, files, shares } from "@defs";
 import { hashPassword } from "./crypto";
 import { ensureFolderChain, nowIso, toFileObject } from "./files";
 import { forgetMemory, listMemories, recallMemories, rememberMemory } from "./memory";
+import { getContactByName, sendFileToContact } from "./peering";
 import { escapedDescendantPattern, joinPath, normalizeName, normalizePath, parentOfPath } from "./paths";
 import { extractPathPrefixes, hasScope, pathAllowed, requirePathAllowed, type McpScope } from "./mcp-scopes";
 import { purgeConflictingTrashAtPath } from "./trash";
@@ -157,6 +158,20 @@ export const MCP_TOOLS: McpToolDefinition[] = [
         limit: { type: "number", description: "Max results, default 20, max 100." },
         offset: { type: "number", description: "Number of entries to skip." },
       },
+    },
+  },
+  {
+    name: "send_file",
+    description: "Send a drive file directly to a peer contact's Drive inbox (signed with this Drive's identity). The owner must have added the contact first.",
+    requiredScope: "share:create",
+    inputSchema: {
+      type: "object",
+      properties: {
+        contact: { type: "string", description: "Contact name (see the owner's contact list)." },
+        path: { type: "string", description: "Drive path of the file to send. Max 5MB." },
+        message: { type: "string", description: "Optional note delivered with the file." },
+      },
+      required: ["contact", "path"],
     },
   },
   {
@@ -382,6 +397,18 @@ export async function callMcpTool(db: AppDb, origin: string, scopes: readonly st
     const offset = Math.max(0, Math.trunc(numberArg(input, "offset", 0)));
     const results = await listMemories(db, limit, offset);
     return textResult({ count: results.length, offset, memories: results });
+  }
+
+  if (name === "send_file") {
+    const contactName = stringArg(input, "contact") ?? "";
+    const path = normalizePath(stringArg(input, "path") ?? "");
+    requirePathAllowed(scopes, path);
+    const message = stringArg(input, "message", false);
+    const contact = await getContactByName(db, contactName);
+    if (!contact) throw new Error("contact_not_found");
+    const { storage } = await import("edgespark");
+    const result = await sendFileToContact(db, storage, contact, path, message, origin);
+    return textResult(result);
   }
 
   if (name === "forget") {

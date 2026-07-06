@@ -162,6 +162,22 @@ DELETE /api/public/v1/tokens/:id  Revoke immediately
 
 Mintable scopes: `read:drive write:drive share:create read:memory write:memory` (+ optional path prefix). Minted tokens authenticate exactly like OAuth bearers on MCP and REST.
 
+### Contacts & Inbox (Drive-to-Drive)
+
+Contact management is owner/session-only; sending is an agent action. Full guide: `peering.md`.
+
+```
+POST   /api/public/v1/contacts              { url, name?, autoRelease? }   (session-only; fetches peer Agent Card)
+GET    /api/public/v1/contacts                                             (session-only)
+PATCH  /api/public/v1/contacts/:name        { autoRelease }                (session-only)
+DELETE /api/public/v1/contacts/:name                                       (session-only)
+POST   /api/public/v1/contacts/:name/send   { path, message? }             (bearer OK; max 5MB)
+
+POST   /api/public/inbox                    signed peer delivery (public route, X-Agent-Signature)
+```
+
+MCP tool: `send_file { contact, path, message? }` (scope `share:create`). Received files land in `/inbox/pending/<contact>/` quarantine unless the contact has `autoRelease`.
+
 ### Bundles
 
 Bundles are versioned manifests used by `adrive sync`. File bytes are uploaded separately; the bundle endpoints manage the version pointer and manifest history.

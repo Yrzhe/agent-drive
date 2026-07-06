@@ -8,6 +8,7 @@ import { syncHistoryCommand } from "./commands/sync-history.js";
 import { syncListCommand } from "./commands/sync-list.js";
 import { syncPullCommand } from "./commands/sync-pull.js";
 import { syncPushCommand } from "./commands/sync-push.js";
+import { subscribeCommand } from "./commands/subscribe.js";
 import { syncRollbackCommand } from "./commands/sync-rollback.js";
 import { whoamiCommand } from "./commands/whoami.js";
 
@@ -94,6 +95,14 @@ sync
   .option("--force", "Skip the confirmation prompt (alias of --yes)")
   .description("Restore a prior manifest as a new version (pointer-only)")
   .action((prefix: string, options: { to: string; yes?: boolean; force?: boolean }) => run(() => syncRollbackCommand(prefix, options)));
+
+program
+  .command("subscribe")
+  .argument("<url>", "Public bundle URL: https://host/api/public/b/<id>/current")
+  .requiredOption("--to <local>", "Local directory to download into")
+  .option("--no-verify", "Skip Ed25519 signature verification against the publisher's Agent Card")
+  .description("Download a published bundle anonymously; re-run to pull updates")
+  .action((url: string, options: { to: string; verify?: boolean }) => run(() => subscribeCommand(url, options)));
 
 async function run(action: () => Promise<void>): Promise<void> {
   try {
