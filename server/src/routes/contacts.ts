@@ -8,7 +8,8 @@ import { getRequestActor, logEvent } from "../lib/activity";
 import { ApiError, withErrorHandling } from "../lib/errors";
 import { nowIso } from "../lib/files";
 import { normalizePath } from "../lib/paths";
-import { assertRestPathAllowed, requireSessionAuth } from "../lib/rest-scopes";
+import { hasScope } from "../lib/mcp-scopes";
+import { assertRestPathAllowed, getRestAuth, requireSessionAuth } from "../lib/rest-scopes";
 import { getContactByName, sendFileToContact, toContactObject } from "../lib/peering";
 import { validateWebhookUrlForDelivery } from "../lib/webhooks";
 import type { AppEnv } from "../types";
@@ -136,15 +137,19 @@ contactsRoutes.delete(
   })
 );
 
-// Sending is an agent action (bearer allowed): share:create via middleware
-// (POST under /v1/contacts is mapped to write:drive — see rest-scopes) plus a
-// path check on the source file.
+// Sending is an agent action (bearer allowed). Sending transmits file bytes
+// to an external party — share semantics: require share:create (parity with
+// the MCP send_file tool) plus a path check on the source file.
 contactsRoutes.post(
   "/:name/send",
   withErrorHandling(async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as { path?: unknown; message?: unknown };
     if (typeof body.path !== "string" || !body.path.trim()) throw new ApiError(400, "validation_error", "path is required");
     const filePath = normalizePath(body.path);
+    const restAuth = getRestAuth(c);
+    if (restAuth.kind === "bearer" && !hasScope(restAuth.scopes, "share:create")) {
+      throw new ApiError(403, "invalid_scope", "invalid_scope:share:create");
+    }
     assertRestPathAllowed(c, filePath);
     const message = typeof body.message === "string" && body.message.trim() ? body.message.trim() : null;
 

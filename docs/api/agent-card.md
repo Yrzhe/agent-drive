@@ -28,26 +28,26 @@ An [A2A-compatible](https://a2a-protocol.org/) Agent Card describing this deploy
     { "id": "bundles", "name": "Versioned bundles", "description": "..." }
   ],
   "securitySchemes": {
-    "oauth2": { "type": "openIdConnect", "openIdConnectUrl": ".../.well-known/oauth-authorization-server" },
+    "oauth2": { "type": "oauth2", "flows": { "authorizationCode": { "authorizationUrl": ".../oauth/authorize", "tokenUrl": ".../oauth/token", "scopes": { "read:drive": "..." } } } },
     "bearer": { "type": "http", "scheme": "bearer" }
   },
   "signing": {
     "algorithm": "Ed25519",
     "publicKeyJwk": { "kty": "OKP", "crv": "Ed25519", "x": "..." },
-    "purpose": "Future peer handshakes and bundle signatures verify against this key."
+    "purpose": "Peer inbox deliveries and published bundle manifests verify against this key."
   },
   "x-agent-drive": {
     "mcp": ".../api/public/mcp",
     "rest": ".../api/public/v1",
     "guide": ".../api/public/guide",
     "llmsTxt": ".../llms.txt",
-    "inbox": null,
-    "inboxStatus": "planned — use share links for handoff today"
+    "inbox": ".../api/public/inbox",
+    "inboxStatus": "live — POST a signed payload after the owner adds you as a contact"
   }
 }
 ```
 
-Drive-specific fields live under `x-agent-drive` so strict A2A clients can ignore them. `inbox` stays `null` until Drive peering (#13) ships.
+Drive-specific fields live under `x-agent-drive` so strict A2A clients can ignore them. The inbox went live with Drive peering (#13) — see [`peering.md`](./peering.md).
 
 ## Origin
 

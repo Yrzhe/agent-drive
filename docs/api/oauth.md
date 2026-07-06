@@ -80,12 +80,12 @@ Validation rules:
 - `redirect_uris`: array, 1–5 entries. Each must be `https://...` **except** `http://localhost:*` and `http://127.0.0.1:*` (allowed for local dev / desktop apps per IETF guidance).
 - `grant_types`: must be a subset of `["authorization_code", "refresh_token"]`.
 - `response_types`: must be `["code"]`.
-- `scope`: space-separated; unknown scopes are rejected.
+- `scope`: space-separated; unknown/malformed scope tokens are silently dropped during normalization (the effective set is returned in the response). An all-invalid or empty scope falls back to `read:drive`.
 
 Rate limits:
 
 - 20 registrations per hour per IP.
-- Global cap of 100 registered clients (returns `403 registration_disabled` past the cap).
+- Global cap of 100 registered clients (returns `429 client_limit_exceeded` past the cap).
 
 Response (201):
 
@@ -173,7 +173,7 @@ Response:
 {
   "access_token": "<id>.<secret>",
   "token_type": "Bearer",
-  "expires_in": 3600,
+  "expires_in": 1800,
   "refresh_token": "<id>.<secret>",
   "scope": "read:drive write:drive"
 }
@@ -223,8 +223,8 @@ Authoritative list lives in `server/src/lib/mcp-scopes.ts`.
 |---|---|
 | `read:drive` | Read files and folders in Agent Drive |
 | `write:drive` | Create and update files and folders |
-| `read:memory` | Read memory files (planned) |
-| `write:memory` | Write memory files (planned) |
+| `read:memory` | Read agent memories (`recall`/`list_memories`, `GET /v1/memory*`) |
+| `write:memory` | Create/update/delete agent memories (`remember`/`forget`, `POST/DELETE /v1/memory*`) |
 | `read:skills` | Read skill files (planned) |
 | `write:skills` | Write skill files (planned) |
 | `share:create` | Create share links for files and folders |

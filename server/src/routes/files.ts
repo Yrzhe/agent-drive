@@ -361,6 +361,9 @@ filesRoutes.patch(
       throw new ApiError(400, "validation_error", "parentPath is required");
     }
     const nextParentPath = normalizePath(body.parentPath);
+    // Destination scope check must precede ensureFolderChain — it creates (or
+    // un-trashes) folder rows as a side effect.
+    assertRestPathAllowed(c, nextParentPath);
 
     const { db, storage } = await import("edgespark");
     await ensureFolderChain(db, nextParentPath);
