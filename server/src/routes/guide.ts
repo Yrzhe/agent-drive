@@ -15,10 +15,12 @@ guideRoutes.get(
       description: "Agent-native private cloud drive. Agents upload files, create share links, persist cross-session memories, and other agents download via API — no browser needed.",
       agentSurfaces: {
         description: "All machine-facing entry points of this deployment (owner auth required except shares)",
-        mcp: `${origin}/api/public/mcp — remote MCP server. Tools: list_files, read_file, write_file, search_files, create_share, remember, recall, list_memories, forget. Auth: OAuth 2.1 (discovery at ${origin}/api/public/.well-known/oauth-protected-resource) or owner AGENT_TOKEN bearer.`,
+        mcp: `${origin}/api/public/mcp — remote MCP server. Tools: list_files, read_file, write_file, search_files, create_share, remember, recall, list_memories, forget, send_file. Auth: OAuth 2.1 (discovery at ${origin}/api/public/.well-known/oauth-protected-resource) or owner AGENT_TOKEN bearer.`,
         restApi: `${origin}/api/public/v1/* — files, folders, shares, memory, bundles, webhooks, activity. Same bearer auth and scopes as MCP.`,
         memory: `Persistent agent memory with full-text search. MCP remember/recall, or REST: POST ${origin}/api/public/v1/memory, GET ${origin}/api/public/v1/memory/search?q=... Scopes: read:memory / write:memory.`,
         agentCard: `${origin}/api/public/.well-known/agent.json — A2A-compatible Agent Card (identity public key, capabilities, endpoints)`,
+        inbox: `${origin}/api/public/inbox — signed Drive-to-Drive file delivery for contacts added by the owner; MCP tool send_file on the sending side`,
+        publicBundles: `${origin}/api/public/b/{publicId}/current — anonymously subscribable published bundles, Ed25519-signed manifest (CLI: adrive subscribe <url> --to <dir>)`,
         llmsTxt: `${origin}/llms.txt — plain-text index of everything above`,
       },
       quickStart: {

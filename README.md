@@ -188,6 +188,10 @@ Use `/api/public/mcp` as the remote MCP URL. OAuth/MCP discovery is served from 
 | POST | `/api/public/v1/tokens` | Mint a scoped drive token (session-only) |
 | GET | `/api/public/v1/tokens` | List minted tokens (session-only) |
 | DELETE | `/api/public/v1/tokens/:id` | Revoke a minted token (session-only) |
+| POST | `/api/public/v1/contacts` | Add a peer Drive contact (session-only) |
+| GET | `/api/public/v1/contacts` | List contacts (session-only) |
+| POST | `/api/public/v1/contacts/:name/send` | Send a file to a contact's Drive inbox |
+| POST | `/api/public/v1/bundles/publish` | Publish/unpublish a bundle for anonymous subscription |
 | POST | `/api/public/v1/bundles/commit` | Commit a versioned bundle manifest |
 | GET | `/api/public/v1/bundles/current?prefix=/path` | Read current bundle version |
 | GET | `/api/public/v1/bundles/history?prefix=/path` | List prior bundle versions |
@@ -200,6 +204,10 @@ Use `/api/public/mcp` as the remote MCP URL. OAuth/MCP discovery is served from 
 | GET | `/api/public/guide` | API guide for receiving agents (also lists all agent surfaces) |
 | GET | `/llms.txt` | Plain-text agent index of this deployment |
 | GET | `/api/public/.well-known/agent.json` | A2A-compatible Agent Card (identity + capabilities) |
+| POST | `/api/public/inbox` | Signed Drive-to-Drive delivery (contacts only) |
+| GET | `/api/public/b/:publicId/current` | Published bundle metadata + signature |
+| GET | `/api/public/b/:publicId/manifest` | Published bundle manifest (signed bytes) |
+| GET | `/api/public/b/:publicId/file?path=` | Presigned download of a bundle file |
 | GET | `/api/public/s/:id` | Share info |
 | POST | `/api/public/s/:id/access` | Get access token |
 | GET | `/api/public/s/:id/files` | Browse shared files |

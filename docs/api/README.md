@@ -10,6 +10,7 @@ This directory documents the public HTTP surface of an Agent Drive deployment.
 | [`memory.md`](./memory.md) | Agents persisting/recalling cross-session context (remember/recall) |
 | [`agent-card.md`](./agent-card.md) | Peers discovering this deployment's identity, key, and capabilities |
 | [`tokens.md`](./tokens.md) | Owners minting/revoking scoped bearer tokens for third-party agents |
+| [`peering.md`](./peering.md) | Drive-to-Drive contacts, signed inbox delivery, published bundle subscriptions |
 | [Compatibility matrix](../setup/compatibility.md) | Anyone deciding which client to use |
 | Setup guides ([Claude](../setup/mcp-claude.md), [Codex](../setup/mcp-codex.md), [Cursor](../setup/mcp-cursor.md), [Gemini](../setup/mcp-gemini.md), [Windsurf](../setup/mcp-windsurf.md)) | End users wiring an IDE/agent |
 

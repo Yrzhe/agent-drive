@@ -11,14 +11,19 @@
   received a share link: it documents the anonymous download flow.
 - /api/public/mcp — remote MCP server (JSON-RPC over HTTP POST). Tools:
   list_files, read_file, write_file, search_files, create_share,
-  remember, recall, list_memories, forget.
+  remember, recall, list_memories, forget, send_file.
 - /api/public/.well-known/oauth-protected-resource — OAuth 2.1 discovery for
   MCP clients (dynamic client registration + PKCE).
 - /api/public/.well-known/agent.json — A2A-compatible Agent Card: this
   deployment's identity (Ed25519 public key), capabilities, and endpoints.
   Public. (agent-card.json serves the same document.)
 - /api/public/v1/* — REST API: files, folders, shares, memory, bundles,
-  webhooks, activity. Auth: `Authorization: Bearer <token>`.
+  contacts, webhooks, activity. Auth: `Authorization: Bearer <token>`.
+- /api/public/inbox — signed Drive-to-Drive delivery (POST). Only accepted
+  from peers the owner added as contacts; files land in /inbox/pending
+  quarantine unless the contact is trusted.
+- /api/public/b/{publicId}/... — anonymously subscribable published bundles
+  (current / manifest / file), Ed25519-signed by this Drive's identity.
 
 ## Memory (agent external brain)
 

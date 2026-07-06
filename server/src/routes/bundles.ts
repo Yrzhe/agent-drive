@@ -8,7 +8,8 @@ import { getRequestActor, logEvent } from "../lib/activity";
 import { ApiError, withErrorHandling } from "../lib/errors";
 import { ensureFolderChain, nowIso } from "../lib/files";
 import { joinPath, normalizePath } from "../lib/paths";
-import { assertRestPathAllowed } from "../lib/rest-scopes";
+import { hasScope } from "../lib/mcp-scopes";
+import { assertRestPathAllowed, getRestAuth } from "../lib/rest-scopes";
 import { purgeConflictingTrashAtPath } from "../lib/trash";
 import type { AppDb, AppEnv } from "../types";
 
@@ -156,6 +157,47 @@ async function snapshotCurrentManifestToHistory(
 
   return { filesRow: row, existingId: existingHistoryRow?.id ?? null, bytes };
 }
+
+bundlesRoutes.post(
+  "/publish",
+  withErrorHandling(async (c) => {
+    const { db } = await import("edgespark");
+    const body = (await c.req.json().catch(() => ({}))) as { prefix?: unknown; public?: unknown };
+    if (typeof body.prefix !== "string") throw new ApiError(400, "validation_error", "prefix required");
+    if (typeof body.public !== "boolean") throw new ApiError(400, "validation_error", "public must be a boolean");
+    const prefix = normalizePath(body.prefix);
+    assertRestPathAllowed(c, prefix);
+    // Publishing makes content world-readable — require share semantics, not
+    // just write access, for bearer callers.
+    const restAuth = getRestAuth(c);
+    if (restAuth.kind === "bearer" && !hasScope(restAuth.scopes, "share:create")) {
+      throw new ApiError(403, "invalid_scope", "invalid_scope:share:create");
+    }
+
+    const [bundle] = await db.select().from(bundleVersions).where(eq(bundleVersions.prefix, prefix)).limit(1);
+    if (!bundle) throw new ApiError(404, "bundle_not_found", "No bundle committed at this prefix yet");
+
+    const publicId = body.public ? bundle.publicId ?? `pb_${nanoid(16)}` : null;
+    await db.update(bundleVersions).set({ publicId }).where(eq(bundleVersions.prefix, prefix));
+
+    await logEvent(db, {
+      eventType: body.public ? "bundle.published" : "bundle.unpublished",
+      targetType: "folder",
+      targetId: publicId ?? bundle.publicId,
+      targetPath: prefix,
+      actor: await getRequestActor(),
+      metadata: { publicId: publicId ?? bundle.publicId },
+    });
+
+    const origin = new URL(c.req.url).origin;
+    return c.json({
+      prefix,
+      public: body.public,
+      publicId,
+      subscribeUrl: publicId ? `${origin}/api/public/b/${publicId}/current` : null,
+    });
+  })
+);
 
 bundlesRoutes.post(
   "/commit",
