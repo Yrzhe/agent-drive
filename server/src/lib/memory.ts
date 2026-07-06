@@ -229,7 +229,7 @@ export async function getMemoryIndexStatus(db: AppDb): Promise<MemoryIndexStatus
   const memoriesCount = countValue(row?.memories);
   const indexed = countValue(row?.indexed);
   const drift = countValue(row?.missing) + countValue(row?.orphaned) + countValue(row?.stale);
-  return { memories: memoriesCount, indexed, consistent: drift === 0 };
+  return { memories: memoriesCount, indexed, consistent: drift === 0 && indexed === memoriesCount };
 }
 
 export async function rebuildMemoryIndex(db: AppDb): Promise<number> {

@@ -54,7 +54,7 @@ GET /api/public/v1/memory/index-status
 POST /api/public/v1/memory/rebuild-index
 ```
 
-The rebuild endpoint requires `write:memory`, repopulates the FTS index from `memories` in batches of 100, and returns `{ rebuilt }`. There is intentionally no MCP tool for this maintenance path; use REST.
+The rebuild endpoint requires `write:memory`, repopulates the FTS index from `memories` in batches of 100, and returns `{ rebuilt }`. There is intentionally no MCP tool for this maintenance path; use REST. Note: `recall` returns nothing while a rebuild is in progress (wipe-then-repopulate is not atomic); re-running rebuild is safe if it's interrupted.
 
 ## Memory object
 
