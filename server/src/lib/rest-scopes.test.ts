@@ -23,7 +23,9 @@ describe("requiredRestScope", () => {
   it("maps memory routes to memory scopes", () => {
     expect(requiredRestScope("GET", "/api/public/v1/memory")).toBe("read:memory");
     expect(requiredRestScope("GET", "/api/public/v1/memory/search")).toBe("read:memory");
+    expect(requiredRestScope("GET", "/api/public/v1/memory/index-status")).toBe("read:memory");
     expect(requiredRestScope("POST", "/api/public/v1/memory")).toBe("write:memory");
+    expect(requiredRestScope("POST", "/api/public/v1/memory/rebuild-index")).toBe("write:memory");
     expect(requiredRestScope("DELETE", "/api/public/v1/memory/abc")).toBe("write:memory");
   });
 

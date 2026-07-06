@@ -32,11 +32,29 @@ forget        { id }                              → { forgotten }   # id or ke
 POST   /api/public/v1/memory            { content, key?, tags?, source? } → 201 { memory, created }
 GET    /api/public/v1/memory            ?limit=20&offset=0                → { memories, count }
 GET    /api/public/v1/memory/search     ?q={query}&limit=10               → { query, memories, count }
+GET    /api/public/v1/memory/index-status                                 → { memories, indexed, consistent }
+POST   /api/public/v1/memory/rebuild-index                                → { rebuilt }
 GET    /api/public/v1/memory/{idOrKey}                                    → { memory }
 DELETE /api/public/v1/memory/{idOrKey}                                    → { forgotten }
 ```
 
 Auth: `Authorization: Bearer {TOKEN}`, same as all v1 endpoints.
+
+## When recall seems wrong
+
+If `recall` misses a memory you know exists, first list or get the memory to confirm the base row exists. Then call:
+
+```
+GET /api/public/v1/memory/index-status
+```
+
+`consistent: false` means the app-maintained FTS table drifted. Repair it with:
+
+```
+POST /api/public/v1/memory/rebuild-index
+```
+
+The rebuild endpoint requires `write:memory`, repopulates the FTS index from `memories` in batches of 100, and returns `{ rebuilt }`. There is intentionally no MCP tool for this maintenance path; use REST.
 
 ## Memory object
 

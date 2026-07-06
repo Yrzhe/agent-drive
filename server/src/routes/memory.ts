@@ -4,10 +4,12 @@ import { getRequestActor, logEvent } from "../lib/activity";
 import { ApiError, withErrorHandling } from "../lib/errors";
 import {
   forgetMemory,
+  getMemoryIndexStatus,
   getMemory,
   listMemories,
   recallMemories,
   rememberMemory,
+  rebuildMemoryIndex,
   toMemoryObject,
 } from "../lib/memory";
 import type { AppEnv } from "../types";
@@ -76,6 +78,23 @@ memoryRoutes.get(
     const { db } = await import("edgespark");
     const memories = await recallMemories(db, query, Number.isFinite(limitRaw) ? limitRaw : 10);
     return c.json({ query, memories, count: memories.length });
+  })
+);
+
+memoryRoutes.get(
+  "/index-status",
+  withErrorHandling(async (c) => {
+    const { db } = await import("edgespark");
+    return c.json(await getMemoryIndexStatus(db));
+  })
+);
+
+memoryRoutes.post(
+  "/rebuild-index",
+  withErrorHandling(async (c) => {
+    const { db } = await import("edgespark");
+    const rebuilt = await rebuildMemoryIndex(db);
+    return c.json({ rebuilt });
   })
 );
 

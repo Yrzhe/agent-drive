@@ -30,6 +30,8 @@
 - MCP: remember { content, key?, tags? } / recall { query } — write conclusions
   at session end, recall before starting work.
 - REST: POST /api/public/v1/memory, GET /api/public/v1/memory/search?q=...
+- FTS health/repair: GET /api/public/v1/memory/index-status, POST
+  /api/public/v1/memory/rebuild-index.
 - Scopes: read:memory / write:memory.
 
 ## Auth model
