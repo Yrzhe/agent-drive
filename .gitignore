@@ -101,3 +101,6 @@ metadata.json
 
 # Internal implementation worklogs / recruit registry (kept local)
 docs/implementation/
+
+# Design reference clones (local only, third-party sites — never commit to public repo)
+experiments/
