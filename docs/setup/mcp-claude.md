@@ -9,7 +9,7 @@ This guide shows how to connect Claude (Desktop or Code CLI) to your Agent Drive
 `<YOUR_AGENT_DRIVE_URL>` is the origin of your EdgeSpark deployment, for example:
 
 ```text
-https://large-gator-9215.edgespark.app
+<YOUR_AGENT_DRIVE_URL>
 ```
 
 To find yours:

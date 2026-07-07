@@ -24,7 +24,7 @@ Every documented endpoint lives under your deployment origin:
 <YOUR_AGENT_DRIVE_URL>/api/public/...
 ```
 
-`<YOUR_AGENT_DRIVE_URL>` is the EdgeSpark origin assigned to your deployment, e.g. `https://large-gator-9215.edgespark.app`. To find yours, see [Finding your Agent Drive URL](../setup/mcp-claude.md#finding-your-agent-drive-url).
+`<YOUR_AGENT_DRIVE_URL>` is the EdgeSpark origin assigned to your deployment, e.g. `<YOUR_AGENT_DRIVE_URL>`. To find yours, see [Finding your Agent Drive URL](../setup/mcp-claude.md#finding-your-agent-drive-url).
 
 The four public surfaces:
 

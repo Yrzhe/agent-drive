@@ -37,7 +37,7 @@
 | 位置 | 内容 | 处理建议 |
 |---|---|---|
 | `metadata.json` | `production_url` 指向当前 EdgeSpark 实例 | 信息性字段，换域名时更新 |
-| `docs/setup/mcp-*.md`、`docs/implementation/2026-05-08-mcp-endpoint.md`、`docs/api/README.md` | 以真实实例 `https://large-gator-9215.edgespark.app` 作为示例 | 换品牌域名 / 对外开源前替换为占位符 |
+| `docs/setup/mcp-*.md`、`docs/implementation/2026-05-08-mcp-endpoint.md`、`docs/api/README.md` | 以真实实例 `<YOUR_AGENT_DRIVE_URL>` 作为示例 | 换品牌域名 / 对外开源前替换为占位符 |
 | `skill/drive.json.example`、`skill/references/*`、`README.md` | `your-drive.edgespark.app` 类占位符 | 合规，保留 |
 | `web/src/pages/ConnectSetupPage.tsx`、`web/src/pages/BundlesPage.tsx` | GitHub 仓库文档链接 | 与域名无关，仓库改名时才需要动 |
 

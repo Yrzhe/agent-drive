@@ -9,7 +9,7 @@ This guide shows how to connect Codex CLI to your Agent Drive deployment via Rem
 `<YOUR_AGENT_DRIVE_URL>` is the origin of your EdgeSpark deployment, for example:
 
 ```text
-https://large-gator-9215.edgespark.app
+<YOUR_AGENT_DRIVE_URL>
 ```
 
 To find yours:

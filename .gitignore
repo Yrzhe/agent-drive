@@ -77,3 +77,27 @@ temp/
 # Lock files (regenerated on npm install)
 server/package-lock.json
 web/package-lock.json
+
+# Local orchestration / agent workspace state (public-repo hygiene)
+.maestri/
+.claude/settings.local.json
+metadata.json
+
+# Local dev secrets and platform state
+.dev.vars
+.dev.vars.*
+.wrangler/
+
+# IaC/state, local DBs, and private key material
+*.tfstate
+*.tfstate.*
+*.sqlite
+*.sqlite3
+*.db
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Internal implementation worklogs / recruit registry (kept local)
+docs/implementation/

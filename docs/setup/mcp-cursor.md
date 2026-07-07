@@ -9,7 +9,7 @@ This guide shows how to connect Cursor to your Agent Drive deployment via Remote
 `<YOUR_AGENT_DRIVE_URL>` is the origin of your EdgeSpark deployment, for example:
 
 ```text
-https://large-gator-9215.edgespark.app
+<YOUR_AGENT_DRIVE_URL>
 ```
 
 To find yours:

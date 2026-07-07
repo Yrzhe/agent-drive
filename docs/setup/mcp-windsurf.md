@@ -6,7 +6,7 @@ Windsurf (with its Cascade chat) speaks Streamable HTTP MCP natively. Point it a
 
 ## Finding your Agent Drive URL
 
-`<YOUR_AGENT_DRIVE_URL>` is the origin of your EdgeSpark deployment, for example `https://large-gator-9215.edgespark.app`. To find yours:
+`<YOUR_AGENT_DRIVE_URL>` is the origin of your EdgeSpark deployment, for example `<YOUR_AGENT_DRIVE_URL>`. To find yours:
 
 - Open Agent Drive in a browser, copy the origin from the URL bar.
 - `edgespark deploy` prints it on first deploy.
