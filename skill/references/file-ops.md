@@ -1,7 +1,6 @@
 # File Operations
 
-All endpoints require `Authorization: Bearer {AGENT_TOKEN}` header.
-Read token from `.env`, read API base from `drive.json`.
+All endpoints require an `Authorization: Bearer {token}` header — the token can be your self-hosted `AGENT_TOKEN` **or** an OAuth / minted scoped bearer (REST and MCP accept the same tokens). For the owner's own agent, read `AGENT_TOKEN` from `.env` and the API base from `drive.json`.
 
 ## Upload a File
 
@@ -109,14 +108,22 @@ Delete is a soft-delete to trash. Deleting a folder trashes everything inside it
 
 ## Download Your Own File
 
-There is no direct download endpoint for authenticated users. Instead, create a temporary share:
+As the authenticated owner you can fetch a file directly — no share needed:
+
+```bash
+# REST: get a short-lived (300s) presigned download URL, then GET it
+GET {apiBase}/files/{fileId}/preview
+Returns: { downloadUrl, filename, size, contentType }
+
+# MCP: read_file returns UTF-8 text content directly (text files only)
+```
+
+Shares are for handing a file to an **external / unauthenticated** recipient. To do that, create one and follow the public download flow (see `receiving.md`):
 
 ```bash
 POST {apiBase}/shares
 Body: { "fileId": "{fileId}", "maxDownloads": 1 }
 ```
-
-Then follow the public download flow (see `receiving.md`).
 
 ## Storage Stats
 

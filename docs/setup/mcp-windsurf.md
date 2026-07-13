@@ -37,7 +37,7 @@ Restart Windsurf. On first use, Cascade opens an OAuth consent flow in your brow
 
 ## Cascade-specific notes
 
-- **Tool naming**: Cascade exposes MCP tools by name in the chat. Use `list_files`, `read_file`, `write_file`, `search_files`, `create_share` directly in prompts.
+- **Tool naming**: Cascade exposes MCP tools by name in the chat. Use `list_files`, `read_file`, `write_file`, `search_files`, `create_share`, `send_file` (and the memory tools `remember`, `recall`, `list_memories`, `forget`) directly in prompts.
 - **Multi-step calls**: Cascade chains MCP calls in agentic mode. No special config needed — tool scope is whatever the user approved at consent time.
 - **Token refresh**: Windsurf handles OAuth refresh automatically when the access token expires. If refresh fails (token revoked, refresh expired), Cascade re-prompts for browser consent.
 
@@ -47,8 +47,7 @@ Restart Windsurf. On first use, Cascade opens an OAuth consent flow in your brow
 |---|---|
 | Full drive automation | `read:drive write:drive share:create` |
 | Read-only inspection | `read:drive` |
-| Memory sync (planned) | `read:memory write:memory` |
-| Skill sync (planned) | `read:skills write:skills` |
+| Memory sync | `read:memory write:memory` |
 
 Full scope vocabulary lives in [`docs/api/oauth.md`](../api/oauth.md).
 
@@ -60,14 +59,11 @@ In Cascade chat, ask:
 List files in Agent Drive at /
 ```
 
-With full drive scopes you should have access to:
+The tools you see depend on your token's scopes:
 
 ```text
-list_files
-read_file
-write_file
-search_files
-create_share
+read:drive write:drive share:create  ->  list_files, read_file, write_file, search_files, create_share, send_file
++ read:memory write:memory           ->  also remember, recall, list_memories, forget   (10 tools total)
 ```
 
 If only some tools appear, the OAuth consent step downgraded scope — re-run the consent flow with broader scope from Windsurf settings.

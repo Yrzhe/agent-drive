@@ -45,21 +45,17 @@ Codex opens your default browser to the consent screen. Approve the requested sc
 |---|---|
 | Full drive automation | `read:drive write:drive share:create` |
 | Read-only inspection | `read:drive` |
-| Memory sync (planned) | `read:memory write:memory` |
-| Skill sync (planned) | `read:skills write:skills` |
+| Memory sync | `read:memory write:memory` |
 
 Full scope vocabulary lives in [`docs/api/oauth.md`](../api/oauth.md).
 
 ## Verify
 
-Ask Codex to list available tools. With full drive scopes you should see all five:
+Ask Codex to list available tools. With full drive scopes you should see them grouped by your token's scopes:
 
 ```text
-list_files
-read_file
-write_file
-search_files
-create_share
+read:drive write:drive share:create  ->  list_files, read_file, write_file, search_files, create_share, send_file
++ read:memory write:memory           ->  also remember, recall, list_memories, forget   (10 tools total)
 ```
 
 Sanity check:

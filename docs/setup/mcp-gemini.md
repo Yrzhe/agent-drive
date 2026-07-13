@@ -56,21 +56,17 @@ Restart Gemini CLI. On first use the bridge proxies the `initialize` and `tools/
 |---|---|
 | Full drive automation | `read:drive write:drive share:create` |
 | Read-only inspection | `read:drive` |
-| Memory sync (planned) | `read:memory write:memory` |
-| Skill sync (planned) | `read:skills write:skills` |
+| Memory sync | `read:memory write:memory` |
 
 Override the default scope at login time: `adrive login --url <URL> --scope "read:drive"`. See [`docs/api/oauth.md`](../api/oauth.md) for the full vocabulary.
 
 ## Verify
 
-Ask Gemini to list available MCP tools. With full drive scopes you should see all five:
+Ask Gemini to list available MCP tools. With full drive scopes you should see them grouped by your token's scopes:
 
 ```text
-list_files
-read_file
-write_file
-search_files
-create_share
+read:drive write:drive share:create  ->  list_files, read_file, write_file, search_files, create_share, send_file
++ read:memory write:memory           ->  also remember, recall, list_memories, forget   (10 tools total)
 ```
 
 Sanity check:

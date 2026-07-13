@@ -5,9 +5,9 @@ import { TokenMintPanel } from "@/components/TokenMintPanel";
 import { PlatformTabs } from "@/components/PlatformTabs";
 import { OAUTH_SCOPE_DESCRIPTIONS } from "@/lib/oauth-scopes";
 
-const ALL_SCOPES = ["read:drive", "write:drive", "share:create", "read:memory", "write:memory", "read:skills", "write:skills"] as const;
+const ALL_SCOPES = ["read:drive", "write:drive", "share:create", "read:memory", "write:memory"] as const;
 const DEFAULT_SCOPES = new Set<string>(["read:drive", "write:drive", "share:create"]);
-const UNIMPLEMENTED_SCOPES = new Set<string>(["read:skills", "write:skills"]);
+const UNIMPLEMENTED_SCOPES = new Set<string>([]);
 const API_DOCS_URL = "https://github.com/Yrzhe/agent-drive/tree/main/docs/api";
 const SCOPE_STORAGE_KEY = "agent-drive:connect:selected-scopes";
 const PATH_SCOPE_STORAGE_KEY = "agent-drive:connect:path-prefix";

@@ -13,8 +13,6 @@ export const KNOWN_OAUTH_SCOPES = [
   "share:create",
   "read:memory",
   "write:memory",
-  "read:skills",
-  "write:skills",
 ] as const;
 
 export type KnownOauthScope = typeof KNOWN_OAUTH_SCOPES[number];

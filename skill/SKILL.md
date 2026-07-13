@@ -28,6 +28,7 @@ Your private cloud drive that agents operate via API. Upload files, organize fol
 | Module | Reference | When to read |
 |--------|-----------|-------------|
 | **Setup & Deploy** | `references/setup.md` | First-time deployment or re-deployment |
+| **MCP (remote tools)** | `references/mcp.md` | Connect an IDE/agent over Remote MCP; OAuth vs AGENT_TOKEN; the 10 tools + scopes |
 | **File Operations** | `references/file-ops.md` | Upload, download, list, move, rename, delete files and folders |
 | **Share Management** | `references/sharing.md` | Create/delete share links, set password/expiration/limits, handoff message format |
 | **Receiving Downloads** | `references/receiving.md` | When another agent needs to download from a share link (pure API, no browser) |
@@ -50,6 +51,8 @@ Config files are in this skill's directory, use relative paths:
 - `drive.json` — contains `{ "url": "...", "apiBase": "...", "guideUrl": "..." }`
 
 All management API calls require header: `Authorization: Bearer {AGENT_TOKEN}` unless you are using browser session auth. This bypass token defaults to drive/share/memory scopes (`read:drive write:drive share:create read:memory write:memory path:/`) and can be narrowed by deployment var `AGENT_TOKEN_SCOPES`; scopes are enforced on both MCP tools and REST endpoints.
+
+To connect an **IDE / third-party MCP client**, the owner opens `{url}/connect` to mint a scoped OAuth token and copy a per-client config snippet — use that instead of the `AGENT_TOKEN` for external clients. See `references/mcp.md`.
 
 ## Share Handoff Message (IMPORTANT)
 

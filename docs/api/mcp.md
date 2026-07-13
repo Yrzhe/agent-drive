@@ -28,7 +28,7 @@ Set the optional `AGENT_TOKEN_SCOPES` var to narrow the bypass token for MCP, fo
 read:drive path:/handoffs/*
 ```
 
-`AGENT_TOKEN_SCOPES` can only select from the default AGENT_TOKEN MCP capabilities (`read:drive`, `write:drive`, `share:create`) plus optional `path:/...` restrictions. If it is set but malformed or includes unsupported scopes, the AGENT_TOKEN exposes no MCP tools until the var is fixed.
+`AGENT_TOKEN_SCOPES` can only select from the default AGENT_TOKEN MCP capabilities (`read:drive`, `write:drive`, `share:create`, `read:memory`, `write:memory`) plus optional `path:/...` restrictions. If it is set but malformed or includes unsupported scopes, the AGENT_TOKEN exposes no MCP tools until the var is fixed.
 
 ### 401 + WWW-Authenticate
 
@@ -92,7 +92,12 @@ Response (with full drive scopes):
       { "name": "read_file", ... },
       { "name": "write_file", ... },
       { "name": "search_files", ... },
-      { "name": "create_share", ... }
+      { "name": "create_share", ... },
+      { "name": "send_file", ... },
+      { "name": "remember", ... },
+      { "name": "recall", ... },
+      { "name": "list_memories", ... },
+      { "name": "forget", ... }
     ]
   }
 }
@@ -262,17 +267,21 @@ JSON-RPC error codes used by Agent Drive:
 |---|---|---|
 | `-32600` | Invalid request | Malformed JSON-RPC envelope |
 | `-32601` | Method not found | Method other than `initialize` / `tools/list` / `tools/call` |
-| `-32602` | Invalid params | `unknown_tool:<name>`, `invalid_params:<field>`, `invalid_scope:<scope>` |
-| `-32603` | Internal error | Storage or DB failure |
+| `-32602` | Invalid params | `invalid_params:<field>`, missing tool name |
+| `-32001` | Insufficient scope | `invalid_scope:<scope>` — token lacks the required capability or path scope |
+| `-32000` | Tool error | Application errors (see below) |
 
 The `message` field carries a colon-delimited code that clients can pattern-match on (e.g. `invalid_scope:write:drive`).
 
-Common application-level errors surfaced via `-32602`:
+Application-level errors surfaced via `-32000`:
 
-- `invalid_scope:<scope>` — token lacks the required scope. Re-run OAuth flow with that scope requested.
-- `unknown_tool:<name>` — tool not implemented or filtered out by scope.
+- `unknown_tool:<name>` — the tool name is not recognized. (A tool you simply lack scope for still exists — calling it returns `-32001 invalid_scope`, not this.)
 - `file_not_found` / `folder_not_found` — target path does not exist.
 - `path_conflict:...` — write blocked by existing entry.
+- `file_too_large:...` — `write_file` content exceeds 5 MB.
+- `quota_exceeded:...` — would exceed the drive's total storage quota.
+
+Scope failures use `-32001` (`invalid_scope:<scope>`) — re-run the OAuth flow (or widen the token) with that scope requested.
 
 ## Curl example
 
