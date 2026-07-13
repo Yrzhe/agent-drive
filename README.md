@@ -73,6 +73,7 @@ edgespark db generate
 edgespark db migrate
 edgespark storage apply
 edgespark secret set AGENT_TOKEN   # Enter token in browser
+edgespark var set OWNER_EMAIL       # Your login email — arms the single-owner boundary
 edgespark deploy
 ```
 

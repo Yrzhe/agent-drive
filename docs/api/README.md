@@ -44,6 +44,8 @@ Two paths into the same scope-checked surface (scopes are enforced on MCP tools 
 
 In both cases, the token is sent as `Authorization: Bearer <token>` on every MCP request.
 
+> **Single-owner deployment.** Agent Drive is a single-owner self-hosted drive — content is not partitioned per user. Set the `OWNER_EMAIL` var to the owner's login email so a browser session only counts as the owner when its email matches (non-owner sessions get `403 not_owner`). Leaving `OWNER_EMAIL` unset keeps the legacy single-user behavior (any authenticated session is trusted); set it after deploy to arm the boundary. Keep sign-up disabled (`configs/auth-config.yaml → disableSignUp: true`).
+
 ## Versioning
 
 There is currently a single live version. Breaking changes will move to `/api/public/v2/...` and the existing `/api/public/...` surface will be frozen. Until then, treat the current surface as the stable v1.

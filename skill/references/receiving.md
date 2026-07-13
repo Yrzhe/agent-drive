@@ -29,15 +29,30 @@ Returns JSON with complete API documentation. Read this to understand available 
 GET https://{host}/api/public/s/{shareId}
 ```
 
-Returns:
+Returns — a **password-protected** share stays locked until you present a valid access token, so `name`/`size`/`fileCount` are withheld (the filename itself can be sensitive):
 ```json
 {
   "id": "xK9mPq2n",
   "type": "folder",        ← "file" or "folder"
+  "hasPassword": true,      ← get an access token first (Step 3)
+  "expired": false,
+  "exhausted": false,
+  "expiresAt": "2026-04-11T10:00:00Z",
+  "createdAt": "2026-04-04T10:00:00Z"
+}
+```
+
+If `expired` or `exhausted` is true, the share is no longer accessible.
+
+Once you present a valid access token (Step 3) — or immediately for a **no-password** share (`hasPassword: false`) — the full metadata is returned:
+```json
+{
+  "id": "xK9mPq2n",
+  "type": "folder",
   "name": "my-project",
   "size": 29069,
   "fileCount": 6,
-  "hasPassword": true,      ← need password for access?
+  "hasPassword": true,
   "maxDownloads": 10,
   "downloadCount": 3,
   "expiresAt": "2026-04-11T10:00:00Z",
@@ -45,8 +60,6 @@ Returns:
   "exhausted": false
 }
 ```
-
-If `expired` or `exhausted` is true, the share is no longer accessible.
 
 ### Step 3: Get Access Token
 
@@ -144,7 +157,7 @@ Then fetch the file:
 curl -o main.py "{downloadUrl}"
 ```
 
-The `downloadUrl` is a presigned R2 URL, valid for **1 hour**.
+The `downloadUrl` is a presigned R2 URL, valid for **90 seconds** — fetch it immediately.
 
 #### Option D: Download single file share
 

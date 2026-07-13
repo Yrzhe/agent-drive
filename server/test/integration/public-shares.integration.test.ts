@@ -4,7 +4,28 @@ import { eq } from "drizzle-orm";
 import { activityLog, files, shares } from "@defs";
 
 import app from "../../src/index";
+import { createAccessToken, hashPassword } from "../../src/lib/crypto";
 import { jsonHeaders, resetRuntime, runtime, seedDriveFile, seedFolder } from "./edge-runtime";
+
+const SHARE_SECRET = "integration-share-secret";
+
+async function seedPasswordFileShare(): Promise<{ shareId: string; fileId: string }> {
+  const fileId = await seedDriveFile({ id: "secret-file", path: "/private/Q3-layoffs.xlsx", body: "sensitive" });
+  const shareId = "share-locked";
+  runtime.secrets.set("AGENT_TOKEN", SHARE_SECRET);
+  await runtime.db.insert(shares).values({
+    id: shareId,
+    fileId,
+    folderPath: null,
+    passwordHash: await hashPassword("hunter2"),
+    passwordVersion: 1,
+    maxDownloads: null,
+    downloadCount: 0,
+    expiresAt: null,
+    createdAt: new Date().toISOString(),
+  });
+  return { shareId, fileId };
+}
 
 async function seedFolderShare(folderPath: string, id: string): Promise<{ shareId: string; accessToken: string }> {
   await seedFolder(folderPath);
@@ -74,6 +95,28 @@ describe("public share performance limits", () => {
     expect(body.name).toBe("summary");
     expect(body.size).toBe(9);
     expect(body.fileCount).toBe(3);
+  });
+
+  it("withholds filename and size for a password share until the access token is presented", async () => {
+    const { shareId } = await seedPasswordFileShare();
+
+    const locked = await app.request(`/api/public/s/${shareId}`);
+    expect(locked.status).toBe(200);
+    const lockedBody = await locked.json() as Record<string, unknown>;
+    expect(lockedBody.hasPassword).toBe(true);
+    expect(lockedBody.type).toBe("file");
+    expect(lockedBody).not.toHaveProperty("name");
+    expect(lockedBody).not.toHaveProperty("size");
+    expect(lockedBody).not.toHaveProperty("fileCount");
+
+    const { token } = await createAccessToken(shareId, SHARE_SECRET, 1);
+    const unlocked = await app.request(`/api/public/s/${shareId}`, {
+      headers: { "x-access-token": token },
+    });
+    expect(unlocked.status).toBe(200);
+    const unlockedBody = await unlocked.json() as { name?: string; size?: number };
+    expect(unlockedBody.name).toBe("Q3-layoffs.xlsx");
+    expect(unlockedBody.size).toBe("sensitive".length);
   });
 
   it("rejects folder ZIP downloads with more than 400 files", async () => {

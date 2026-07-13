@@ -13,6 +13,10 @@ import type { AppDb } from "../types";
 
 export const publicSharesRoutes = new Hono();
 const MAX_ZIP_DOWNLOAD_BYTES = 30 * 1024 * 1024;
+// Short-lived presigned URL for share downloads. A long TTL lets a `maxDownloads`
+// share be re-fetched without auth while the URL is live (download count only ++1),
+// so keep the reuse window tight.
+const SHARE_DOWNLOAD_URL_TTL_SECS = 90;
 const DEFAULT_PUBLIC_FILES_LIMIT = 200;
 const MAX_PUBLIC_FILES_LIMIT = 500;
 const MAX_ZIP_FILE_COUNT = 400;
@@ -132,6 +136,37 @@ publicSharesRoutes.get(
         expiresAt: share.expiresAt,
         createdAt: share.createdAt,
       });
+    }
+
+    // Password-protected shares must not leak identifying metadata (name / size /
+    // fileCount) before the password is proven — the filename alone is often
+    // sensitive. Require a valid access token (obtained via POST /:id/access).
+    if (share.passwordHash) {
+      const { secret } = await import("edgespark");
+      const tokenSecret = secret.get("AGENT_TOKEN");
+      const hasValidToken = tokenSecret
+        ? await verifyAccessToken(c.req.header("x-access-token"), share.id, tokenSecret, share.passwordVersion ?? 1)
+        : false;
+      if (!hasValidToken) {
+        await logEvent(db, {
+          eventType: "share.accessed",
+          targetType: "share",
+          targetId: share.id,
+          targetPath: share.folderPath,
+          actor: "public",
+          metadata: { shareType, locked: true },
+          ...requestActivityContext(c),
+        });
+        return c.json({
+          id: share.id,
+          type: shareType,
+          hasPassword: true,
+          expired,
+          exhausted,
+          expiresAt: share.expiresAt,
+          createdAt: share.createdAt,
+        });
+      }
     }
 
     if (share.fileId) {
@@ -336,7 +371,7 @@ publicSharesRoutes.get(
     const parsed = storage.tryParseS3Uri(target.s3Uri);
     if (!parsed) throw new ApiError(404, "upload_not_found", "Storage path is invalid");
 
-    const presigned = await storage.from(buckets.drive).createPresignedGetUrl(parsed.path, 60 * 60);
+    const presigned = await storage.from(buckets.drive).createPresignedGetUrl(parsed.path, SHARE_DOWNLOAD_URL_TTL_SECS);
     await incrementDownloadCountOrThrow(db, share.id);
     await logEvent(db, {
       eventType: "share.downloaded",
