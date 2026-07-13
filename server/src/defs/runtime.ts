@@ -8,6 +8,8 @@ export type VarKey =
   // | "GOOGLE_CLIENT_ID"
   | "ALLOWED_ORIGIN"
   | "OWNER_EMAIL"
+  | "MAX_FILE_BYTES"
+  | "MAX_TOTAL_BYTES"
   | "AGENT_TOKEN_SCOPES";
 
 export type SecretKey =

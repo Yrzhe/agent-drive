@@ -23,7 +23,7 @@ This product's primary users are agents. Every feature change that adds, removes
 | README | `README.md` endpoint tables | Human + agent quick reference |
 | CHANGELOG | `CHANGELOG.md` | Keep a Changelog format, every feature |
 
-Also check: default scope strings (`read:drive write:drive share:create read:memory write:memory path:/`) are quoted in several docs — grep for the old string when scopes change. After deploy, if `src/defs/runtime.ts` gained a var/secret key, set it online (`edgespark var set` / `edgespark secret set`) or deploy is blocked. The single-owner boundary is armed by the `OWNER_EMAIL` var (owner's login email; unset = legacy trust-any-session) — set it online after deploying.
+Also check: default scope strings (`read:drive write:drive share:create read:memory write:memory path:/`) are quoted in several docs — grep for the old string when scopes change. After deploy, if `src/defs/runtime.ts` gained a var/secret key, set it online (`edgespark var set` / `edgespark secret set`) or deploy is blocked. The single-owner boundary is armed by the `OWNER_EMAIL` var (owner's login email; unset = legacy trust-any-session) — set it online after deploying. Storage limits use `MAX_FILE_BYTES` (default 500MB) and `MAX_TOTAL_BYTES` (default 5GB) vars — `0` = unlimited; unset = the default.
 
 Definition of done for any feature: code + tests green + all six surfaces above updated + deployed + smoke-tested against production (unauth 401s, plus an authed happy path when a token is available via `drive.json` → `envFile`; never print the token).
 

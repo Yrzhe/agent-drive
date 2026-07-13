@@ -9,6 +9,7 @@ import { forgetMemory, listMemories, recallMemories, rememberMemory } from "./me
 import { getContactByName, sendFileToContact } from "./peering";
 import { escapedDescendantPattern, joinPath, normalizeName, normalizePath, parentOfPath } from "./paths";
 import { extractPathPrefixes, hasScope, pathAllowed, requirePathAllowed, type McpScope } from "./mcp-scopes";
+import { checkTotalQuota, MCP_WRITE_FILE_MAX_BYTES } from "./quota";
 import { purgeConflictingTrashAtPath } from "./trash";
 import type { AppDb } from "../types";
 
@@ -79,7 +80,7 @@ export const MCP_TOOLS: McpToolDefinition[] = [
   },
   {
     name: "write_file",
-    description: "Write a text file to Agent Drive by path.",
+    description: "Write a UTF-8 text file to Agent Drive by path (max 5 MB). Text only — for binary files (PDF, images) or larger uploads use the REST presigned flow: POST /api/public/v1/files/upload -> PUT the bytes -> POST /files/upload/complete.",
     requiredScope: "write:drive",
     inputSchema: {
       type: "object",
@@ -285,6 +286,12 @@ export async function callMcpTool(db: AppDb, origin: string, scopes: readonly st
       .limit(1);
     if (existing?.isFolder === 1) throw new Error("path_conflict:target is a folder");
     if (existing && !overwrite) throw new Error("path_conflict:file already exists");
+
+    if (bytes.byteLength > MCP_WRITE_FILE_MAX_BYTES) {
+      throw new Error(`file_too_large:write_file content is ${bytes.byteLength} bytes; the limit is ${MCP_WRITE_FILE_MAX_BYTES} bytes (use REST presigned upload for larger/binary files)`);
+    }
+    const quotaCheck = await checkTotalQuota(db, bytes.byteLength - (existing?.size ?? 0));
+    if (!quotaCheck.ok) throw new Error(`${quotaCheck.code}:${quotaCheck.message}`);
 
     const fileId = existing?.id ?? nanoid();
     const objectPath = objectPathForWrite(fileId, filename);

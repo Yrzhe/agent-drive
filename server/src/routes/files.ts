@@ -8,6 +8,8 @@ import { ensureFolderChain, nowIso, toFileObject } from "../lib/files";
 import { ApiError, withErrorHandling } from "../lib/errors";
 import { escapedDescendantPattern, joinPath, normalizeName, normalizePath, parentOfPath } from "../lib/paths";
 import { parseListPagination } from "../lib/pagination";
+import { maybePurgeStalePendingUploads, reclaimStalePendingUpload } from "../lib/pending-uploads";
+import { checkFileSize, checkTotalQuota } from "../lib/quota";
 import { assertRestListPathAllowed, assertRestPathAllowed, restPathFilter } from "../lib/rest-scopes";
 import {
   displayTrashPath,
@@ -77,6 +79,12 @@ filesRoutes.post(
     assertRestPathAllowed(c, targetPath);
 
     const { db, storage } = await import("edgespark");
+
+    const fileSizeCheck = await checkFileSize(declaredSize);
+    if (!fileSizeCheck.ok) throw new ApiError(413, fileSizeCheck.code, fileSizeCheck.message);
+    const quotaCheck = await checkTotalQuota(db, declaredSize);
+    if (!quotaCheck.ok) throw new ApiError(413, quotaCheck.code, quotaCheck.message);
+
     await ensureFolderChain(db, parentPath);
 
     await purgeConflictingTrashAtPath(db, storage, targetPath);
@@ -85,7 +93,12 @@ filesRoutes.post(
       .from(files)
       .where(and(eq(files.path, targetPath), isNull(files.deletedAt)))
       .limit(1);
-    if (conflict) throw new ApiError(409, "path_conflict", "Path already exists");
+    if (conflict) {
+      // An abandoned pending upload can squat the path; reclaim it once its PUT URL
+      // has expired, otherwise the path is genuinely taken.
+      const reclaimed = await reclaimStalePendingUpload(db, storage, conflict);
+      if (!reclaimed) throw new ApiError(409, "path_conflict", "Path already exists");
+    }
 
     const fileId = nanoid();
     const objectPath = objectPathForUpload(fileId, filename);
@@ -161,6 +174,17 @@ filesRoutes.post(
 
     if (!isFileSizeWithinTolerance(declaredSize, metadata.size)) {
       throw new ApiError(400, "size_mismatch", "Uploaded file size differs too much from declared size");
+    }
+
+    // Authoritative limit enforcement on the REAL uploaded size. The declared-size
+    // gate at /upload is advisory; here the object is in R2, so reject + clean it up
+    // (object + pending row) if it breaches the per-file limit or total quota.
+    for (const check of [await checkFileSize(metadata.size), await checkTotalQuota(db, metadata.size)]) {
+      if (!check.ok) {
+        await storage.from(buckets.drive).delete(objectPath);
+        await db.delete(files).where(eq(files.id, fileId));
+        throw new ApiError(413, check.code, check.message);
+      }
     }
 
     const timestamp = nowIso();
@@ -343,6 +367,7 @@ filesRoutes.delete(
     }
 
     await maybePurgeStaleTrash(db, storage);
+    await maybePurgeStalePendingUploads(db, storage);
 
     return c.json({
       requested: ids.length,
@@ -668,6 +693,7 @@ filesRoutes.delete(
     const actor = await getRequestActor();
     const { rows, fileIds } = await softDeleteSubtree(db, target, { actor });
     await maybePurgeStaleTrash(db, storage);
+    await maybePurgeStalePendingUploads(db, storage);
 
     const targetType = target.isFolder === 1 ? "folder" : "file";
     await logEvent(db, {
@@ -710,6 +736,7 @@ filesRoutes.post(
     await ensureFolderChain(db, target.parentPath);
     const restored = await restoreSubtree(db, target);
     await maybePurgeStaleTrash(db, storage);
+    await maybePurgeStalePendingUploads(db, storage);
 
     await logEvent(db, {
       eventType: "file.restored",

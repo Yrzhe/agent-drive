@@ -35,6 +35,11 @@ Returns: { file: { id, name, path, size, ... } }
 - `filename` is required. `path` defaults to `"/"` (root) if omitted.
 - Always pass `filename` and `path` to both upload and complete for clarity.
 
+**Limits** (both configurable per deployment via the `MAX_FILE_BYTES` / `MAX_TOTAL_BYTES` vars; `0` = unlimited):
+- Per-file cap (default **500 MB**) — enforced on the declared size at step 1 and on the real object size at step 3 (an over-limit object is deleted, not kept). Error: `413 file_too_large`.
+- Total-storage quota (default **5 GB** of active, non-trashed files) — error: `413 quota_exceeded`.
+- An upload you never confirm (step 3 skipped) is auto-reclaimed: a new upload to the same path takes over once the presigned URL has expired, and abandoned tickets are swept after 24 h.
+
 ## Create a Folder
 
 ```bash

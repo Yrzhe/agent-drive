@@ -186,7 +186,7 @@ Errors: `file_not_found`.
 
 Required scope: `write:drive`
 
-Creates or overwrites a text file. Parent folders are created automatically.
+Creates or overwrites a **UTF-8 text file** (max **5 MB**). Parent folders are created automatically. Text only — for binary files (PDF, images) or larger uploads, use the REST presigned flow (`POST /files/upload` → PUT → `POST /files/upload/complete`).
 
 Input:
 
@@ -203,7 +203,7 @@ Output:
 { "file": { "id": "...", "name": "...", "path": "...", "size": 1234, ... } }
 ```
 
-Errors: `path_conflict:target is a folder`, `path_conflict:file already exists`.
+Errors: `path_conflict:target is a folder`, `path_conflict:file already exists`, `file_too_large:...` (over 5 MB), `quota_exceeded:...` (would exceed the drive's total storage quota). The last two surface as JSON-RPC `-32000`.
 
 ### `search_files`
 
