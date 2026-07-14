@@ -29,6 +29,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **Multi-step consistency for delete + folder move/rename (audit batch 4)** — D1 has no cross-statement transactions, so these chains mixed R2 and DB writes in an order that could leave inconsistency on a mid-operation failure:
+  - **Hard purge** deleted R2 objects *before* the DB rows (`hardPurgeSubtree`). A DB-batch failure then left live rows pointing at already-deleted objects (files that list but 404 on download). Reordered: DB rows are deleted first (atomic batch), then the R2 objects (best-effort — the purge is already committed, so an R2 failure no longer fails the request). The failure mode is now an orphan R2 object (no broken DB reference) — a storage leak, but strictly better than a dangling reference; a drive-bucket orphan reconciler is tracked as a follow-up.
+  - **Folder move and rename** updated the root row in a *separate* statement before the descendant/share/bundle rewrite batch, so a failure between them could leave children under the old prefix while the parent had moved. The root update is now folded into the same `db.batch()` as descendants, shares, and bundle prefixes — the whole subtree rewrite is atomic.
+  - (Bundle commit writes R2 before the DB batch, which is the correct order for writes — a failure leaves only a harmless orphan manifest — so it was left as-is.)
+
 - **Published bundle lifecycle invalidation (#22)** — folder rename/move now rewrites `bundle_versions.prefix` so existing public subscription ids keep resolving; trash immediately unpublishes affected bundles while preserving private version rows for restore; hard purge deletes bundle version rows under the purged prefix.
 - **Memory FTS drift repair (#21)** — `remember` updates and deletes now batch base-row writes with app-maintained `memories_fts` sync statements so normal writes cannot leave recall missing a saved memory. Added REST-only maintenance endpoints: `GET /api/public/v1/memory/index-status` reports `{ memories, indexed, consistent }`, and `POST /api/public/v1/memory/rebuild-index` wipes and rebuilds the FTS index from `memories` in 100-row batches (recall is empty mid-rebuild; re-run is safe).
 
