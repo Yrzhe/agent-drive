@@ -21,7 +21,7 @@ Both land on the same scope-checked tool surface. Never put the `AGENT_TOKEN` in
 
 | Tool | Scope | Notes |
 |---|---|---|
-| `list_files`, `read_file`, `search_files` | `read:drive` | `read_file` returns file **text directly** (no share needed) |
+| `list_files`, `read_file`, `search_files` | `read:drive` | `read_file` returns file **text directly** (no share needed), UTF-8 up to 5 MB — larger/binary via REST download |
 | `write_file` | `write:drive` | **UTF-8 text only, max 5 MB.** Binary/large files → REST presigned flow, not `write_file` |
 | `create_share` | `share:create` | Returns `{ shareUrl, guideUrl }` — put `guideUrl` in hand-off messages |
 | `send_file` | `share:create` | Drive-to-Drive delivery to a pinned contact (see `peering.md`) |

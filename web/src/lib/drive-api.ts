@@ -120,7 +120,7 @@ export const driveApi = {
     }>(`/api/public/v1/files/${fileId}/preview`),
   deleteFile: (fileId: string) =>
     withMockFallback(
-      () => apiFetchJson<{ deleted: number }>(`/api/public/v1/files/${fileId}`, { method: "DELETE" }),
+      () => apiFetchJson<{ trashed: number; targetId: string }>(`/api/public/v1/files/${fileId}`, { method: "DELETE" }),
       () => mockDriveApi.deleteFile(fileId),
     ),
   deleteFiles: (ids: string[]) =>

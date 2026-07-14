@@ -1,7 +1,7 @@
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 
-import { activityLog, files, shares } from "@defs";
+import { activityLog, buckets, files, shares } from "@defs";
 
 import app from "../../src/index";
 import { createAccessToken, hashPassword } from "../../src/lib/crypto";
@@ -117,6 +117,22 @@ describe("public share performance limits", () => {
     const unlockedBody = await unlocked.json() as { name?: string; size?: number };
     expect(unlockedBody.name).toBe("Q3-layoffs.xlsx");
     expect(unlockedBody.size).toBe("sensitive".length);
+  });
+
+  it("marks a folder ZIP incomplete (X-Skipped-Count + _SKIPPED.txt) when a file's object is missing", async () => {
+    await seedDriveFile({ id: "present", path: "/mix/ok.txt", body: "ok" });
+    await seedDriveFile({ id: "gone", path: "/mix/lost.txt", body: "lost" });
+    // Remove one file's R2 object while keeping its DB row (simulated inconsistency).
+    await runtime.storage.from(buckets.drive).delete(`gone/${encodeURIComponent("lost.txt")}`);
+    const { shareId, accessToken } = await seedFolderShare("/mix", "share-mix");
+
+    const response = await app.request(`/api/public/s/${shareId}/download-zip`, {
+      headers: { "x-access-token": accessToken },
+    });
+    expect(response.status).toBe(200);
+    expect(response.headers.get("X-Skipped-Count")).toBe("1");
+    const text = new TextDecoder().decode(new Uint8Array(await response.arrayBuffer()));
+    expect(text).toContain("_SKIPPED.txt"); // ZIP stores entry names in cleartext
   });
 
   it("rejects folder ZIP downloads with more than 400 files", async () => {

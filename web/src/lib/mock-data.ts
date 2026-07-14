@@ -96,7 +96,7 @@ function renameWithChildren(target: DriveFile, nextPath: string, nextParentPath:
   });
 }
 
-function deleteEntry(fileId: string): { deleted: number } {
+function deleteEntry(fileId: string): { trashed: number; targetId: string } {
   const target = findFile(fileId);
   if (!target) throw new DriveApiError("File not found", 404, "FILE_NOT_FOUND");
   const toDelete = files.filter((entry) => entry.id === fileId || entry.path.startsWith(`${target.path}/`));
@@ -104,7 +104,7 @@ function deleteEntry(fileId: string): { deleted: number } {
   const deletePaths = new Set(toDelete.map((entry) => entry.path));
   files = files.filter((entry) => !deleteIds.has(entry.id));
   shares = shares.filter((share) => !(share.fileId && deleteIds.has(share.fileId)) && !(share.folderPath && deletePaths.has(share.folderPath)));
-  return { deleted: toDelete.filter((entry) => !entry.isFolder).length };
+  return { trashed: toDelete.filter((entry) => !entry.isFolder).length, targetId: fileId };
 }
 
 function resolveShare(shareId: string): ShareInfo {
@@ -161,7 +161,7 @@ export const mockDriveApi = {
     if (target.path !== nextPath && files.some((entry) => entry.path === nextPath)) throw new DriveApiError("Target path already exists", 409, "PATH_EXISTS");
     renameWithChildren(target, nextPath, nextParent); return { file: target };
   },
-  async deleteFile(fileId: string): Promise<{ deleted: number }> { return deleteEntry(fileId); },
+  async deleteFile(fileId: string): Promise<{ trashed: number; targetId: string }> { return deleteEntry(fileId); },
   async listShares(): Promise<{ shares: ShareLink[] }> { return { shares: shares.map(toShareLink) }; },
   async createShare(input: CreateShareInput): Promise<{ share: ShareLink }> {
     if (!input.fileId && !input.folderPath) throw new DriveApiError("fileId or folderPath is required", 400, "INVALID_INPUT");
