@@ -141,7 +141,7 @@ export const mockDriveApi = {
   async requestUpload(input: { filename: string; contentType: string; size: number; path: string }): Promise<UploadTicket> {
     const path = normalizePath(input.path); ensureFolder(path); fileCounter += 1;
     const fileId = `file_${fileCounter}`; pendingUploads.set(fileId, { ...input, path });
-    return { fileId, uploadUrl: `mock://upload/${fileId}`, requiredHeaders: {}, expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString() };
+    return { fileId, filename: input.filename, path, uploadUrl: `mock://upload/${fileId}`, requiredHeaders: {}, expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString() };
   },
   async completeUpload(fileId: string): Promise<{ file: DriveFile }> {
     const pending = pendingUploads.get(fileId); if (!pending) throw new DriveApiError("Upload ticket not found", 404, "UPLOAD_NOT_FOUND");
@@ -163,13 +163,16 @@ export const mockDriveApi = {
   },
   async deleteFile(fileId: string): Promise<{ trashed: number; targetId: string }> { return deleteEntry(fileId); },
   async listShares(): Promise<{ shares: ShareLink[] }> { return { shares: shares.map(toShareLink) }; },
-  async createShare(input: CreateShareInput): Promise<{ share: ShareLink }> {
+  async createShare(input: CreateShareInput): Promise<{ share: ShareLink; shareUrl: string; guideUrl: string }> {
     if (!input.fileId && !input.folderPath) throw new DriveApiError("fileId or folderPath is required", 400, "INVALID_INPUT");
     if (input.fileId && input.folderPath) throw new DriveApiError("Provide either fileId or folderPath, not both", 400, "INVALID_INPUT");
     if (input.fileId && !findFile(input.fileId)) throw new DriveApiError("File not found", 404, "FILE_NOT_FOUND");
     if (input.folderPath && !files.some((entry) => entry.path === input.folderPath && entry.isFolder)) throw new DriveApiError("Folder not found", 404, "FOLDER_NOT_FOUND");
-    shareCounter += 1; const share: ShareRecord = { id: `share${String(shareCounter).padStart(4, "0")}`, fileId: input.fileId ?? null, folderPath: input.folderPath ?? null, password: input.password?.trim() || null, maxDownloads: input.maxDownloads ?? null, downloadCount: 0, expiresAt: input.expiresAt ?? null, createdAt: nowIso() };
-    shares.unshift(share); return { share: toShareLink(share) };
+    const expiresAt = input.expiresIn ? new Date(Date.now() + input.expiresIn * 1000).toISOString() : null;
+    shareCounter += 1; const share: ShareRecord = { id: `share${String(shareCounter).padStart(4, "0")}`, fileId: input.fileId ?? null, folderPath: input.folderPath ?? null, password: input.password?.trim() || null, maxDownloads: input.maxDownloads ?? null, downloadCount: 0, expiresAt, createdAt: nowIso() };
+    shares.unshift(share);
+    const guideUrl = typeof window === "undefined" ? "/api/public/guide" : `${window.location.origin}/api/public/guide`;
+    return { share: toShareLink(share), shareUrl: shareUrl(share.id), guideUrl };
   },
   async getShareStats(shareId: string): Promise<ShareStats> {
     const share = shares.find((entry) => entry.id === shareId);

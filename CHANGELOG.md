@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Web client / mock type alignment (audit batch 6)** — the remaining latent wire-contract drifts between the server responses and the web client types/mock (client currently ignores the extra fields, so these were latent, not user-visible):
+  - `UploadTicket` type gained `filename` and `path` (the server `/upload` response includes them; the mock now returns them too).
+  - `createShare` client type now includes `shareUrl` and `guideUrl` (the REST `POST /v1/shares` returns them; the mock returns them too).
+  - The mock `createShare` now honors `expiresIn` (seconds) — it previously only read `expiresAt`, so a mock-mode expiring share never expired. Also removed the dead `expiresAt` field from `CreateShareInput` (the server accepts only `expiresIn`; the UI already converts to it — verified no caller set `expiresAt`).
+  - (FTS `rebuild-index` non-atomicity is left deferred: it wipes then re-inserts, so recall is empty mid-rebuild on a crash; making it atomic needs a temp-table swap or exceeds D1's per-batch statement cap, and it's a rare manual op with a documented "re-run is safe" behavior + an `index-status` endpoint.)
+
 ### Changed
 
 - **Surface, naming & consistency alignment (audit batch 5)** — closing agent-facing gaps and a few MEDIUM robustness items:
