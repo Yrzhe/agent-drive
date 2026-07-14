@@ -188,6 +188,7 @@ export default function ConnectSetupPage() {
     <main className="min-h-screen bg-slate-50 px-6 py-8">
       <div className="mx-auto max-w-5xl space-y-6">
         <header className="rounded-xl border border-slate-200 bg-white p-6">
+          <Link className="mb-3 inline-flex items-center gap-1 text-sm text-slate-600 hover:text-slate-900" to="/drive">← Back to drive</Link>
           <p className="text-sm font-medium text-blue-700">Agent Drive MCP</p>
           <h1 className="mt-2 text-3xl font-semibold text-slate-950">Connect your AI agent</h1>
           <p className="mt-2 max-w-3xl text-sm text-slate-600">
@@ -299,6 +300,7 @@ curl -s "${connectorUrl}" \\
         </details>
 
         <footer className="flex flex-wrap items-center gap-3 text-sm">
+          <Link className="rounded-lg border border-slate-300 px-3 py-2 text-slate-700 hover:bg-white" to="/drive">← Back to drive</Link>
           <Link className="rounded-lg border border-slate-300 px-3 py-2 text-slate-700 hover:bg-white" to="/guide">Browse all MCP tools</Link>
           <a className="rounded-lg border border-slate-300 px-3 py-2 text-slate-700 hover:bg-white" href={API_DOCS_URL} rel="noreferrer" target="_blank">API reference</a>
         </footer>
