@@ -155,8 +155,6 @@ export async function hardPurgeSubtree(
   const fileIds = rows.filter((x) => x.isFolder === 0).map((x) => x.id);
   const storagePaths = s3PathsFor(rows, storage);
 
-  if (storagePaths.length > 0) await storage.from(buckets.drive).delete(storagePaths);
-
   if (root.isFolder === 1) {
     const originalBundleRoot = originalTrashPath(root);
     const ops: any[] = [
@@ -176,6 +174,21 @@ export async function hardPurgeSubtree(
       db.delete(shares).where(eq(shares.fileId, root.id)),
       db.delete(files).where(eq(files.id, root.id)),
     ]);
+  }
+
+  // Delete R2 objects only AFTER the DB rows are gone, and best-effort: the logical
+  // purge is already committed, so an R2 failure must not fail the request. The
+  // failure mode is an ORPHAN object (no DB row references it) — no broken reference,
+  // but currently a storage leak (there is no drive-bucket orphan reconciler yet;
+  // the pending-upload sweep only reaps `pending:` rows). This is strictly better
+  // than the reverse order, which could leave live rows pointing at deleted objects.
+  // TODO(#34): reconcile drive-bucket objects against files.s3Uri.
+  if (storagePaths.length > 0) {
+    try {
+      await storage.from(buckets.drive).delete(storagePaths);
+    } catch {
+      // Orphaned objects remain; DB is already consistent.
+    }
   }
 
   return { rowCount: rows.length, objectCount: storagePaths.length };

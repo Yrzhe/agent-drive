@@ -438,7 +438,7 @@ filesRoutes.patch(
           continue;
         }
 
-        await db.update(files).set({ parentPath: nextParentPath, path: nextPath, updatedAt }).where(eq(files.id, existing.id));
+        const rootUpdate = db.update(files).set({ parentPath: nextParentPath, path: nextPath, updatedAt }).where(eq(files.id, existing.id));
 
         if (existing.isFolder === 1) {
           const descendants = await db.select().from(files).where(sql`${files.path} LIKE ${escapedDescendantPattern(existing.path)} ESCAPE '\\'`).orderBy(asc(files.path));
@@ -461,8 +461,12 @@ filesRoutes.patch(
           });
 
           const bundleUpdates = [rewriteBundlePrefixesForMove(db, existing.path, nextPath, updatedAt)];
-          const updates = [...descendantUpdates, ...shareUpdates, ...bundleUpdates];
-          if (updates.length > 0) await db.batch(updates as [typeof updates[number], ...Array<typeof updates[number]>]);
+          // Rewrite root + every descendant + share + bundle path in ONE atomic batch,
+          // so a mid-move failure can't leave children pointing at the old prefix.
+          const updates = [rootUpdate, ...descendantUpdates, ...shareUpdates, ...bundleUpdates];
+          await db.batch(updates as [typeof updates[number], ...Array<typeof updates[number]>]);
+        } else {
+          await rootUpdate;
         }
 
         movedIds.push(existing.id);
@@ -611,7 +615,7 @@ filesRoutes.patch(
     }
 
     const updatedAt = nowIso();
-    await db.update(files).set({ name: nextName, parentPath: nextParentPath, path: nextPath, updatedAt }).where(eq(files.id, existing.id));
+    const rootUpdate = db.update(files).set({ name: nextName, parentPath: nextParentPath, path: nextPath, updatedAt }).where(eq(files.id, existing.id));
 
     if (existing.isFolder === 1 && nextPath !== existing.path) {
       const descendants = await db.select().from(files).where(sql`${files.path} LIKE ${escapedDescendantPattern(existing.path)} ESCAPE '\\'`).orderBy(asc(files.path));
@@ -634,8 +638,11 @@ filesRoutes.patch(
       });
 
       const bundleUpdates = [rewriteBundlePrefixesForMove(db, existing.path, nextPath, updatedAt)];
-      const updates = [...descendantUpdates, ...shareUpdates, ...bundleUpdates];
-      if (updates.length > 0) await db.batch(updates as [typeof updates[number], ...Array<typeof updates[number]>]);
+      // Root + descendants + shares + bundles rewritten in ONE atomic batch.
+      const updates = [rootUpdate, ...descendantUpdates, ...shareUpdates, ...bundleUpdates];
+      await db.batch(updates as [typeof updates[number], ...Array<typeof updates[number]>]);
+    } else {
+      await rootUpdate;
     }
 
     const [updated] = await db.select().from(files).where(eq(files.id, existing.id)).limit(1);
