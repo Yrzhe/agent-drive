@@ -31,6 +31,25 @@ function unauthorized(origin: string): Response {
 }
 
 function initializeResult(origin: string, auth: McpAuthContext) {
+  const scopeList = auth.scopes.length ? auth.scopes.join(" ") : "(none)";
+  const instructions = [
+    `Agent Drive MCP at ${origin} — an agent-native private cloud drive (files, shares, cross-session memory, drive-to-drive send).`,
+    `Auth mode: ${auth.kind}. Your granted scopes: ${scopeList}. Call tools/list for schemas.`,
+    ``,
+    `Tools -> required scope:`,
+    `- list_files, read_file, search_files -> read:drive (read_file returns file TEXT directly — no share needed)`,
+    `- write_file -> write:drive. UTF-8 TEXT only, max 5MB. For binary or large files (PDF, images, video) do NOT use write_file — use the REST presigned flow: POST ${origin}/api/public/v1/files/upload -> PUT the bytes to the returned uploadUrl -> POST ${origin}/api/public/v1/files/upload/complete.`,
+    `- create_share, send_file -> share:create`,
+    `- remember, recall, list_memories, forget -> read:memory / write:memory`,
+    ``,
+    `Rules:`,
+    `- Paths are absolute and must start with "/".`,
+    `- A path-scoped token only reaches its granted prefix; out-of-scope calls return -32001 "invalid_scope:path:<path>".`,
+    `- create_share returns { shareUrl, guideUrl }. Include the guideUrl in any hand-off message so the receiving agent knows how to fetch the share.`,
+    ``,
+    `Errors: error.message is a colon-delimited code. -32001 = scope (invalid_scope:...), -32602 = bad params (invalid_params:...), -32000 = app error (e.g. file_too_large, quota_exceeded, path_conflict).`,
+    `Setup and full machine guide: ${origin}/connect and ${origin}/api/public/guide.`,
+  ].join("\n");
   return {
     protocolVersion: "2024-11-05",
     serverInfo: {
@@ -40,7 +59,7 @@ function initializeResult(origin: string, auth: McpAuthContext) {
     capabilities: {
       tools: {},
     },
-    instructions: `Connected to Agent Drive MCP at ${origin}. Auth mode: ${auth.kind}.`,
+    instructions,
   };
 }
 

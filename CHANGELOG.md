@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- **Agent-facing MCP contract alignment (audit batch 3)** — the MCP surface's in-band prompts had drifted from the implementation:
+  - `initialize` now returns rich `instructions` — granted scopes, tool→scope map, the absolute-path rule, text-vs-binary guidance (`write_file` is UTF-8 text ≤ 5 MB; binary/large files use the REST presigned flow), the `create_share` `guideUrl` hand-off note, and the JSON-RPC error-code convention. Previously it was a single "Auth mode" line, leaving pure-MCP agents blind to scopes, paths, and the text-only limit.
+  - MCP `create_share` now returns `guideUrl` (parity with REST), so hand-off messages built over MCP can include it as `SKILL.md` requires.
+  - **Removed the unimplemented `read:skills` / `write:skills` scopes** from everything that advertised them (server `MCP_SCOPES` + OAuth discovery, CLI `KNOWN_OAUTH_SCOPES`, the web `/connect` picker, docs) — they were offered but backed by no tool or route, so an agent could authorize to a dead scope.
+  - Doc drift fixed: `docs/api/mcp.md` (`AGENT_TOKEN_SCOPES` includes memory scopes; `tools/list` example lists all 10 tools; JSON-RPC error table corrected to `-32001` for scope and `-32000` for app errors, previously mislabeled `-32602`); the five setup guides (memory is live, not "planned"); `skill/references/file-ops.md` (the owner CAN download directly via `GET /files/:id/preview` or MCP `read_file` — shares are for external recipients, not a download workaround).
+  - Added `skill/references/mcp.md` (Remote MCP module: OAuth-vs-`AGENT_TOKEN` decision, the 10 tools + scopes, binary-upload guidance) with a Modules row and a `/connect` pointer in `SKILL.md`.
+
 ### Added
 
 - **Storage limits + pending-upload cleanup (audit batch 2)** — the drive was unbounded (arbitrary declared upload sizes, no cap on MCP `write_file`, no total quota) and leaked abandoned uploads (a `/upload` that never called `/upload/complete` left a `size:0` `pending:` row squatting the path plus an orphaned R2 object, with no TTL or sweeper).

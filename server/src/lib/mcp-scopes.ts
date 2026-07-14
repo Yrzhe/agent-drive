@@ -3,8 +3,6 @@ export const MCP_SCOPES = [
   "write:drive",
   "read:memory",
   "write:memory",
-  "read:skills",
-  "write:skills",
   "share:create",
 ] as const;
 
@@ -19,8 +17,6 @@ const SCOPE_DESCRIPTIONS: Record<McpScope, string> = {
   "write:drive": "Create and update files and folders in Agent Drive",
   "read:memory": "Read memory files stored in Agent Drive",
   "write:memory": "Create and update memory files stored in Agent Drive",
-  "read:skills": "Read skill files stored in Agent Drive",
-  "write:skills": "Create and update skill files stored in Agent Drive",
   "share:create": "Create share links for files and folders",
 };
 

@@ -1,6 +1,6 @@
 # Share Management
 
-All endpoints require `Authorization: Bearer {AGENT_TOKEN}` header.
+All endpoints require an `Authorization: Bearer {token}` header — your self-hosted `AGENT_TOKEN` or an OAuth / minted scoped bearer.
 
 ## Create a Share Link
 

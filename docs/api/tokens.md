@@ -16,7 +16,7 @@ Owner-minted bearer tokens with narrowed capabilities and an optional path prefi
 | GET | `/api/public/v1/tokens` | `?limit=100&offset=0` (max 500) | `{ tokens: [...], limit, offset }` |
 | DELETE | `/api/public/v1/tokens/:id` | — | `{ revoked }` |
 
-- `scopes`: non-empty subset of `read:drive write:drive share:create read:memory write:memory`. `read:skills`/`write:skills` and raw `path:` entries are rejected — use `pathPrefix`.
+- `scopes`: non-empty subset of `read:drive write:drive share:create read:memory write:memory`. Raw `path:` entries are rejected here — use `pathPrefix` instead.
 - `pathPrefix`: absolute path (`/handoffs`) or canonical scope form (`path:/handoffs/*`); same grammar as OAuth path scopes (no `..`, `//`, globs, or whitespace — scope strings are space-delimited). Applies to file/folder/share/bundle operations; memory has no paths.
 - `expiresInDays`: 1–365, default 90.
 - `label`: display name, max 64 chars.

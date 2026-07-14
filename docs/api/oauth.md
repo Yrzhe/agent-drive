@@ -30,7 +30,6 @@ Response:
   "scopes_supported": [
     "read:drive", "write:drive",
     "read:memory", "write:memory",
-    "read:skills", "write:skills",
     "share:create"
   ]
 }
@@ -191,7 +190,7 @@ Response:
 ```
 
 - New `access_token` (and rotated `refresh_token`) issued.
-- Optional `scope` parameter must be a subset of the original grant.
+- The refresh **reissues the original grant's scopes**. A narrower `scope` request parameter is not currently applied — the rotated token keeps the original scopes. (To reduce scope, mint a new token or re-run the authorization flow.)
 
 #### Errors
 
@@ -225,8 +224,6 @@ Authoritative list lives in `server/src/lib/mcp-scopes.ts`.
 | `write:drive` | Create and update files and folders |
 | `read:memory` | Read agent memories (`recall`/`list_memories`, `GET /v1/memory*`) |
 | `write:memory` | Create/update/delete agent memories (`remember`/`forget`, `POST/DELETE /v1/memory*`) |
-| `read:skills` | Read skill files (planned) |
-| `write:skills` | Write skill files (planned) |
 | `share:create` | Create share links for files and folders |
 
 ### Path-prefix scopes

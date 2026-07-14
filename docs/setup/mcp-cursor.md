@@ -47,8 +47,7 @@ Restart Cursor. On first use, Cursor opens an OAuth consent flow in your browser
 |---|---|
 | Full drive automation | `read:drive write:drive share:create` |
 | Read-only inspection | `read:drive` |
-| Memory sync (planned) | `read:memory write:memory` |
-| Skill sync (planned) | `read:skills write:skills` |
+| Memory sync | `read:memory write:memory` |
 
 Full scope vocabulary lives in [`docs/api/oauth.md`](../api/oauth.md).
 
@@ -60,14 +59,11 @@ From Cursor, ask the agent:
 List files in Agent Drive at /
 ```
 
-With full drive scopes you should have access to:
+The tools you see depend on your token's scopes:
 
 ```text
-list_files
-read_file
-write_file
-search_files
-create_share
+read:drive write:drive share:create  ->  list_files, read_file, write_file, search_files, create_share, send_file
++ read:memory write:memory           ->  also remember, recall, list_memories, forget   (10 tools total)
 ```
 
 ## Self-hosted single-user mode

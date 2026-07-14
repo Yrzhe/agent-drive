@@ -379,7 +379,7 @@ export async function callMcpTool(db: AppDb, origin: string, scopes: readonly st
       expiresAt: expiresIn ? new Date(Date.now() + expiresIn * 1000).toISOString() : null,
       createdAt: nowIso(),
     }).returning();
-    return textResult({ shareId: share.id, shareUrl: `${origin}/s/${share.id}`, hasPassword: Boolean(password), maxDownloads, expiresAt: share.expiresAt });
+    return textResult({ shareId: share.id, shareUrl: `${origin}/s/${share.id}`, guideUrl: `${origin}/api/public/guide`, hasPassword: Boolean(password), maxDownloads, expiresAt: share.expiresAt });
   }
 
   if (name === "remember") {

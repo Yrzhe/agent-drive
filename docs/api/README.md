@@ -78,7 +78,7 @@ MCP errors follow JSON-RPC 2.0:
   "jsonrpc": "2.0",
   "id": 1,
   "error": {
-    "code": -32602,
+    "code": -32001,
     "message": "invalid_scope:write:drive"
   }
 }

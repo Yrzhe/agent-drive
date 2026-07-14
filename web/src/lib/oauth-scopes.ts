@@ -21,14 +21,6 @@ export const OAUTH_SCOPE_DESCRIPTIONS: Record<string, Omit<OAuthScopeDescription
     title: "写入你的记忆 / Write memory",
     description: "允许该 MCP 客户端保存新的偏好、记忆和上下文。",
   },
-  "read:skills": {
-    title: "读取你的 Skills / Read skills",
-    description: "允许该 MCP 客户端读取已同步的 skills、规则和能力说明。",
-  },
-  "write:skills": {
-    title: "写入你的 Skills / Write skills",
-    description: "允许该 MCP 客户端导入、更新或备份 skills。",
-  },
   "share:create": {
     title: "创建分享链接 / Create share links",
     description: "允许该 MCP 客户端为文件或文件夹创建可分享链接。",
