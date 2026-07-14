@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **Storage limits + pending-upload cleanup (audit batch 2)** — the drive was unbounded (arbitrary declared upload sizes, no cap on MCP `write_file`, no total quota) and leaked abandoned uploads (a `/upload` that never called `/upload/complete` left a `size:0` `pending:` row squatting the path plus an orphaned R2 object, with no TTL or sweeper).
+  - **Per-file cap** `MAX_FILE_BYTES` var (default **500 MB**, `0` = unlimited): enforced on the declared size at `/upload` and authoritatively on the real object size at `/upload/complete` (an over-limit object is deleted + its pending row removed). Error `413 file_too_large`.
+  - **Total storage quota** `MAX_TOTAL_BYTES` var (default **5 GB** of active non-trashed files, `0` = unlimited): checked at `/upload`, `/upload/complete`, and MCP `write_file`. Error `413 quota_exceeded` (`-32000` over MCP).
+  - **MCP `write_file` is now capped at 5 MB** and its tool description states it is text-only — binary/large files must use the REST presigned flow (closes the gap where a pure-MCP agent would try to `write_file` a PDF).
+  - **Pending-upload cleanup (no cron)**: a fresh `/upload` reclaims a stale pending row squatting its path once the presigned PUT URL has expired; a sampled opportunistic sweep (`maybePurgeStalePendingUploads`, mirroring the trash sweeper) reaps abandoned pending rows + orphaned R2 objects after 24 h. Cleanup is **concurrency-safe**: it atomically claims a row only while it is still pending (conditional `DELETE … WHERE size = 0 AND s3_uri LIKE 'pending:%'`) and deletes the R2 object only after winning that claim, so a `/upload/complete` racing the sweep can never have its just-completed file erased.
+
 ### Changed
 
 - **List endpoints paginated (#23)** — `GET /v1/files/trash`, `/v1/shares`, `/v1/contacts`, `/v1/tokens`, `/v1/webhooks` accept `limit` (default 100, max 500) / `offset` and echo them in the response; the shares list now filters expiry/exhaustion in SQL instead of loading every row; new indexes on `shares.created_at` and `oauth_tokens.created_at` (migration `0014`). Path-scope filtering still happens after the SQL page (short pages possible for path-scoped tokens — documented).

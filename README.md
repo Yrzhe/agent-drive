@@ -74,6 +74,8 @@ edgespark db migrate
 edgespark storage apply
 edgespark secret set AGENT_TOKEN   # Enter token in browser
 edgespark var set OWNER_EMAIL       # Your login email — arms the single-owner boundary
+edgespark var set MAX_FILE_BYTES    # Optional per-file cap (default 500MB; 0 = unlimited)
+edgespark var set MAX_TOTAL_BYTES   # Optional total storage quota (default 5GB; 0 = unlimited)
 edgespark deploy
 ```
 
