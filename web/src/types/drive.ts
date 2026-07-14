@@ -12,6 +12,8 @@ export interface DriveFile {
 
 export interface UploadTicket {
   fileId: string;
+  filename: string;
+  path: string;
   uploadUrl: string;
   requiredHeaders: Record<string, string>;
   expiresAt: string;
@@ -93,6 +95,5 @@ export interface CreateShareInput {
   folderPath?: string;
   password?: string;
   maxDownloads?: number | null;
-  expiresAt?: string | null;
   expiresIn?: number | null;
 }

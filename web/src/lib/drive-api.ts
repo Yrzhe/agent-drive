@@ -159,7 +159,7 @@ export const driveApi = {
   listShares: () => withMockFallback(() => apiFetchJson<{ shares: ShareLink[] }>("/api/public/v1/shares"), () => mockDriveApi.listShares()),
   createShare: (input: CreateShareInput) =>
     withMockFallback(
-      () => apiFetchJson<{ share: ShareLink }>("/api/public/v1/shares", { method: "POST", body: JSON.stringify(input) }),
+      () => apiFetchJson<{ share: ShareLink; shareUrl: string; guideUrl: string }>("/api/public/v1/shares", { method: "POST", body: JSON.stringify(input) }),
       () => mockDriveApi.createShare(input),
     ),
   deleteShare: (shareId: string) =>
