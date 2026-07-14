@@ -8,6 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **README endpoint-table sync** — the root `README.md` API Reference table was missing the `webhooks` (`POST`/`GET`/`DELETE /:id`/`POST /:id/test`) and `activity` (`GET`) endpoints, even though they are already documented in `docs/api/webhooks.md` / `docs/api/activity.md`, listed in `web/public/llms.txt`, and named in `GET /api/public/guide`'s `agentSurfaces`. Added those rows so all agent-facing surfaces agree. Also refreshed the `web/src/pages/` listing in the project-structure tree (Landing/Connect/Bundles/Trash were added after it was written).
+
 - **Web client / mock type alignment (audit batch 6)** — the remaining latent wire-contract drifts between the server responses and the web client types/mock (client currently ignores the extra fields, so these were latent, not user-visible):
   - `UploadTicket` type gained `filename` and `path` (the server `/upload` response includes them; the mock now returns them too).
   - `createShare` client type now includes `shareUrl` and `guideUrl` (the REST `POST /v1/shares` returns them; the mock returns them too).

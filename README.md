@@ -155,7 +155,7 @@ agent-drive/
 │       └── defs/           # DB schema, storage, runtime config
 ├── web/                    # React SPA via Vite
 │   └── src/
-│       ├── pages/          # Dashboard, ShareDownload, Guide
+│       ├── pages/          # Landing, Dashboard, Connect, Bundles, Trash, ShareDownload, Guide
 │       ├── components/     # FileTable, UploadZone, ShareModal
 │       └── lib/            # API client, auth hooks
 ├── skill/                  # Agent Drive skill for AI agents
@@ -201,6 +201,11 @@ Use `/api/public/mcp` as the remote MCP URL. OAuth/MCP discovery is served from 
 | GET | `/api/public/v1/bundles/current?prefix=/path` | Read current bundle version |
 | GET | `/api/public/v1/bundles/history?prefix=/path` | List prior bundle versions |
 | GET | `/api/public/v1/bundles/manifest?prefix=/path&versionId=dv_...` | Read a versioned bundle manifest |
+| POST | `/api/public/v1/webhooks` | Register a webhook for event notifications (root-path tokens only) |
+| GET | `/api/public/v1/webhooks` | List registered webhooks |
+| DELETE | `/api/public/v1/webhooks/:id` | Delete a webhook |
+| POST | `/api/public/v1/webhooks/:id/test` | Send a test delivery to a webhook |
+| GET | `/api/public/v1/activity?type=&since=&limit=` | Read the activity log (audit trail; path-scoped view) |
 
 ### Public (no auth)
 
