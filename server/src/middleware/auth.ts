@@ -4,6 +4,7 @@ import { parseBearerToken } from "../lib/crypto";
 import { ApiError, handleApiError } from "../lib/errors";
 import { authenticateMcpBearer } from "../lib/mcp-auth";
 import { hasScope } from "../lib/mcp-scopes";
+import { assertRequestOwner } from "../lib/owner";
 import { requiredRestScope } from "../lib/rest-scopes";
 import type { AppEnv } from "../types";
 
@@ -11,6 +12,7 @@ export const requireDualAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
   try {
     const { auth } = await import("edgespark/http");
     if (auth.isAuthenticated()) {
+      await assertRequestOwner();
       c.set("restAuth", { kind: "session" });
       await next();
       return;

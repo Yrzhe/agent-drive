@@ -24,7 +24,7 @@ guideRoutes.get(
         llmsTxt: `${origin}/llms.txt — plain-text index of everything above`,
       },
       quickStart: {
-        step1: `GET ${origin}/api/public/s/{shareId} → Get share info (type, hasPassword, fileCount, expired)`,
+        step1: `GET ${origin}/api/public/s/{shareId} → Get share info (type, hasPassword, fileCount, expired). Password-protected shares withhold name/size/fileCount until you present a valid accessToken`,
         step2: `POST ${origin}/api/public/s/{shareId}/access with body {"password":"xxx"} (or {} if no password) → Get accessToken (15 min TTL)`,
         step3: "Use accessToken in X-Access-Token header for all subsequent requests",
       },
@@ -33,7 +33,7 @@ guideRoutes.get(
         endpoint: `GET ${origin}/api/public/s/{shareId}/download`,
         queryParams: "?fileId={id} (required for folder shares, get IDs from /files)",
         headers: "X-Access-Token: {accessToken}",
-        returns: "{ downloadUrl, filename, size } — downloadUrl is a presigned URL valid for 1 hour",
+        returns: "{ downloadUrl, filename, size } — downloadUrl is a short-lived presigned URL valid for 90 seconds; fetch it immediately",
       },
       downloadFolderAsZip: {
         description: "Download entire folder share (or a subfolder) as a ZIP archive — direct binary response, capped at 400 files and 30MB",

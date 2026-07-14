@@ -235,6 +235,7 @@ Returns: {
   expiresAt, expired, exhausted, createdAt
 }
 ```
+- Password-protected shares withhold `name`/`size`/`fileCount` until a valid access token is presented; before then the response is only `{ id, type, hasPassword: true, expired, exhausted, expiresAt, createdAt }`.
 
 ### Access Token
 ```
@@ -264,7 +265,7 @@ Header: X-Access-Token: {accessToken}
 Returns: { downloadUrl, filename, size, expiresAt }
 ```
 - `fileId` required for folder shares, optional for file shares
-- `downloadUrl` is presigned, valid 1 hour
+- `downloadUrl` is presigned, valid 90 seconds — fetch it immediately
 - Increments download counter
 
 ### Download Folder as ZIP

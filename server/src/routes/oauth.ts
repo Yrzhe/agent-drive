@@ -7,6 +7,7 @@ import { oauthAuthorizationCodes, oauthClients, oauthTokens } from "@defs";
 import { hashPassword, verifyPasswordHash } from "../lib/crypto";
 import { nowIso } from "../lib/files";
 import { DEFAULT_MCP_SCOPES, filterAllowedScopes, FULL_MCP_SCOPES, normalizeScopes, parseScopeParam, scopeDescriptions, serializeScopes } from "../lib/mcp-scopes";
+import { assertRequestOwner } from "../lib/owner";
 import { checkRateLimit, recordFailure, recordRateLimitAttempt } from "../lib/rate-limit";
 import { ApiError, withErrorHandling } from "../lib/errors";
 
@@ -251,6 +252,7 @@ oauthRoutes.post(
   withErrorHandling(async (c) => {
     const { auth } = await import("edgespark/http");
     if (!auth.isAuthenticated()) throw new ApiError(401, "unauthorized", "Sign in before authorizing this client");
+    await assertRequestOwner();
 
     await assertSameOrigin(c);
     const body = await readBody(c);
@@ -334,9 +336,29 @@ oauthRoutes.post(
         throw new ApiError(400, "invalid_grant", "PKCE verification failed");
       }
 
+      // Atomically claim the code: only the request that flips usedAt from NULL
+      // wins. This closes the read-then-write race where two concurrent /token
+      // calls both pass the usedAt pre-check above and both issue tokens.
+      const claimed = await db
+        .update(oauthAuthorizationCodes)
+        .set({ usedAt: nowIso() })
+        .where(and(eq(oauthAuthorizationCodes.codeHash, codeRow.codeHash), isNull(oauthAuthorizationCodes.usedAt)))
+        .returning({ id: oauthAuthorizationCodes.id });
+      if (claimed.length === 0) {
+        // Lost the race (or replay): treat as reuse — best-effort revoke anything
+        // issued from this code (RFC 6749 §10.5) and reject. The atomic claim above
+        // is what guarantees single issuance; this revoke is defense-in-depth.
+        // Mandatory PKCE (checked at line 334, before the claim) already makes a
+        // leaked-code replay impossible without the verifier, so the only caller
+        // that can reach here is a legit client double-submitting — for which the
+        // narrow "revoke runs before the winner's insert" window is acceptable
+        // (revoking the winner's token would itself be hostile to that client).
+        await db.update(oauthTokens).set({ revokedAt: nowIso() }).where(eq(oauthTokens.sourceCodeId, codeToken.id));
+        await recordFailure(db, rateLimitKey, OAUTH_TOKEN_RATE_LIMIT_MS);
+        throw new ApiError(400, "invalid_grant", "Authorization code has already been used");
+      }
       const issued = await issueTokenPair({ clientId: client.id, userId: codeRow.userId, scope: codeRow.scope, sourceCodeId: codeToken.id });
       await db.batch([
-        db.update(oauthAuthorizationCodes).set({ usedAt: nowIso() }).where(eq(oauthAuthorizationCodes.codeHash, codeRow.codeHash)),
         db.insert(oauthTokens).values(issued.row),
         db.update(oauthClients).set({ lastUsedAt: nowIso() }).where(eq(oauthClients.id, client.id)),
       ]);
@@ -357,9 +379,19 @@ oauthRoutes.post(
         await recordFailure(db, rateLimitKey, OAUTH_TOKEN_RATE_LIMIT_MS);
         throw new ApiError(400, "invalid_grant", "Refresh token is invalid or expired");
       }
+      // Atomically claim the rotation: only the request that flips revokedAt from
+      // NULL wins, so a refresh token cannot be rotated twice concurrently.
+      const rotated = await db
+        .update(oauthTokens)
+        .set({ revokedAt: nowIso() })
+        .where(and(eq(oauthTokens.id, tokenRow.id), isNull(oauthTokens.revokedAt)))
+        .returning({ id: oauthTokens.id });
+      if (rotated.length === 0) {
+        await recordFailure(db, rateLimitKey, OAUTH_TOKEN_RATE_LIMIT_MS);
+        throw new ApiError(400, "invalid_grant", "Refresh token is invalid or expired");
+      }
       const issued = await issueTokenPair({ clientId: client.id, userId: tokenRow.userId, scope: tokenRow.scope, sourceCodeId: tokenRow.sourceCodeId });
       await db.batch([
-        db.update(oauthTokens).set({ revokedAt: nowIso() }).where(eq(oauthTokens.id, tokenRow.id)),
         db.insert(oauthTokens).values(issued.row),
         db.update(oauthClients).set({ lastUsedAt: nowIso() }).where(eq(oauthClients.id, client.id)),
       ]);
