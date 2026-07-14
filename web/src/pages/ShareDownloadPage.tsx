@@ -152,7 +152,7 @@ export default function ShareDownloadPage() {
       <div className="mx-auto w-full max-w-xl space-y-4">
         <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-4 py-3">
           <h1 className="text-lg font-semibold text-slate-900">Share Download</h1>
-          <div className="flex items-center gap-2 text-sm"><Link className="text-slate-600 hover:text-slate-900" to="/guide">Guide</Link><Link className="text-slate-600 hover:text-slate-900" to="/">Dashboard</Link></div>
+          <div className="flex items-center gap-2 text-sm"><Link className="text-slate-600 hover:text-slate-900" to="/guide">Guide</Link><Link className="text-slate-600 hover:text-slate-900" to="/drive">Dashboard</Link></div>
         </div>
 
         <section className="rounded-2xl border border-slate-200 bg-white p-5">

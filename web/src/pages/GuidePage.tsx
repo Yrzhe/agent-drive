@@ -33,7 +33,7 @@ export default function GuidePage() {
       <div className="mx-auto w-full max-w-3xl space-y-4">
         <header className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-4 py-3">
           <h1 className="text-lg font-semibold text-slate-900">Agent Drive Guide</h1>
-          <Link className="text-sm text-slate-600 hover:text-slate-900" to="/">Dashboard</Link>
+          <Link className="text-sm text-slate-600 hover:text-slate-900" to="/drive">Dashboard</Link>
         </header>
 
         <section className="rounded-2xl border border-slate-200 bg-white p-6">
