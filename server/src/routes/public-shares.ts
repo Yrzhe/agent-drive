@@ -475,18 +475,30 @@ publicSharesRoutes.get(
     }
 
     const zipEntries: Record<string, Uint8Array> = {};
+    const skipped: string[] = [];
     for (const { row, entryPath } of downloadableRows) {
-      if (!row.s3Uri) continue;
-      const parsed = storage.tryParseS3Uri(row.s3Uri);
-      if (!parsed) continue;
-      const obj = await storage.from(buckets.drive).get(parsed.path);
-      if (!obj) continue;
-      const buffer = obj.body;
-      zipEntries[entryPath] = new Uint8Array(buffer);
+      const parsed = row.s3Uri ? storage.tryParseS3Uri(row.s3Uri) : null;
+      const obj = parsed ? await storage.from(buckets.drive).get(parsed.path) : null;
+      if (!obj) {
+        skipped.push(entryPath);
+        continue;
+      }
+      zipEntries[entryPath] = new Uint8Array(obj.body);
     }
 
     if (Object.keys(zipEntries).length === 0) {
       throw new ApiError(404, "file_not_found", "No downloadable files found");
+    }
+
+    // A file can be missing from R2 (e.g. mid-inconsistency). Don't ship a silently
+    // incomplete archive — list the skipped files so the recipient knows. Use a name
+    // that can't overwrite a real entry (a file legitimately named _SKIPPED.txt).
+    if (skipped.length > 0) {
+      let manifestName = "_SKIPPED.txt";
+      for (let n = 1; manifestName in zipEntries; n += 1) manifestName = `_SKIPPED.${n}.txt`;
+      zipEntries[manifestName] = new TextEncoder().encode(
+        `${skipped.length} file(s) could not be read and are MISSING from this archive:\n${skipped.join("\n")}\n`
+      );
     }
 
     const zipped = zipSync(zipEntries);
@@ -504,6 +516,7 @@ publicSharesRoutes.get(
         fileIds: downloadableRows.slice(0, ZIP_METADATA_FILE_ID_LIMIT).map(({ row }) => row.id),
         totalSize,
         count: downloadableRows.length,
+        skipped: skipped.length,
       },
       ...activityContext,
     });
@@ -513,6 +526,7 @@ publicSharesRoutes.get(
         "Content-Type": "application/zip",
         "Content-Disposition": `attachment; filename="${zipName}"`,
         "Content-Length": String(zipped.length),
+        ...(skipped.length > 0 ? { "X-Skipped-Count": String(skipped.length) } : {}),
       },
     });
   })

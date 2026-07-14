@@ -9,7 +9,7 @@ import { forgetMemory, listMemories, recallMemories, rememberMemory } from "./me
 import { getContactByName, sendFileToContact } from "./peering";
 import { escapedDescendantPattern, joinPath, normalizeName, normalizePath, parentOfPath } from "./paths";
 import { extractPathPrefixes, hasScope, pathAllowed, requirePathAllowed, type McpScope } from "./mcp-scopes";
-import { checkTotalQuota, MCP_WRITE_FILE_MAX_BYTES } from "./quota";
+import { checkTotalQuota, MCP_READ_FILE_MAX_BYTES, MCP_WRITE_FILE_MAX_BYTES } from "./quota";
 import { purgeConflictingTrashAtPath } from "./trash";
 import type { AppDb } from "../types";
 
@@ -70,7 +70,7 @@ export const MCP_TOOLS: McpToolDefinition[] = [
   },
   {
     name: "read_file",
-    description: "Read a text file from Agent Drive by path.",
+    description: "Read a text file from Agent Drive by path (returns UTF-8 content, up to 5 MB). For larger or binary files use the REST download: GET /api/public/v1/files/:id/preview.",
     requiredScope: "read:drive",
     inputSchema: {
       type: "object",
@@ -260,6 +260,13 @@ export async function callMcpTool(db: AppDb, origin: string, scopes: readonly st
     const { storage } = await import("edgespark");
     const parsed = storage.tryParseS3Uri(file.s3Uri);
     if (!parsed) throw new Error("file_not_found");
+    // Guard on the REAL R2 object size (a HEAD, no body) BEFORE loading it into Worker
+    // memory. The DB size can be stale if the object was re-PUT via a still-valid
+    // presigned URL, so it is not a reliable memory-safety boundary.
+    const meta = await storage.from(buckets.drive).head(parsed.path);
+    if (meta && meta.size > MCP_READ_FILE_MAX_BYTES) {
+      throw new Error(`file_too_large:file is ${meta.size} bytes; read_file returns text up to ${MCP_READ_FILE_MAX_BYTES} bytes — use the REST download (GET /api/public/v1/files/:id/preview) for larger or binary files`);
+    }
     const object = await storage.from(buckets.drive).get(parsed.path);
     if (!object) throw new Error("file_not_found");
     const text = new TextDecoder().decode(object.body);

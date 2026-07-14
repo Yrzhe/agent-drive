@@ -171,4 +171,20 @@ describe("storage limits + pending cleanup", () => {
     expect(ok.error).toBeUndefined();
     expect(ok.result).toBeDefined();
   });
+
+  it("caps MCP read_file at 5 MB using the real R2 object size (immune to a stale DB size)", async () => {
+    const headers = jsonHeaders(useBearer(["read:drive", "path:/"]));
+    // Small DB size, but the actual object is 6 MB (models a re-PUT after complete).
+    await seedDriveFile({ id: "bigread", path: "/big.txt", body: "small" });
+    await runtime.storage.from(buckets.drive).put(`bigread/${encodeURIComponent("big.txt")}`, new Uint8Array(6 * 1024 * 1024));
+    await runtime.db.update(files).set({ size: 5 }).where(eq(files.id, "bigread"));
+
+    const response = await app.request("/api/public/mcp", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "read_file", arguments: { path: "/big.txt" } } }),
+    });
+    const body = await response.json() as { error?: { message?: string } };
+    expect(body.error?.message).toContain("file_too_large");
+  });
 });

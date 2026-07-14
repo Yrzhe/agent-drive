@@ -12,6 +12,9 @@ const DEFAULT_MAX_TOTAL_BYTES = 5 * 1024 * 1024 * 1024; // 5 GiB
 /** MCP `write_file` streams text through Worker memory — keep it modest and fixed. */
 export const MCP_WRITE_FILE_MAX_BYTES = 5 * 1024 * 1024; // 5 MiB
 
+/** MCP `read_file` loads the whole object into Worker memory to decode text. */
+export const MCP_READ_FILE_MAX_BYTES = 5 * 1024 * 1024; // 5 MiB
+
 function resolveLimit(raw: string | null | undefined, fallback: number): number {
   if (raw == null || raw.trim() === "") return fallback;
   const parsed = Number(raw.trim());

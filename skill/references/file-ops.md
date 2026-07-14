@@ -113,7 +113,7 @@ As the authenticated owner you can fetch a file directly — no share needed:
 ```bash
 # REST: get a short-lived (300s) presigned download URL, then GET it
 GET {apiBase}/files/{fileId}/preview
-Returns: { downloadUrl, filename, size, contentType }
+Returns: { id, name, contentType, size, downloadUrl, expiresInSecs }
 
 # MCP: read_file returns UTF-8 text content directly (text files only)
 ```

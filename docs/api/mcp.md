@@ -171,7 +171,7 @@ Output (`text` payload, parsed):
 
 Required scope: `read:drive`
 
-Reads a text file by absolute path. Binary files are out of scope for MVP.
+Reads a **UTF-8 text file** by absolute path, up to **5 MB**. For larger or binary files use the REST download (`GET /api/public/v1/files/:id/preview`).
 
 Input:
 
@@ -185,7 +185,7 @@ Output:
 { "path": "...", "content": "...", "size": 1234, "contentType": "text/plain" }
 ```
 
-Errors: `file_not_found`.
+Errors: `file_not_found`, `file_too_large:...` (over 5 MB — use the REST download).
 
 ### `write_file`
 
