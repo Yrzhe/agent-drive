@@ -94,7 +94,7 @@ export default function TrashPage() {
   if (!isAuthenticated) {
     return (
       <main className="min-h-screen bg-gradient-to-b from-slate-100 via-white to-slate-100 px-6 py-16">
-        <AuthLoginPanel />
+        <AuthLoginPanel redirectTo="/trash" />
       </main>
     );
   }
@@ -110,7 +110,7 @@ export default function TrashPage() {
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Link className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-700" to="/">
+            <Link className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-700" to="/drive">
               ← Back to Drive
             </Link>
             <button className="rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-medium text-white" onClick={() => { void signOut(); }} type="button">

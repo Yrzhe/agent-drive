@@ -1,1 +1,211 @@
 @import "tailwindcss";
+
+/* ============================================================
+   Landing page design system (scoped to landing utility classes
+   and CSS variables — does not override global body/heading, so
+   the dashboard and other pages keep their default styling).
+   ============================================================ */
+:root {
+  --font-heading: 'Bricolage Grotesque', 'Inter', ui-sans-serif, system-ui, sans-serif;
+  --font-body: 'Hanken Grotesk', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+
+  --paper: #F7F6F1;
+  --surface: #FCFBF8;
+  --ink: #17140F;
+  --slate: #6B655B;
+  --faint: #9A9488;
+  --line: #E6E2D8;
+  --line-strong: #D8D2C4;
+  --accent: #C2611C;
+  --accent-hi: #E0863A;
+  --accent-soft: rgba(194, 97, 28, 0.10);
+  --verified: #0C8E6E;
+
+  --code-bg: #14110D;
+  --code-surface: #1B1712;
+  --code-line: #2C2720;
+  --code-fg: #E7E1D3;
+  --code-dim: #8B8375;
+  --code-str: #9BC48A;
+  --code-kw: #E0A060;
+  --code-accent: #E0863A;
+}
+
+.dark {
+  --paper: #16130F;
+  --surface: #1E1A15;
+  --ink: #F2EEE6;
+  --slate: #A79F92;
+  --faint: #776F63;
+  --line: #2A2620;
+  --line-strong: #38332B;
+  --accent: #E0863A;
+  --accent-hi: #EDA45C;
+  --accent-soft: rgba(224, 134, 58, 0.13);
+  --verified: #2BC0A0;
+}
+
+/* ---- motion ---- */
+@keyframes cursor-blink { 50% { opacity: 0; } }
+@keyframes dot-pulse {
+  0% { box-shadow: 0 0 0 0 var(--verified); }
+  70% { box-shadow: 0 0 0 5px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+@keyframes rise { to { opacity: 1; transform: none; } }
+
+/* hero entrance — staggered via inline animation-delay */
+.enter {
+  opacity: 0;
+  transform: translateY(16px);
+  animation: rise 0.85s var(--ease-out) both;
+}
+
+/* line-mask headline reveal */
+.line-mask { display: block; overflow: hidden; padding-bottom: 0.16em; margin-bottom: -0.16em; }
+.line-mask > span {
+  display: block;
+  transform: translateY(110%);
+  animation: line-rise 0.9s var(--ease-out) both;
+}
+@keyframes line-rise { to { transform: translateY(0); } }
+
+/* headline reveal (hero) */
+.hl-line { display: block; }
+.scr-word { display: inline-block; white-space: pre; }
+
+/* MCP console tool-switch fade */
+.mcp-fade { animation: mcp-in 0.32s var(--ease-out); }
+@keyframes mcp-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+.hl-word {
+  display: inline-block;
+  margin-right: 0.24em;
+  transform-origin: 50% 88%;
+  transform: rotateX(-92deg);
+  opacity: 0;
+  animation: flip-in 0.7s var(--ease-out) both;
+  will-change: transform, opacity;
+}
+.hl-line .hl-word:last-child { margin-right: 0; }
+@keyframes flip-in {
+  0% { transform: rotateX(-92deg); opacity: 0; }
+  55% { opacity: 1; }
+  100% { transform: rotateX(0deg); opacity: 1; }
+}
+
+/* scroll reveal container — children (.ri) stagger in */
+[data-reveal] .ri {
+  opacity: 0;
+  transform: translateY(30px) scale(0.97);
+  filter: blur(6px);
+  transition: opacity 0.75s var(--ease-out), transform 0.75s var(--ease-out), filter 0.75s var(--ease-out);
+  will-change: opacity, transform, filter;
+}
+[data-reveal='shown'] .ri {
+  opacity: 1;
+  transform: none;
+  filter: none;
+}
+
+/* feature bento: classical stage + product-UI chips */
+.fb-img { animation: fb-float 11s var(--ease-in-out) infinite; }
+.fb-img.slow { animation-duration: 13s; }
+@keyframes fb-float {
+  0%, 100% { transform: scale(1.05) translateY(0); }
+  50% { transform: scale(1.07) translateY(-8px); }
+}
+.fb-glow { animation: fb-pulse 4.2s var(--ease-in-out) infinite; }
+@keyframes fb-pulse {
+  0%, 100% { opacity: 0.4; transform: scale(0.92); }
+  50% { opacity: 0.85; transform: scale(1.08); }
+}
+.fb-file { opacity: 0; }
+[data-reveal='shown'] .fb-file { animation: fb-fly 5.4s cubic-bezier(0.5, 0, 0.2, 1) infinite; }
+[data-reveal='shown'] .fb-file.f2 { animation-delay: 0.5s; }
+[data-reveal='shown'] .fb-file.f3 { animation-delay: 1s; }
+@keyframes fb-fly {
+  0% { opacity: 0; transform: translate(28px, -30px) scale(0.9) rotate(4deg); }
+  10% { opacity: 1; }
+  34% { opacity: 1; transform: translate(0, 0) scale(1) rotate(0); }
+  48% { opacity: 1; transform: translate(-6px, 26px) scale(0.6) rotate(-3deg); }
+  56%, 100% { opacity: 0; transform: translate(-6px, 44px) scale(0.4); }
+}
+.fb-share { opacity: 0; }
+[data-reveal='shown'] .fb-share { animation: fb-share 5.4s var(--ease-in-out) infinite; animation-delay: 2.6s; }
+@keyframes fb-share {
+  0%, 44% { opacity: 0; transform: translateY(8px); }
+  56% { opacity: 1; transform: none; }
+  92% { opacity: 1; }
+  100% { opacity: 0; }
+}
+.fb-q { opacity: 0; }
+[data-reveal='shown'] .fb-q { animation: fb-qin 6s var(--ease-in-out) infinite; }
+@keyframes fb-qin {
+  0% { opacity: 0; transform: translateY(6px); }
+  12% { opacity: 1; transform: none; }
+  64% { opacity: 1; }
+  80%, 100% { opacity: 0; }
+}
+.fb-recall { opacity: 0; }
+[data-reveal='shown'] .fb-recall { animation: fb-recall 6s var(--ease-out) infinite; animation-delay: 1.6s; }
+@keyframes fb-recall {
+  0%, 20% { opacity: 0; transform: translateY(14px) scale(0.96); }
+  38% { opacity: 1; transform: none; }
+  80% { opacity: 1; }
+  100% { opacity: 0; transform: translateY(-4px); }
+}
+.fb-toast { opacity: 0; }
+[data-reveal='shown'] .fb-toast { animation: fb-toast 5s var(--ease-in-out) infinite; animation-delay: 1.2s; }
+@keyframes fb-toast {
+  0%, 14% { opacity: 0; transform: translateX(-14px); }
+  30% { opacity: 1; transform: none; }
+  84% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+/* scroll progress bar */
+.scroll-bar {
+  transform-origin: left;
+  transform: scaleX(0);
+  will-change: transform;
+}
+
+/* tool marquee conveyor */
+.marquee-track {
+  display: flex;
+  width: max-content;
+  animation: marquee 26s linear infinite;
+}
+.marquee-mask:hover .marquee-track { animation-play-state: paused; }
+@keyframes marquee { to { transform: translateX(-50%); } }
+
+/* press + magnetic */
+.press { transition: transform 160ms var(--ease-out); }
+.press:active { transform: scale(0.97); }
+.magnetic { transition: transform 220ms var(--ease-out); }
+
+/* tool cell lift */
+.tool-cell { transition: background 220ms var(--ease-out), transform 220ms var(--ease-out); }
+
+@media (prefers-reduced-motion: reduce) {
+  .enter, [data-reveal] .ri, .line-mask > span, .hl-word {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+    filter: none !important;
+    transition: none !important;
+  }
+  .marquee-track { animation: none !important; }
+  .press:active, .magnetic { transform: none; }
+  .fb-img, .fb-glow { animation: none !important; }
+  .fb-file, .fb-share, .fb-q, .fb-recall, .fb-toast {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+}

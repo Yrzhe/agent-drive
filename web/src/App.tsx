@@ -1,6 +1,7 @@
 import { lazy, Suspense } from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 
+const LandingPage = lazy(() => import("@/pages/LandingPage"));
 const DashboardPage = lazy(() => import("@/pages/DashboardPage"));
 const ShareDownloadPage = lazy(() => import("@/pages/ShareDownloadPage"));
 const GuidePage = lazy(() => import("@/pages/GuidePage"));
@@ -22,7 +23,8 @@ function App() {
     <BrowserRouter>
       <Suspense fallback={<RouteFallback />}>
         <Routes>
-          <Route element={<DashboardPage />} path="/" />
+          <Route element={<LandingPage />} path="/" />
+          <Route element={<DashboardPage />} path="/drive" />
           <Route element={<ShareDownloadPage />} path="/s/:shareId" />
           <Route element={<GuidePage />} path="/guide" />
           <Route element={<ConnectSetupPage />} path="/connect" />

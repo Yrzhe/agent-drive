@@ -203,7 +203,7 @@ export default function BundlesPage() {
   const bundles = useMemo(() => state.kind === "loaded" ? state.bundles : [], [state]);
 
   if (authLoading) return <main className="min-h-screen bg-slate-50 px-6 py-12"><div className="mx-auto max-w-5xl rounded-2xl border border-slate-200 bg-white p-6 text-slate-600">Checking auth status...</div></main>;
-  if (!isAuthenticated) return <main className="min-h-screen bg-gradient-to-b from-slate-100 via-white to-slate-100 px-6 py-16"><AuthLoginPanel /></main>;
+  if (!isAuthenticated) return <main className="min-h-screen bg-gradient-to-b from-slate-100 via-white to-slate-100 px-6 py-16"><AuthLoginPanel redirectTo="/bundles" /></main>;
 
   return (
     <main className="min-h-screen bg-slate-50 px-6 py-8">
@@ -214,7 +214,7 @@ export default function BundlesPage() {
             <p className="text-sm text-slate-600">Read-only status for bundles pushed by the adrive CLI. Current user: {user?.email ?? user?.name ?? "Unknown"}</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Link className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-white" to="/">Dashboard</Link>
+            <Link className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-white" to="/drive">Dashboard</Link>
             <Link className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700" to="/connect">Connect AI Agent</Link>
             <button className="rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-medium text-white" onClick={() => { void signOut(); }} type="button">Sign out</button>
           </div>

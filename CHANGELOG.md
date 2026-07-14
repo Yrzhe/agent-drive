@@ -23,12 +23,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
-- **Agent-native landing page — MagicPath design baseline** (component `sunny-stone-4140`; the visual baseline for the human-facing marketing page, not yet ported into `web/public`):
+- **Agent-native landing page — live at `/`** (`web/src/pages/LandingPage.tsx`; ported from MagicPath component `sunny-stone-4140`):
   - **Hero** — a WebGL2 ordered-dither shader renders a classical "hand-off" image into a colored dot field, under a per-letter symbol-scramble headline and a cursor-trail particle field; both theme- and language-reactive.
   - **Tools** — an auto-cycling interactive MCP console (the 10 tools grouped Files / Memory / Hand-off, with live JSON-RPC request/response/scope and hover-to-focus).
   - **Feature bento** — three museum-quality classical marble illustrations (Store / Remember / Hand-off) fill each card, overlaid with animated product-UI chips that demonstrate the core flow (files fly into the strongbox → a share link generates; a plain-language query recalls a memory; a `signed · delivered` toast), under a balanced two-column section header.
   - **Bilingual (zh + en)** — a `STRINGS[lang]` dictionary plus a header 中 / EN toggle threads localized prose through every section (hero, tools, feature, identity, connect, footer); tool names, JSON payloads, endpoints, scopes, and MCP snippets stay literal.
-  - **Dark mode, responsive layout, and `prefers-reduced-motion`** honored throughout; dead code from earlier design iterations removed (component trimmed 1852 → 1442 lines).
+  - **Dark mode, responsive layout, and `prefers-reduced-motion`** honored throughout.
+  - Images self-hosted under `web/public/landing/` (no external CDN dependency); design system (fonts, CSS variables, keyframes) added to `web/src/index.css` scoped to landing utility classes so the dashboard's styling is untouched; fonts loaded via `<link>` in `web/index.html` (Bricolage Grotesque / Hanken Grotesk / JetBrains Mono); page `<title>` + meta description set.
+
+### Changed
+
+- **Web dashboard moved from `/` to `/drive`** — the marketing landing now owns `/`; the owner's drive UI is served at `/drive`. All in-app "Dashboard" back-links (Guide, Trash, Bundles, Share-download pages) and post-login `redirectTo` targets updated accordingly; unknown paths still fall back to `/`.
 
 - **Storage limits + pending-upload cleanup (audit batch 2)** — the drive was unbounded (arbitrary declared upload sizes, no cap on MCP `write_file`, no total quota) and leaked abandoned uploads (a `/upload` that never called `/upload/complete` left a `size:0` `pending:` row squatting the path plus an orphaned R2 object, with no TTL or sweeper).
   - **Per-file cap** `MAX_FILE_BYTES` var (default **500 MB**, `0` = unlimited): enforced on the declared size at `/upload` and authoritatively on the real object size at `/upload/complete` (an over-limit object is deleted + its pending row removed). Error `413 file_too_large`.
