@@ -8,6 +8,8 @@ import { drizzle } from "drizzle-orm/better-sqlite3";
 
 import { buckets, bundleVersions, contacts, drizzleSchema, files } from "@defs";
 
+import { driveObjectKey } from "../../src/lib/object-keys";
+
 interface TestUser {
   id: string;
   email: string | null;
@@ -342,7 +344,7 @@ export async function seedDriveFile(options: {
   const parentPath = parentOf(options.path);
   const name = basename(options.path);
   await seedFolder(parentPath);
-  const objectPath = `${id}/${encodeURIComponent(name)}`;
+  const objectPath = driveObjectKey(id, name);
   await runtime.storage.from(buckets.drive).put(objectPath, bytes, {
     contentType: options.contentType ?? "text/plain",
   });

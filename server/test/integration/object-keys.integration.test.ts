@@ -177,6 +177,56 @@ describe("non-ASCII object keys across the binding <-> presigned boundary (#44)"
     });
   });
 
+  describe("overwrites reuse the stored key (a rename must not strand the old object)", () => {
+    it("MCP write_file after a rename overwrites in place instead of leaking the old object", async () => {
+      expect((await mcpWrite("/rn/before.txt", "v1")).error).toBeUndefined();
+
+      const listed = await app.request("/api/public/v1/files?path=/rn", {
+        headers: jsonHeaders(useBearer(SCOPES)),
+      });
+      const row = (await listed.json() as { files: { id: string; path: string }[] }).files[0];
+      const objectsAfterCreate = [...runtime.storage.objects.keys()].filter((k) => k.includes(row.id));
+      expect(objectsAfterCreate).toHaveLength(1);
+
+      // Rename the row — its stored key still points at the original name.
+      const renamed = await app.request(`/api/public/v1/files/${row.id}`, {
+        method: "PATCH",
+        headers: jsonHeaders(useBearer(SCOPES)),
+        body: JSON.stringify({ name: "之后.txt" }),
+      });
+      expect(renamed.status).toBe(200);
+
+      // Overwriting must land on the SAME object, not mint a second one. The orphan
+      // reconciler keys off the file id, which stays live, so a stray key here would
+      // never be reaped — it would leak for the lifetime of the drive.
+      expect((await mcpWrite("/rn/之后.txt", "v2")).error).toBeUndefined();
+
+      const objectsAfterOverwrite = [...runtime.storage.objects.keys()].filter((k) => k.includes(row.id));
+      expect(objectsAfterOverwrite, "overwrite must not strand a second object").toHaveLength(1);
+
+      const url = await previewUrl(row.id);
+      const bytes = await getViaPresignedUrl(url!);
+      expect(new TextDecoder().decode(bytes!)).toBe("v2");
+    });
+  });
+
+  describe("names that cannot be encoded are rejected before anything is reserved", () => {
+    it("an unpaired surrogate is a 400, not a 500 with the path left occupied", async () => {
+      const lone = "bad-\uD800-name.bin";
+      const started = await startUpload(lone, "/bad", 5);
+
+      expect(started.status).toBe(400);
+      expect(started.detail).toContain("validation_error");
+
+      // The path must be free afterwards — a 500 mid-flight used to leave the row behind.
+      const listed = await app.request("/api/public/v1/files?path=/bad", {
+        headers: jsonHeaders(useBearer(SCOPES)),
+      });
+      const rows = (await listed.json() as { files: unknown[] }).files;
+      expect(rows, "a rejected name must not reserve the path").toHaveLength(0);
+    });
+  });
+
   describe("pending-upload cleanup reaches the object the client actually PUT", () => {
     it.each([
       ["ascii", "abandoned-ascii.bin"],

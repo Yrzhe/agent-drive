@@ -26,6 +26,12 @@ export function normalizeName(input: string | undefined): string {
   if (name.includes("/")) {
     throw new ApiError(400, "validation_error", "Name cannot contain '/'");
   }
+  // Lone surrogates are not encodable: `encodeURIComponent` throws a URIError, which
+  // would surface as a 500 *after* the row had already reserved the path. Reject them
+  // here, before anything touches the DB or storage.
+  if (/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/u.test(name)) {
+    throw new ApiError(400, "validation_error", "Name contains unpaired surrogate characters");
+  }
   return name;
 }
 
