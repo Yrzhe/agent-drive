@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 
 import { requireDualAuth } from "./middleware/auth";
+import { adminRoutes } from "./routes/admin";
 import { activityRoutes } from "./routes/activity";
 import { agentCardRoutes } from "./routes/agent-card";
 import { bundlesRoutes } from "./routes/bundles";
@@ -28,6 +29,7 @@ app.route("/api/public/.well-known", agentCardRoutes);
 app.route("/api/public/mcp", mcpRoutes);
 app.route("/api/public/oauth", oauthRoutes);
 app.use("/api/public/v1/*", requireDualAuth);
+app.route("/api/public/v1/admin", adminRoutes);
 app.route("/api/public/v1/activity", activityRoutes);
 app.route("/api/public/v1/bundles", bundlesRoutes);
 app.route("/api/public/v1/files", filesRoutes);
