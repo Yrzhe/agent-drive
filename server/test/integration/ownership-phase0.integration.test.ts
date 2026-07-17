@@ -43,6 +43,16 @@ describe("multi-tenancy Phase 0 — ownership resolution (#30)", () => {
 
       expect(await resolveOwnerUserId(runtime.db as never)).toBeNull();
     });
+
+    it("fails closed (null) when two rows differ only by email case — never binds arbitrarily", async () => {
+      // The auth-user uniqueness is on raw email, so both of these can coexist.
+      seedOwner({ email: "Owner@example.test", id: "cap" });
+      seedOwner({ email: "owner@example.test", id: "low" });
+      runtime.vars.set("OWNER_EMAIL", "owner@example.test");
+
+      // A case-insensitive match hits both; picking either would be a wrong-owner risk.
+      expect(await resolveOwnerUserId(runtime.db as never)).toBeNull();
+    });
   });
 
   describe("AGENT_TOKEN is bound to the deployment owner", () => {
@@ -62,6 +72,32 @@ describe("multi-tenancy Phase 0 — ownership resolution (#30)", () => {
       const ctx = await authenticateMcpBearer(runtime.db as never, `Bearer ${OWNER_TOKEN}`);
       expect(ctx?.kind).toBe("agent_token");
       expect(ctx?.userId).toBeNull();
+    });
+
+    it("an owner-minted (oauth) token carries the minting user's id, threaded to ownerId", async () => {
+      // Mint a real scoped token as the owner session, then present it as a bearer.
+      seedOwner({ email: "owner@example.test", id: "owner-123" });
+      runtime.vars.set("OWNER_EMAIL", "owner@example.test");
+      runtime.auth = {
+        authenticated: true,
+        user: {
+          id: "owner-123", email: "owner@example.test", name: "Owner",
+          image: null, emailVerified: true, isAnonymous: false,
+          createdAt: new Date("2026-01-01T00:00:00.000Z"),
+        },
+      };
+      const { default: app } = await import("../../src/index");
+      const minted = await app.request("/api/public/v1/tokens", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ scopes: ["read:drive"], label: "t" }),
+      });
+      expect(minted.status).toBe(201);
+      const token = (await minted.json() as { token: string }).token;
+
+      const ctx = await authenticateMcpBearer(runtime.db as never, `Bearer ${token}`);
+      expect(ctx?.kind).toBe("oauth");
+      expect(ctx?.userId).toBe("owner-123"); // the minting user, threaded to restAuth.ownerId
     });
   });
 
