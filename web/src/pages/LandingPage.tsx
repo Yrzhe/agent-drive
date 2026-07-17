@@ -294,7 +294,7 @@ const STRINGS = {
       eyebrow: 'Trust',
       h2: 'Every drive has a cryptographic identity.',
       body: 'Agent Drive publishes an A2A-compatible Agent Card — a public Ed25519 key, its capabilities, and its endpoints — so other agents can discover it and verify that a delivered file, or a subscribed bundle, really came from this drive and wasn’t tampered with in transit.',
-      bullets: [['A2A-compatible card', 'at /.well-known/agent.json — standard discovery.'], ['Ed25519 signatures', 'on every inbox payload and bundle manifest — algorithm pinned, no confusion attacks.'], ['Scoped & revocable', 'OAuth 2.1 + path-scoped tokens limit blast radius to a subtree.']] as [string, string][]
+      bullets: [['A2A-compatible card', 'at /api/public/.well-known/agent.json — standard discovery.'], ['Ed25519 signatures', 'on every inbox payload and bundle manifest — algorithm pinned, no confusion attacks.'], ['Scoped & revocable', 'OAuth 2.1 + path-scoped tokens limit blast radius to a subtree.']] as [string, string][]
     },
     connect: {
       eyebrow: 'Get started',
@@ -304,7 +304,7 @@ const STRINGS = {
     },
     footer: {
       tagline: 'An agent-native private cloud drive. Files, memory, and signed drive-to-drive handoff — all over one API.',
-      cols: [['For agents', ['/llms.txt', '/api/public/guide', '/api/public/mcp', '/.well-known/agent.json']], ['For humans', ['Open the drive', 'Connect an agent', 'Bundles']], ['Built by', ['@yrzhe_top', 'Docs']]] as [string, string[]][],
+      cols: [['For agents', ['/llms.txt', '/api/public/guide', '/api/public/mcp', '/api/public/.well-known/agent.json']], ['For humans', ['Open the drive', 'Connect an agent', 'Bundles']], ['Built by', ['@yrzhe_top', 'Docs']]] as [string, string[]][],
       bottom: 'Agent Drive · single-owner deployment · on EdgeSpark'
     }
   },
@@ -387,7 +387,7 @@ const STRINGS = {
       eyebrow: '信任',
       h2: '每个云盘都有加密身份。',
       body: 'Agent Drive 会发布一张 A2A 兼容的 Agent Card —— 公开的 Ed25519 公钥、它的能力和端点 —— 让别的 agent 能发现它,并验证收到的文件或订阅的 bundle 确实来自这个云盘、途中没被篡改。',
-      bullets: [['A2A 兼容 Card', '位于 /.well-known/agent.json —— 标准发现方式。'], ['Ed25519 签名', '每条 inbox 载荷和 bundle 清单都签 —— 算法锁定,杜绝混淆攻击。'], ['可授权、可撤销', 'OAuth 2.1 + 路径级 token,把影响范围限制在某棵子树内。']] as [string, string][]
+      bullets: [['A2A 兼容 Card', '位于 /api/public/.well-known/agent.json —— 标准发现方式。'], ['Ed25519 签名', '每条 inbox 载荷和 bundle 清单都签 —— 算法锁定,杜绝混淆攻击。'], ['可授权、可撤销', 'OAuth 2.1 + 路径级 token,把影响范围限制在某棵子树内。']] as [string, string][]
     },
     connect: {
       eyebrow: '开始接入',
@@ -397,7 +397,7 @@ const STRINGS = {
     },
     footer: {
       tagline: '一个为 agent 而生的私有云盘。文件、记忆,以及带签名的云盘间交接 —— 全在一套 API 里。',
-      cols: [['给 agent', ['/llms.txt', '/api/public/guide', '/api/public/mcp', '/.well-known/agent.json']], ['给人类', ['打开云盘', '接入 agent', '订阅包']], ['作者', ['@yrzhe_top', '文档']]] as [string, string[]][],
+      cols: [['给 agent', ['/llms.txt', '/api/public/guide', '/api/public/mcp', '/api/public/.well-known/agent.json']], ['给人类', ['打开云盘', '接入 agent', '订阅包']], ['作者', ['@yrzhe_top', '文档']]] as [string, string[]][],
       bottom: 'Agent Drive · 单一所有者部署 · 运行于 EdgeSpark'
     }
   }
@@ -1331,7 +1331,7 @@ export const Landing = () => {
                 ...mono,
                 borderBottom: '1px solid var(--code-line)',
                 color: 'var(--code-dim)'
-              }}><span>GET /.well-known/agent.json</span><span style={{
+              }}><span>GET /api/public/.well-known/agent.json</span><span style={{
                   color: 'var(--verified)'
                 }}>● signed</span></div>
                 <div className="px-4 py-4 text-[12.5px] leading-[1.75] overflow-x-auto" style={{

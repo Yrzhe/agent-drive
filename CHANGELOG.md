@@ -8,6 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **Landing page advertised a broken A2A agent-card path** — the landing documented the Agent Card at the bare `/.well-known/agent.json`, but the worker serves it at `/api/public/.well-known/agent.json` (EdgeSpark requires every worker route to live under `/api/*`, so the bare path fell through to the SPA fallback and returned `index.html`). The footer "For agents" link was therefore broken (served HTML, not JSON) and the identity section documented a path agents cannot use. Corrected in five places — EN + ZH identity bullets, EN + ZH footer columns, and the identity code-block header. `web/public/llms.txt` already had the correct path.
+
 - **README endpoint-table sync** — the root `README.md` API Reference table was missing the `webhooks` (`POST`/`GET`/`DELETE /:id`/`POST /:id/test`) and `activity` (`GET`) endpoints, even though they are already documented in `docs/api/webhooks.md` / `docs/api/activity.md`, listed in `web/public/llms.txt`, and named in `GET /api/public/guide`'s `agentSurfaces`. Added those rows so all agent-facing surfaces agree. Also refreshed the `web/src/pages/` listing in the project-structure tree (Landing/Connect/Bundles/Trash were added after it was written).
 
 - **Web client / mock type alignment (audit batch 6)** — the remaining latent wire-contract drifts between the server responses and the web client types/mock (client currently ignores the extra fields, so these were latent, not user-visible):
