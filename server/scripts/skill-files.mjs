@@ -27,7 +27,15 @@ function readRealFile(abs) {
   if (st.size > MAX_SKILL_FILE_BYTES) {
     throw new Error(`skill file exceeds ${MAX_SKILL_FILE_BYTES} bytes: ${abs} (${st.size})`);
   }
-  return readFileSync(abs, "utf8");
+  // Serve exactly the file's bytes: reject anything that is not valid UTF-8, so the
+  // embedded string can't silently differ from the source (which would make the manifest
+  // sha256 describe mangled content the updater would then "verify" and install).
+  const raw = readFileSync(abs);
+  const text = raw.toString("utf8");
+  if (!Buffer.from(text, "utf8").equals(raw)) {
+    throw new Error(`skill file is not valid UTF-8, refusing to publish: ${abs}`);
+  }
+  return text;
 }
 
 /** The allowlisted set of publishable skill paths, relative to skillRoot, sorted. */
