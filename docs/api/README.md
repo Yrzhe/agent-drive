@@ -13,6 +13,7 @@ This directory documents the public HTTP surface of an Agent Drive deployment.
 | [`peering.md`](./peering.md) | Drive-to-Drive contacts, signed inbox delivery, published bundle subscriptions |
 | [`webhooks.md`](./webhooks.md) | Register signed HTTP callbacks for drive events (root-path tokens only) |
 | [`activity.md`](./activity.md) | Read the drive's activity log (audit trail; path-scoped view) |
+| [`skill.md`](./skill.md) | Fetch the installable skill (manifest + files) with honest status — for a self-updater |
 | [Compatibility matrix](../setup/compatibility.md) | Anyone deciding which client to use |
 | Setup guides ([Claude](../setup/mcp-claude.md), [Codex](../setup/mcp-codex.md), [Cursor](../setup/mcp-cursor.md), [Gemini](../setup/mcp-gemini.md), [Windsurf](../setup/mcp-windsurf.md)) | End users wiring an IDE/agent |
 

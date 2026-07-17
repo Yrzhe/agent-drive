@@ -22,7 +22,9 @@ guideRoutes.get(
         agentCard: `${origin}/api/public/.well-known/agent.json — A2A-compatible Agent Card (identity public key, capabilities, endpoints)`,
         inbox: `${origin}/api/public/inbox — signed Drive-to-Drive file delivery for contacts added by the owner; MCP tool send_file on the sending side`,
         publicBundles: `${origin}/api/public/b/{publicId}/current — anonymously subscribable published bundles, Ed25519-signed manifest (CLI: adrive subscribe <url> --to <dir>)`,
+        skill: `${origin}/api/public/skill/manifest — versioned manifest of the installable agent skill (per-file sha256); ${origin}/api/public/skill/file?path=SKILL.md fetches a file. Public, honest 404 on a miss. Use these /api/* paths, not bare /skill/* (see note).`,
         llmsTxt: `${origin}/llms.txt — plain-text index of everything above`,
+        note: `Only /api/* paths return honest status. Any other path (e.g. bare /skill/manifest.json, /.well-known/agent.json) falls through the SPA static layer and returns 200 + index.html even when nothing exists — a platform limitation. Machines must probe the /api/public/* canonicals above, where 200 means it exists and 404 means it does not.`,
       },
       quickStart: {
         step1: `GET ${origin}/api/public/s/{shareId} → Get share info (type, hasPassword, fileCount, expired). Password-protected shares withhold name/size/fileCount until you present a valid accessToken`,
