@@ -148,7 +148,8 @@ Returns:
   "downloadUrl": "https://...r2.cloudflarestorage.com/...",
   "filename": "main.py",
   "size": 3057,
-  "expiresAt": "2026-04-10T04:00:00Z"
+  "expiresAt": "2026-04-10T04:00:00Z",
+  "expiresInSecs": 300
 }
 ```
 
@@ -157,7 +158,16 @@ Then fetch the file:
 curl -o main.py "{downloadUrl}"
 ```
 
-The `downloadUrl` is a presigned R2 URL, valid for **90 seconds** — fetch it immediately.
+The `downloadUrl` is a presigned R2 URL, valid for **`expiresInSecs` (300 seconds)** — start the download promptly. The signature is checked when the request starts, so a slow transfer of a big file is fine; only the gap between getting the URL and starting matters.
+
+**If you get a 403, read the body before concluding you are blocked:**
+
+| body | meaning | what to do |
+|------|---------|------------|
+| XML `<Code>ExpiredRequest</Code>` | the URL expired | re-request `/download` for a fresh URL |
+| Cloudflare-branded HTML page | the network/IP is genuinely blocked | the R2 host is unreachable from here; tell the sender |
+
+An expired URL is by far the more common cause — it is not a block, and retrying the same URL will never work. Request a new one.
 
 #### Option D: Download single file share
 

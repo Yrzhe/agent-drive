@@ -262,11 +262,11 @@ Returns: { files: [{ id, name, path, isFolder, size, contentType }], limit: numb
 ```
 GET /api/public/s/{shareId}/download?fileId={fileId}
 Header: X-Access-Token: {accessToken}
-Returns: { downloadUrl, filename, size, expiresAt }
+Returns: { downloadUrl, filename, size, expiresAt, expiresInSecs }
 ```
 - `fileId` required for folder shares, optional for file shares
-- `downloadUrl` is presigned, valid 90 seconds — fetch it immediately
-- Increments download counter
+- `downloadUrl` is presigned, valid for `expiresInSecs` (300 seconds) — start the download promptly. A 403 with XML `<Code>ExpiredRequest</Code>` means it expired; re-request this endpoint for a fresh URL (see `receiving.md` for 403 triage)
+- Increments download counter when the URL is **issued**, not when the bytes are fetched
 
 ### Download Folder as ZIP
 ```

@@ -2,6 +2,7 @@ import { and, eq, isNull, like, lt } from "drizzle-orm";
 
 import { buckets, files } from "@defs";
 
+import { driveObjectKey } from "./object-keys";
 import type { AppDb, FileRow } from "../types";
 
 type StorageClient = typeof import("edgespark")["storage"];
@@ -18,7 +19,7 @@ function isPendingRow(row: Pick<FileRow, "size" | "s3Uri">): boolean {
 }
 
 function pendingObjectPath(row: Pick<FileRow, "id" | "name">): string {
-  return `${row.id}/${encodeURIComponent(row.name)}`;
+  return driveObjectKey(row.id, row.name);
 }
 
 /** Returns true only if a still-pending row was claimed and removed. */

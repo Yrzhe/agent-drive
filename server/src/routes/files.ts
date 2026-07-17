@@ -8,6 +8,7 @@ import { ensureFolderChain, nowIso, toFileObject } from "../lib/files";
 import { ApiError, withErrorHandling } from "../lib/errors";
 import { escapedDescendantPattern, joinPath, normalizeName, normalizePath, parentOfPath } from "../lib/paths";
 import { parseListPagination } from "../lib/pagination";
+import { driveObjectKey, presignPath } from "../lib/object-keys";
 import { maybeReconcileOrphanObjects } from "../lib/orphan-objects";
 import { maybePurgeStalePendingUploads, reclaimStalePendingUpload } from "../lib/pending-uploads";
 import { checkFileSize, checkTotalQuota } from "../lib/quota";
@@ -22,7 +23,7 @@ import {
   softDeleteSubtree,
   trashRetentionInfo,
 } from "../lib/trash";
-import { PRESIGNED_URL_TTL_SECS, type AppEnv } from "../types";
+import { PRESIGNED_URL_TTL_SECS, PREVIEW_URL_TTL_SECS, type AppEnv } from "../types";
 
 export const filesRoutes = new Hono<AppEnv>();
 const PENDING_UPLOAD_PREFIX = "pending:";
@@ -59,9 +60,7 @@ function escapeLikeQuery(input: string): string {
   return input.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_");
 }
 
-function objectPathForUpload(fileId: string, filename: string): string {
-  return `${fileId}/${encodeURIComponent(filename)}`;
-}
+// Canonical key + presign encoding now live in lib/object-keys.ts (see #44).
 
 filesRoutes.post(
   "/upload",
@@ -102,7 +101,7 @@ filesRoutes.post(
     }
 
     const fileId = nanoid();
-    const objectPath = objectPathForUpload(fileId, filename);
+    const objectPath = driveObjectKey(fileId, filename);
     const timestamp = nowIso();
     try {
       await db.insert(files).values({
@@ -124,7 +123,7 @@ filesRoutes.post(
       throw error;
     }
 
-    const presigned = await storage.from(buckets.drive).createPresignedPutUrl(objectPath, PRESIGNED_URL_TTL_SECS, {
+    const presigned = await storage.from(buckets.drive).createPresignedPutUrl(presignPath(objectPath), PRESIGNED_URL_TTL_SECS, {
       contentType,
     });
 
@@ -169,7 +168,7 @@ filesRoutes.post(
       throw new ApiError(400, "invalid_upload_ticket", "Upload ticket metadata is invalid");
     }
 
-    const objectPath = objectPathForUpload(fileId, filename);
+    const objectPath = driveObjectKey(fileId, filename);
     const metadata = await storage.from(buckets.drive).head(objectPath);
     if (!metadata) throw new ApiError(404, "upload_not_found", "Uploaded file not found in storage");
 
@@ -567,14 +566,14 @@ filesRoutes.get(
     if (!file.s3Uri) throw new ApiError(409, "upload_pending", "File has not finished uploading");
     const parsed = storage.tryParseS3Uri(file.s3Uri);
     if (!parsed) throw new ApiError(500, "storage_error", "Invalid storage URI");
-    const { downloadUrl } = await storage.from(buckets.drive).createPresignedGetUrl(parsed.path, 300);
+    const { downloadUrl } = await storage.from(buckets.drive).createPresignedGetUrl(presignPath(parsed.path), PREVIEW_URL_TTL_SECS);
     return c.json({
       id: file.id,
       name: file.name,
       contentType: file.contentType,
       size: file.size,
       downloadUrl,
-      expiresInSecs: 300,
+      expiresInSecs: PREVIEW_URL_TTL_SECS,
     });
   })
 );

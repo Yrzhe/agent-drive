@@ -5,6 +5,7 @@ import { buckets, bundleVersions, files } from "@defs";
 
 import { signWithIdentity } from "../lib/agent-identity";
 import { ApiError, withErrorHandling } from "../lib/errors";
+import { presignPath } from "../lib/object-keys";
 import { joinPath } from "../lib/paths";
 import type { AppDb } from "../types";
 
@@ -118,7 +119,7 @@ publicBundlesRoutes.get(
     if (!row?.s3Uri) throw new ApiError(404, "file_not_found", "File not found in the bundle");
     const parsed = storage.tryParseS3Uri(row.s3Uri);
     if (!parsed) throw new ApiError(500, "storage_error", "Invalid storage URI");
-    const { downloadUrl } = await storage.from(buckets.drive).createPresignedGetUrl(parsed.path, 600);
+    const { downloadUrl } = await storage.from(buckets.drive).createPresignedGetUrl(presignPath(parsed.path), 600);
     return c.json({ path: relPath, size: row.size, contentType: row.contentType, downloadUrl, expiresInSecs: 600 });
   })
 );

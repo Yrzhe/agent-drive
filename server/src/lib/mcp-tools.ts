@@ -1,5 +1,6 @@
 import { and, asc, desc, eq, isNull, or, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
+import { driveObjectKey } from "./object-keys";
 
 import { buckets, files, shares } from "@defs";
 
@@ -50,7 +51,7 @@ function escapeLikeQuery(input: string): string {
 }
 
 function objectPathForWrite(fileId: string, filename: string): string {
-  return `${fileId}/${encodeURIComponent(filename)}`;
+  return driveObjectKey(fileId, filename);
 }
 
 export const MCP_TOOLS: McpToolDefinition[] = [
@@ -301,7 +302,12 @@ export async function callMcpTool(db: AppDb, origin: string, scopes: readonly st
     if (!quotaCheck.ok) throw new Error(`${quotaCheck.code}:${quotaCheck.message}`);
 
     const fileId = existing?.id ?? nanoid();
-    const objectPath = objectPathForWrite(fileId, filename);
+    // Overwrite an existing file at its STORED key rather than re-deriving one from
+    // the current name: after a rename the two differ, and writing to a fresh key
+    // would strand the old object forever — the orphan reconciler keys off the file
+    // id, which is still live, so it would never reap it.
+    const existingKey = existing?.s3Uri ? storage.tryParseS3Uri(existing.s3Uri)?.path : undefined;
+    const objectPath = existingKey ?? objectPathForWrite(fileId, filename);
     await storage.from(buckets.drive).put(objectPath, bytes, { contentType });
     const timestamp = nowIso();
     const values = {
