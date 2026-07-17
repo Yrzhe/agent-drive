@@ -19,7 +19,15 @@ const OWNED_TABLES: { name: string; table: SQLiteTable; ownerCol: ReturnType<typ
 export interface OwnerBackfillResult {
   ownerId: string;
   tables: Record<string, { updated: number; remainingNull: number }>;
-  complete: boolean; // true when no NULL owner_id remains anywhere
+  /**
+   * True when no NULL owner_id remained at the instant each table was counted.
+   * **Observational only — NOT a safe gate for enabling Phase-2 filtering.** The seven
+   * tables are updated + counted sequentially, and insert sites still write NULL in
+   * Phase 1a, so a row inserted after its table's count keeps `complete` true while a
+   * NULL exists. Before Phase 2 turns on owner filtering it must first populate
+   * owner-on-insert (no new NULLs), then re-run this and verify — never trust a stored flag.
+   */
+  complete: boolean;
 }
 
 /**

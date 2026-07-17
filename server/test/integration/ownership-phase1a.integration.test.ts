@@ -3,7 +3,7 @@ import { afterAll, beforeEach, describe, expect, it } from "vitest";
 
 import { activityLog, contacts, files, memories } from "../../src/defs";
 import { backfillOwnerId } from "../../src/lib/owner-backfill";
-import { jsonHeaders, resetRuntime, runtime, seedDriveFile, seedOwner, useBearer } from "./edge-runtime";
+import { jsonHeaders, resetRuntime, runtime, seedDriveFile, seedOwner, useBearer, useSession } from "./edge-runtime";
 
 const SCOPES = ["read:drive", "write:drive", "share:create", "path:/"];
 const OWNER_ID = "owner-123";
@@ -71,13 +71,12 @@ describe("multi-tenancy Phase 1a — owner_id column + backfill (#30)", () => {
     expect(second.complete).toBe(true);
   });
 
-  it("POST /admin/backfill-owner backfills as the owner", async () => {
+  it("POST /admin/backfill-owner backfills as the owner (browser session)", async () => {
     await seedSomeRows();
+    useSession({ email: "owner@example.test", id: OWNER_ID });
     const { default: app } = await import("../../src/index");
 
-    const res = await app.request("/api/public/v1/admin/backfill-owner", {
-      method: "POST", headers: jsonHeaders(useBearer(SCOPES)),
-    });
+    const res = await app.request("/api/public/v1/admin/backfill-owner", { method: "POST" });
     expect(res.status).toBe(200);
     const body = await res.json() as { ownerId: string; complete: boolean };
     expect(body.ownerId).toBe(OWNER_ID);
@@ -85,15 +84,25 @@ describe("multi-tenancy Phase 1a — owner_id column + backfill (#30)", () => {
     expect(await nullOwnerCount(files)).toBe(0);
   });
 
-  it("fails closed (409) when the owner cannot be resolved", async () => {
-    runtime.vars.delete("OWNER_EMAIL"); // unresolvable
+  it("rejects a bearer token — owner migration tooling is session-only (403)", async () => {
     await seedSomeRows();
-    const before = await nullOwnerCount(files);
     const { default: app } = await import("../../src/index");
 
     const res = await app.request("/api/public/v1/admin/backfill-owner", {
       method: "POST", headers: jsonHeaders(useBearer(SCOPES)),
     });
+    expect(res.status).toBe(403);
+    expect(await nullOwnerCount(files)).toBeGreaterThan(0); // nothing backfilled
+  });
+
+  it("fails closed (409) when the owner cannot be resolved", async () => {
+    runtime.vars.delete("OWNER_EMAIL"); // unresolvable
+    await seedSomeRows();
+    const before = await nullOwnerCount(files);
+    useSession({ email: "owner@example.test", id: OWNER_ID });
+    const { default: app } = await import("../../src/index");
+
+    const res = await app.request("/api/public/v1/admin/backfill-owner", { method: "POST" });
     expect(res.status).toBe(409);
     expect(await nullOwnerCount(files)).toBe(before); // nothing backfilled
   });
