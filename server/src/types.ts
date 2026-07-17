@@ -10,10 +10,15 @@ export type WebhookRow = typeof webhooks.$inferSelect;
 export type ActivityTargetType = "file" | "folder" | "share" | "memory" | "token";
 export type ActivityActor = "owner" | "agent" | "public";
 
-/** Resolved once by requireDualAuth and read by REST route scope helpers. */
+/**
+ * Resolved once by requireDualAuth and read by REST route scope helpers.
+ * `ownerId` is the resolved deployment owner (Phase 0) — threaded now, consumed for
+ * data partitioning in a later phase. Null only on a legacy deployment whose owner
+ * cannot be resolved (OWNER_EMAIL unset / no user row).
+ */
 export type RestAuth =
-  | { kind: "session" }
-  | { kind: "bearer"; scopes: readonly string[] };
+  | { kind: "session"; ownerId: string | null }
+  | { kind: "bearer"; scopes: readonly string[]; ownerId: string | null };
 
 export type AppEnv = { Variables: { restAuth?: RestAuth } };
 
