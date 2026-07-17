@@ -243,9 +243,31 @@ function applyMigrations(sqlite: Database.Database): void {
   }
 }
 
+// es_system__auth_user is a PLATFORM table (managed by EdgeSpark), so it is absent from
+// the app's drizzle/ migrations. Owner resolution (resolveOwnerUserId) reads it, so the
+// harness creates a minimal copy here.
+function createSystemAuthUser(sqlite: Database.Database): void {
+  sqlite.exec(`CREATE TABLE IF NOT EXISTS es_system__auth_user (
+    id TEXT PRIMARY KEY NOT NULL,
+    name TEXT NOT NULL DEFAULT '',
+    email TEXT NOT NULL,
+    email_verified INTEGER NOT NULL DEFAULT 0,
+    image TEXT,
+    created_at INTEGER NOT NULL DEFAULT 0,
+    updated_at INTEGER NOT NULL DEFAULT 0,
+    is_anonymous INTEGER DEFAULT 0,
+    banned INTEGER DEFAULT 0,
+    ban_reason TEXT,
+    ban_expires INTEGER,
+    last_login_at INTEGER
+  );`);
+  sqlite.exec(`CREATE UNIQUE INDEX IF NOT EXISTS es_system__auth_user_email_unique ON es_system__auth_user(email);`);
+}
+
 function createDb() {
   const sqlite = new Database(":memory:");
   applyMigrations(sqlite);
+  createSystemAuthUser(sqlite);
   const db = drizzle(sqlite, { schema: drizzleSchema }) as any;
   // better-sqlite3 Drizzle does not expose D1's db.batch. The production code
   // only needs ordered statement execution in these tests, so the shim awaits
@@ -284,6 +306,20 @@ export function useSession(user: Partial<TestUser> = {}): void {
       createdAt: user.createdAt ?? new Date("2026-01-01T00:00:00.000Z"),
     },
   };
+}
+
+/**
+ * Insert a row into the platform auth-user table and return its id. Owner resolution
+ * (resolveOwnerUserId) reads this table via OWNER_EMAIL.
+ */
+export function seedOwner(options: { email?: string; id?: string; name?: string } = {}): string {
+  const id = options.id ?? "owner-user";
+  const email = options.email ?? "owner@example.test";
+  runtime.sqlite?.prepare(
+    `INSERT OR REPLACE INTO es_system__auth_user (id, name, email, email_verified, created_at, updated_at)
+     VALUES (?, ?, ?, 1, 0, 0)`
+  ).run(id, options.name ?? "Owner", email);
+  return id;
 }
 
 export function useBearer(scopes: readonly string[], token = "integration-agent-token"): HeadersInit {

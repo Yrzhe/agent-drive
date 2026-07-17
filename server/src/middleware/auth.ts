@@ -13,7 +13,7 @@ export const requireDualAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
     const { auth } = await import("edgespark/http");
     if (auth.isAuthenticated()) {
       await assertRequestOwner();
-      c.set("restAuth", { kind: "session" });
+      c.set("restAuth", { kind: "session", ownerId: auth.user.id });
       await next();
       return;
     }
@@ -33,7 +33,7 @@ export const requireDualAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
       throw new ApiError(403, "invalid_scope", `invalid_scope:${required}`);
     }
 
-    c.set("restAuth", { kind: "bearer", scopes: authContext.scopes });
+    c.set("restAuth", { kind: "bearer", scopes: authContext.scopes, ownerId: authContext.userId });
     await next();
   } catch (error) {
     return handleApiError(c, error);

@@ -4,6 +4,7 @@ import { oauthTokens } from "@defs";
 
 import { parseBearerToken, timingSafeEqualStrings, verifyPasswordHash } from "./crypto";
 import { DEFAULT_AGENT_TOKEN_SCOPES, isMcpScope, isPathScope, normalizeScopes, parsePathScope } from "./mcp-scopes";
+import { resolveOwnerUserId } from "./owner";
 import type { AppDb } from "../types";
 
 export interface McpAuthContext {
@@ -72,7 +73,10 @@ export async function authenticateMcpBearer(db: AppDb, authorization: string | u
   if (configured && timingSafeEqualStrings(bearer, configured)) {
     return {
       kind: "agent_token",
-      userId: null,
+      // The deployment-wide token has no identity of its own; bind it to the owner so
+      // every accepted request carries a non-null owner (Phase 0). Null on a legacy
+      // deployment with OWNER_EMAIL unset — unchanged, nothing consumes it yet.
+      userId: await resolveOwnerUserId(db),
       clientId: null,
       scopes: agentTokenScopes(vars.get("AGENT_TOKEN_SCOPES")),
     };
