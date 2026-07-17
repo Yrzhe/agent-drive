@@ -8,6 +8,18 @@ POST <YOUR_AGENT_DRIVE_URL>/api/public/mcp
 
 `<YOUR_AGENT_DRIVE_URL>` is your deployment origin — see [the setup guide](../setup/mcp-claude.md#finding-your-agent-drive-url).
 
+### Transport methods
+
+`POST` carries every JSON-RPC message. The other Streamable HTTP methods answer `405 Method Not Allowed` with an `Allow: POST` header:
+
+| Method | Response | Why |
+|---|---|---|
+| `POST` | JSON-RPC 2.0 response | The only supported method. |
+| `GET` | `405 method_not_allowed` | Would open an SSE stream; this server offers none. The spec requires `405` (not `404`) to signal that. |
+| `DELETE` | `405 method_not_allowed` | Terminates a session; this server is stateless and issues no `Mcp-Session-Id`. |
+
+A `404` from this endpoint means "session terminated — re-initialize" in MCP, so it is never used to signal an unsupported method.
+
 ## Authentication
 
 Every request **must** include:

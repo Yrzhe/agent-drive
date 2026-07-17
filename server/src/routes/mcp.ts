@@ -20,6 +20,18 @@ function jsonRpcError(id: JsonRpcRequest["id"], code: number, message: string, d
   return Response.json({ jsonrpc: "2.0", id: id ?? null, error: { code, message, ...(data === undefined ? {} : { data }) } });
 }
 
+// Streamable HTTP requires the MCP endpoint to support both POST and GET.
+// We do not offer an SSE stream, which the spec says MUST be signalled with
+// 405 — never 404: in MCP, a 404 means "this session was terminated, start a
+// new one with a fresh InitializeRequest", so 404 here would push Streamable
+// HTTP clients into a needless re-initialize loop.
+function methodNotAllowed(detail: string): Response {
+  return new Response(JSON.stringify({ error: "method_not_allowed", detail }), {
+    status: 405,
+    headers: { "Content-Type": "application/json", Allow: "POST" },
+  });
+}
+
 function unauthorized(origin: string): Response {
   return new Response(JSON.stringify({ error: "unauthorized" }), {
     status: 401,
@@ -98,3 +110,13 @@ mcpRoutes.post("/", async (c) => {
 
   return jsonRpcError(request.id, -32601, `Method not found: ${request.method}`);
 });
+
+// GET opens an SSE stream in Streamable HTTP; we do not offer one.
+mcpRoutes.get("/", () =>
+  methodNotAllowed("This MCP endpoint does not offer an SSE stream. Send JSON-RPC 2.0 messages via POST.")
+);
+
+// DELETE terminates a session; we are stateless and issue no Mcp-Session-Id.
+mcpRoutes.delete("/", () =>
+  methodNotAllowed("This MCP endpoint is stateless and does not support client-initiated session termination.")
+);

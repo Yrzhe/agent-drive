@@ -11,6 +11,30 @@ async function rpc(headers: HeadersInit, method: string, params?: unknown): Prom
   });
 }
 
+describe("MCP Streamable HTTP transport methods", () => {
+  beforeEach(() => {
+    resetRuntime();
+  });
+
+  // Spec: the server MUST return text/event-stream OR 405 for GET. It must not
+  // 404 — in MCP a 404 means "session terminated, re-initialize", which would
+  // send Streamable HTTP clients into a needless re-init loop.
+  it("answers GET with 405 (no SSE stream), not 404", async () => {
+    const res = await app.request("/api/public/mcp", { method: "GET" });
+
+    expect(res.status).toBe(405);
+    expect(res.headers.get("Allow")).toBe("POST");
+    expect(await res.json()).toMatchObject({ error: "method_not_allowed" });
+  });
+
+  it("answers DELETE with 405 (no client-initiated session termination)", async () => {
+    const res = await app.request("/api/public/mcp", { method: "DELETE" });
+
+    expect(res.status).toBe(405);
+    expect(res.headers.get("Allow")).toBe("POST");
+  });
+});
+
 describe("MCP agent-facing contract", () => {
   beforeEach(() => {
     resetRuntime();
