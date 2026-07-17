@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- **Share download URLs now live 300s (was 90s) and report their own lifetime (#47)** — 90 seconds is hostile to this product's primary user: an agent that fetches `downloadUrl`, thinks, maybe calls another tool, and *then* downloads could blow the window. It failed as a bare `403`, which agents misdiagnose as "geo-blocked" rather than "expired" — one did exactly that.
+  - `SHARE_DOWNLOAD_URL_TTL_SECS` 90 → **300**, matching the owner-side `GET /v1/files/:id/preview`, which already used 300s. The two surfaces are doing the same thing and now share one constant in `server/src/types.ts`. The signature is validated when the request *starts*, so a slow transfer of a large file never needed a long TTL — only the issue→start gap does.
+  - `GET /s/:shareId/download` now returns **`expiresInSecs`** beside the existing `expiresAt`, matching `preview`'s shape (relative is robust to client clock skew).
+  - `preview` hardcoded `300` twice — in the presign call and in the response body — where the two could silently drift. Both now read `PREVIEW_URL_TTL_SECS`. A test asserts the reported lifetime equals the one the URL was actually signed with, for both surfaces.
+  - **Trade-off, recorded deliberately:** `downloadCount` increments when the URL is *issued*, not when bytes are fetched, and a presigned URL is unauthenticated — so within its TTL a leaked URL can be re-fetched without counting against `maxDownloads`. This widens that window 3.3×. Audit batch 1 chose 90s for exactly this reason; 300s is judged an acceptable trade given the URL is single-target, unguessable, and still far shorter than the share itself. Counting at fetch time would decouple the two properly (#47).
+  - Agent-facing surfaces updated: `guide.ts` now derives the number from the constant (it previously hardcoded "90 seconds" **and** documented the response as `{ downloadUrl, filename, size }`, omitting the `expiresAt` the server was already sending). `skill/references/receiving.md` gained a 403 triage table — XML `<Code>ExpiredRequest</Code>` means re-request a fresh URL, a Cloudflare HTML page means a genuine network block — so a recipient agent stops guessing.
+
 ### Fixed
 
 - **MCP endpoint answered `GET`/`DELETE` with `404` instead of `405`** — the Streamable HTTP spec requires the MCP endpoint to support both `POST` and `GET`, and says a server offering no SSE stream **MUST** signal that with `405 Method Not Allowed`. Only `POST /` was routed, so Hono fell through to `404`. That is actively wrong rather than merely untidy: in MCP a `404` means *"this session was terminated — start a new one with a fresh `InitializeRequest`"*, so a Streamable HTTP client probing `GET` could be pushed into a needless re-initialize loop. `GET` and `DELETE` now return `405` with an `Allow: POST` header (`GET` = no SSE stream; `DELETE` = stateless, no client-initiated session termination). Documented in `docs/api/mcp.md`; covered by two transport tests.

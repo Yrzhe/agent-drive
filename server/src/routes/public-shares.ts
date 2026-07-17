@@ -9,14 +9,10 @@ import { createAccessToken, verifyAccessToken, verifyPasswordHash } from "../lib
 import { ApiError, withErrorHandling } from "../lib/errors";
 import { escapedDescendantPattern, normalizePath } from "../lib/paths";
 import { checkRateLimit, clearRateLimit, recordFailure } from "../lib/rate-limit";
-import type { AppDb } from "../types";
+import { SHARE_DOWNLOAD_URL_TTL_SECS, type AppDb } from "../types";
 
 export const publicSharesRoutes = new Hono();
 const MAX_ZIP_DOWNLOAD_BYTES = 30 * 1024 * 1024;
-// Short-lived presigned URL for share downloads. A long TTL lets a `maxDownloads`
-// share be re-fetched without auth while the URL is live (download count only ++1),
-// so keep the reuse window tight.
-const SHARE_DOWNLOAD_URL_TTL_SECS = 90;
 const DEFAULT_PUBLIC_FILES_LIMIT = 200;
 const MAX_PUBLIC_FILES_LIMIT = 500;
 const MAX_ZIP_FILE_COUNT = 400;
@@ -392,6 +388,7 @@ publicSharesRoutes.get(
       filename: target.name,
       size: target.size,
       expiresAt: presigned.expiresAt.toISOString(),
+      expiresInSecs: SHARE_DOWNLOAD_URL_TTL_SECS,
     });
   })
 );

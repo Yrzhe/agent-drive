@@ -22,7 +22,7 @@ import {
   softDeleteSubtree,
   trashRetentionInfo,
 } from "../lib/trash";
-import { PRESIGNED_URL_TTL_SECS, type AppEnv } from "../types";
+import { PRESIGNED_URL_TTL_SECS, PREVIEW_URL_TTL_SECS, type AppEnv } from "../types";
 
 export const filesRoutes = new Hono<AppEnv>();
 const PENDING_UPLOAD_PREFIX = "pending:";
@@ -567,14 +567,14 @@ filesRoutes.get(
     if (!file.s3Uri) throw new ApiError(409, "upload_pending", "File has not finished uploading");
     const parsed = storage.tryParseS3Uri(file.s3Uri);
     if (!parsed) throw new ApiError(500, "storage_error", "Invalid storage URI");
-    const { downloadUrl } = await storage.from(buckets.drive).createPresignedGetUrl(parsed.path, 300);
+    const { downloadUrl } = await storage.from(buckets.drive).createPresignedGetUrl(parsed.path, PREVIEW_URL_TTL_SECS);
     return c.json({
       id: file.id,
       name: file.name,
       contentType: file.contentType,
       size: file.size,
       downloadUrl,
-      expiresInSecs: 300,
+      expiresInSecs: PREVIEW_URL_TTL_SECS,
     });
   })
 );

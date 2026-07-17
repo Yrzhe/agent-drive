@@ -2,6 +2,7 @@ import { Hono } from "hono";
 
 import { withErrorHandling } from "../lib/errors";
 import { APP_VERSION } from "../lib/version";
+import { SHARE_DOWNLOAD_URL_TTL_SECS } from "../types";
 
 export const guideRoutes = new Hono();
 
@@ -33,7 +34,7 @@ guideRoutes.get(
         endpoint: `GET ${origin}/api/public/s/{shareId}/download`,
         queryParams: "?fileId={id} (required for folder shares, get IDs from /files)",
         headers: "X-Access-Token: {accessToken}",
-        returns: "{ downloadUrl, filename, size } — downloadUrl is a short-lived presigned URL valid for 90 seconds; fetch it immediately",
+        returns: `{ downloadUrl, filename, size, expiresAt, expiresInSecs } — downloadUrl is a presigned URL valid for ${SHARE_DOWNLOAD_URL_TTL_SECS} seconds (expiresInSecs), so start the download promptly. Past that it returns 403 with an XML body <Code>ExpiredRequest</Code>; re-request this endpoint for a fresh URL rather than treating it as a block`,
       },
       downloadFolderAsZip: {
         description: "Download entire folder share (or a subfolder) as a ZIP archive — direct binary response, capped at 400 files and 30MB",

@@ -5,6 +5,7 @@ import { activityLog, buckets, files, shares } from "@defs";
 
 import app from "../../src/index";
 import { createAccessToken, hashPassword } from "../../src/lib/crypto";
+import { PREVIEW_URL_TTL_SECS, SHARE_DOWNLOAD_URL_TTL_SECS } from "../../src/types";
 import { jsonHeaders, resetRuntime, runtime, seedDriveFile, seedFolder } from "./edge-runtime";
 
 const SHARE_SECRET = "integration-share-secret";
@@ -51,6 +52,76 @@ async function seedFolderShare(folderPath: string, id: string): Promise<{ shareI
   const body = await response.json() as { accessToken: string };
   return { shareId: id, accessToken: body.accessToken };
 }
+
+async function seedFileShare(id: string, fileId: string): Promise<string> {
+  runtime.secrets.set("AGENT_TOKEN", SHARE_SECRET);
+  await runtime.db.insert(shares).values({
+    id,
+    fileId,
+    folderPath: null,
+    passwordHash: null,
+    passwordVersion: 1,
+    maxDownloads: null,
+    downloadCount: 0,
+    expiresAt: null,
+    createdAt: new Date().toISOString(),
+  });
+  const response = await app.request(`/api/public/s/${id}/access`, {
+    method: "POST",
+    headers: jsonHeaders(),
+    body: "{}",
+  });
+  expect(response.status).toBe(200);
+  const body = await response.json() as { accessToken: string };
+  return body.accessToken;
+}
+
+describe("share download URL lifetime", () => {
+  beforeEach(() => {
+    resetRuntime();
+  });
+
+  afterAll(() => {
+    runtime.sqlite?.close();
+  });
+
+  it("reports the download URL lifetime in-band, matching the TTL it was signed with", async () => {
+    const fileId = await seedDriveFile({ id: "ttl-file", path: "/reports/q3.pdf", body: "payload" });
+    const accessToken = await seedFileShare("share-ttl", fileId);
+
+    const issuedAt = Date.now();
+    const response = await app.request("/api/public/s/share-ttl/download", {
+      headers: { "x-access-token": accessToken },
+    });
+    expect(response.status).toBe(200);
+    const body = await response.json() as { expiresInSecs: number; expiresAt: string };
+
+    // The wire contract: agents get a lifetime they can act on without racing prose in the guide.
+    expect(body.expiresInSecs).toBe(SHARE_DOWNLOAD_URL_TTL_SECS);
+    expect(SHARE_DOWNLOAD_URL_TTL_SECS).toBe(300);
+
+    // expiresAt must derive from the SAME ttl handed to createPresignedGetUrl — otherwise the
+    // reported lifetime and the signature's real lifetime can drift apart silently. The clock
+    // is read after `issuedAt`, so the measured span sits just above the TTL, never below it.
+    const signedTtlSecs = (Date.parse(body.expiresAt) - issuedAt) / 1000;
+    expect(signedTtlSecs).toBeGreaterThanOrEqual(SHARE_DOWNLOAD_URL_TTL_SECS);
+    expect(signedTtlSecs).toBeLessThan(SHARE_DOWNLOAD_URL_TTL_SECS + 5);
+  });
+
+  it("reports the owner preview lifetime consistently with the TTL it was signed with", async () => {
+    const fileId = await seedDriveFile({ id: "preview-file", path: "/reports/q4.pdf", body: "payload" });
+    runtime.secrets.set("AGENT_TOKEN", SHARE_SECRET);
+
+    const issuedAt = Date.now();
+    const response = await app.request(`/api/public/v1/files/${fileId}/preview`, {
+      headers: { authorization: `Bearer ${SHARE_SECRET}` },
+    });
+    expect(response.status).toBe(200);
+    const body = await response.json() as { expiresInSecs: number };
+    expect(body.expiresInSecs).toBe(PREVIEW_URL_TTL_SECS);
+    expect(Date.now() - issuedAt).toBeLessThan(PREVIEW_URL_TTL_SECS * 1000);
+  });
+});
 
 describe("public share performance limits", () => {
   beforeEach(() => {
