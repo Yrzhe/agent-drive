@@ -1,10 +1,13 @@
 import { createHash } from "node:crypto";
-import { readFileSync, readdirSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 
+// The generator's single source of truth — the drift guard and safety tests use it too.
+import { MAX_SKILL_FILE_BYTES, collectSkillFiles, readSkillVersion } from "../../scripts/skill-files.mjs";
 import { SKILL_MANIFEST } from "../../src/generated/skill-manifest";
 import app from "../../src/index";
 import { resetRuntime, runtime } from "./edge-runtime";
@@ -65,25 +68,42 @@ describe("skill honest-discovery endpoints (#46 / unblocks #45)", () => {
   });
 
   it("the committed manifest is in sync with skill/** (drift guard)", () => {
-    // Re-derive from the repo and assert equality with what the worker will serve.
-    const version = readFileSync(join(skillRoot, "VERSION"), "utf8").trim();
-    const collect = (dir: string): string[] =>
-      readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name)).flatMap((e) =>
-        e.isDirectory() ? collect(join(dir, e.name)) : e.name.endsWith(".md") ? [join(dir, e.name)] : []
-      );
-    const derived = collect(skillRoot)
-      .map((abs) => {
-        const content = readFileSync(abs, "utf8");
-        return {
-          path: abs.slice(skillRoot.length + 1),
-          sha256: createHash("sha256").update(content, "utf8").digest("hex"),
-          bytes: Buffer.byteLength(content, "utf8"),
-        };
-      })
-      .sort((a, b) => a.path.localeCompare(b.path));
+    // Re-derive via the SAME module the generator uses, so the guard cannot compute a
+    // different answer that agrees with the committed file but not with reality.
+    const derived = collectSkillFiles(skillRoot).map((f) => ({ path: f.path, sha256: f.sha256, bytes: f.bytes }));
 
-    expect(SKILL_MANIFEST.version).toBe(version);
-    expect(SKILL_MANIFEST.files.map((f) => ({ path: f.path, sha256: f.sha256, bytes: f.bytes })))
-      .toEqual(derived);
+    expect(SKILL_MANIFEST.version).toBe(readSkillVersion(skillRoot));
+    expect(SKILL_MANIFEST.files.map((f) => ({ path: f.path, sha256: f.sha256, bytes: f.bytes }))).toEqual(derived);
+  });
+
+  describe("publish safety guards (public unauthenticated bundle)", () => {
+    let tmp: string;
+    beforeEach(() => {
+      tmp = mkdtempSync(join(tmpdir(), "skill-guard-"));
+      mkdirSync(join(tmp, "references"), { recursive: true });
+      writeFileSync(join(tmp, "VERSION"), "9.9.9\n");
+      writeFileSync(join(tmp, "SKILL.md"), "# skill\n");
+      writeFileSync(join(tmp, "references", "ok.md"), "ok\n");
+    });
+
+    it("allowlists SKILL.md + references/*.md only — an unrelated .md is NOT published", () => {
+      writeFileSync(join(tmp, "secret-notes.md"), "private\n");            // top-level, not SKILL.md
+      mkdirSync(join(tmp, "internal"), { recursive: true });
+      writeFileSync(join(tmp, "internal", "leak.md"), "private\n");         // other subdir
+      const paths = collectSkillFiles(tmp).map((f) => f.path);
+      expect(paths).toEqual(["references/ok.md", "SKILL.md"]);
+    });
+
+    it("refuses to publish a symlink (no content from outside skill/)", () => {
+      const outside = join(tmpdir(), `outside-${Date.now()}.txt`);
+      writeFileSync(outside, "SECRET OUTSIDE CONTENT\n");
+      symlinkSync(outside, join(tmp, "references", "evil.md"));
+      expect(() => collectSkillFiles(tmp)).toThrow(/symlink/iu);
+    });
+
+    it("refuses to publish an oversized file", () => {
+      writeFileSync(join(tmp, "references", "huge.md"), "x".repeat(MAX_SKILL_FILE_BYTES + 1));
+      expect(() => collectSkillFiles(tmp)).toThrow(/exceeds/iu);
+    });
   });
 });
