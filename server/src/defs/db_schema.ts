@@ -15,10 +15,13 @@ export const files = sqliteTable(
     deletedAt: text("deleted_at"),
     createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
     updatedAt: text("updated_at").notNull().default(sql`(datetime('now'))`),
+    // Multi-tenancy Phase 1a: nullable now (backfilled), required by code from Phase 2.
+    ownerId: text("owner_id"),
   },
   (table) => [
     index("idx_files_parent_path").on(table.parentPath),
     index("idx_files_deleted_at").on(table.deletedAt),
+    index("idx_files_owner").on(table.ownerId),
   ]
 );
 
@@ -34,11 +37,13 @@ export const shares = sqliteTable(
     downloadCount: integer("download_count").notNull().default(0),
     expiresAt: text("expires_at"),
     createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
+    ownerId: text("owner_id"),
   },
   (table) => [
     index("idx_shares_file_id").on(table.fileId),
     index("idx_shares_folder_path").on(table.folderPath),
     index("idx_shares_created_at").on(table.createdAt),
+    index("idx_shares_owner").on(table.ownerId),
   ]
 );
 
@@ -55,11 +60,13 @@ export const activityLog = sqliteTable(
     ip: text("ip"),
     userAgent: text("user_agent"),
     createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
+    ownerId: text("owner_id"),
   },
   (table) => [
     index("idx_activity_type").on(table.eventType),
     index("idx_activity_created_at").on(table.createdAt),
     index("idx_activity_target").on(table.targetType, table.targetId),
+    index("idx_activity_owner").on(table.ownerId),
   ]
 );
 
@@ -75,8 +82,13 @@ export const webhooks = sqliteTable(
     lastStatus: integer("last_status"),
     failureCount: integer("failure_count").notNull().default(0),
     createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
+    ownerId: text("owner_id"),
   },
-  (table) => [index("idx_webhooks_enabled").on(table.enabled), index("idx_webhooks_created_at").on(table.createdAt)]
+  (table) => [
+    index("idx_webhooks_enabled").on(table.enabled),
+    index("idx_webhooks_created_at").on(table.createdAt),
+    index("idx_webhooks_owner").on(table.ownerId),
+  ]
 );
 
 export const agentIdentity = sqliteTable("agent_identity", {
@@ -87,15 +99,20 @@ export const agentIdentity = sqliteTable("agent_identity", {
   createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
 });
 
-export const contacts = sqliteTable("contacts", {
-  id: text("id").primaryKey(),
-  name: text("name").notNull().unique(),
-  url: text("url").notNull().unique(),
-  publicKeyJwk: text("public_key_jwk").notNull(),
-  algorithm: text("algorithm").notNull().default("Ed25519"),
-  autoRelease: integer("auto_release").notNull().default(0),
-  addedAt: text("added_at").notNull().default(sql`(datetime('now'))`),
-});
+export const contacts = sqliteTable(
+  "contacts",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull().unique(),
+    url: text("url").notNull().unique(),
+    publicKeyJwk: text("public_key_jwk").notNull(),
+    algorithm: text("algorithm").notNull().default("Ed25519"),
+    autoRelease: integer("auto_release").notNull().default(0),
+    addedAt: text("added_at").notNull().default(sql`(datetime('now'))`),
+    ownerId: text("owner_id"),
+  },
+  (table) => [index("idx_contacts_owner").on(table.ownerId)]
+);
 
 export const memories = sqliteTable(
   "memories",
@@ -107,8 +124,12 @@ export const memories = sqliteTable(
     source: text("source"),
     createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
     updatedAt: text("updated_at").notNull().default(sql`(datetime('now'))`),
+    ownerId: text("owner_id"),
   },
-  (table) => [index("idx_memories_updated_at").on(table.updatedAt)]
+  (table) => [
+    index("idx_memories_updated_at").on(table.updatedAt),
+    index("idx_memories_owner").on(table.ownerId),
+  ]
 );
 
 export const rateLimits = sqliteTable("rate_limits", {
@@ -162,10 +183,12 @@ export const bundleVersions = sqliteTable(
     totalSize: integer("total_size").notNull().default(0),
     pushedAt: text("pushed_at").notNull(),
     updatedAt: text("updated_at").notNull().default(sql`(datetime('now'))`),
+    ownerId: text("owner_id"),
   },
   (table) => [
     index("idx_bundle_versions_current").on(table.currentVersionId),
     index("idx_bundle_versions_pushed_at").on(table.pushedAt),
+    index("idx_bundle_versions_owner").on(table.ownerId),
   ]
 );
 

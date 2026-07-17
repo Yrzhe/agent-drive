@@ -192,6 +192,7 @@ function mapRawRow(row: Record<string, unknown>): MemoryRow {
     source: (row.source as string | null) ?? null,
     createdAt: String(row.created_at ?? row.createdAt ?? ""),
     updatedAt: String(row.updated_at ?? row.updatedAt ?? ""),
+    ownerId: (row.owner_id as string | null) ?? (row.ownerId as string | null) ?? null,
   };
 }
 
