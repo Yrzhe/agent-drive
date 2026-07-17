@@ -43,6 +43,16 @@
   write:memory. Path scopes (path:/prefix/*) limit blast radius to a subtree.
   Scopes are enforced on both MCP tools and REST endpoints.
 
+## Installable skill (self-describing, honest status)
+
+- GET /api/public/skill/manifest — { version, files: [{ path, sha256, bytes }] }
+  for the distributable agent skill.
+- GET /api/public/skill/file?path=SKILL.md — one file's raw content; 404 for an
+  unknown path.
+- Use these /api/* paths, NOT bare /skill/* : any non-/api path that is not a
+  real asset returns 200 + index.html (SPA fallback, a platform limit), so only
+  /api/* status codes are trustworthy.
+
 ## Receiving a share (no account needed)
 
 1. GET /api/public/s/{shareId} — share info
