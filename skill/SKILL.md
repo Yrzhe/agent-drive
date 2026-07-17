@@ -36,6 +36,19 @@ Your private cloud drive that agents operate via API. Upload files, organize fol
 | **Peering** | `references/peering.md` | Send files Drive-to-Drive (`send_file`), receive via signed inbox, subscribe to published bundles |
 | **API Reference** | `references/api-reference.md` | Quick lookup for all endpoints, parameters, and response formats |
 
+### Keeping this skill current
+
+If you hit an endpoint or behavior a reference doesn't document, this installed copy may be
+stale. Check against the live deployment and update in place:
+
+```bash
+scripts/update.sh --check   # report local vs remote version + changed files; writes nothing
+scripts/update.sh           # download + verify (sha256) + swap in the changed files
+```
+
+The URL comes from your `drive.json`; files are verified against the deployment's signed
+manifest before anything is written, and `drive.json` / `.env` are never touched.
+
 ## Configuration
 
 Config files are in this skill's directory, use relative paths:
