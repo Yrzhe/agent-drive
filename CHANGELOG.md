@@ -37,6 +37,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **Drive-bucket orphan object reconciler (#34)** — batch 4 made `hardPurgeSubtree` delete DB rows before its best-effort R2 delete, so a failed delete (or a worker dying between an R2 put and its row insert) leaks an **orphan object**: no broken reference, but nothing ever reaped it (the batch-2 sweep only handles `pending:` rows). Added `maybeReconcileOrphanObjects` — an opportunistic, sampled sweep (no cron, mirroring `maybePurgeStaleTrash`) wired into the same `routes/files.ts` call sites.
+  - **Orphan test keys off the file id, not `s3Uri`**: every drive key is `${fileId}/${encodeURIComponent(name)}` (all four writers agree — MCP `write_file`, inbox delivery, bundle manifest, bundle history), so an object is an orphan iff its first path segment matches no `files` row. This survives renames and filename-encoding drift, and covers pending rows (whose `s3Uri` is a `pending:` marker, not a key) for free.
+  - **Cannot eat a live file**: the row lookup ignores `deletedAt` (trashed rows still protect their objects); `/upload` inserts the pending row *before* presigning, so an in-flight client upload always resolves; a 24 h grace window on `uploadedAt` covers the server-side put→insert gap; bundle manifests/history have `files` rows of their own.
+  - **No cursor table**: each sweep picks one random character from the nanoid alphabet and scans only that slice of the bucket, rotating through the 64 slices over time. Coverage is eventual — the right trade for a storage leak — and each sweep's work stays bounded.
+
 - **Agent-native landing page — live at `/`** (`web/src/pages/LandingPage.tsx`; ported from MagicPath component `sunny-stone-4140`):
   - **Hero** — a WebGL2 ordered-dither shader renders a classical "hand-off" image into a colored dot field, under a per-letter symbol-scramble headline and a cursor-trail particle field; both theme- and language-reactive.
   - **Tools** — an auto-cycling interactive MCP console (the 10 tools grouped Files / Memory / Hand-off, with live JSON-RPC request/response/scope and hover-to-focus).

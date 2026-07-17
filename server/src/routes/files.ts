@@ -8,6 +8,7 @@ import { ensureFolderChain, nowIso, toFileObject } from "../lib/files";
 import { ApiError, withErrorHandling } from "../lib/errors";
 import { escapedDescendantPattern, joinPath, normalizeName, normalizePath, parentOfPath } from "../lib/paths";
 import { parseListPagination } from "../lib/pagination";
+import { maybeReconcileOrphanObjects } from "../lib/orphan-objects";
 import { maybePurgeStalePendingUploads, reclaimStalePendingUpload } from "../lib/pending-uploads";
 import { checkFileSize, checkTotalQuota } from "../lib/quota";
 import { assertRestListPathAllowed, assertRestPathAllowed, restPathFilter } from "../lib/rest-scopes";
@@ -368,6 +369,7 @@ filesRoutes.delete(
 
     await maybePurgeStaleTrash(db, storage);
     await maybePurgeStalePendingUploads(db, storage);
+    await maybeReconcileOrphanObjects(db, storage);
 
     return c.json({
       requested: ids.length,
@@ -701,6 +703,7 @@ filesRoutes.delete(
     const { rows, fileIds } = await softDeleteSubtree(db, target, { actor });
     await maybePurgeStaleTrash(db, storage);
     await maybePurgeStalePendingUploads(db, storage);
+    await maybeReconcileOrphanObjects(db, storage);
 
     const targetType = target.isFolder === 1 ? "folder" : "file";
     await logEvent(db, {
@@ -744,6 +747,7 @@ filesRoutes.post(
     const restored = await restoreSubtree(db, target);
     await maybePurgeStaleTrash(db, storage);
     await maybePurgeStalePendingUploads(db, storage);
+    await maybeReconcileOrphanObjects(db, storage);
 
     await logEvent(db, {
       eventType: "file.restored",
