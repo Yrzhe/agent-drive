@@ -1,5 +1,6 @@
 import { and, asc, desc, eq, isNull, or, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
+import { driveObjectKey } from "./object-keys";
 
 import { buckets, files, shares } from "@defs";
 
@@ -50,7 +51,7 @@ function escapeLikeQuery(input: string): string {
 }
 
 function objectPathForWrite(fileId: string, filename: string): string {
-  return `${fileId}/${encodeURIComponent(filename)}`;
+  return driveObjectKey(fileId, filename);
 }
 
 export const MCP_TOOLS: McpToolDefinition[] = [

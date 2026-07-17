@@ -6,6 +6,7 @@ import { buckets, files, shares } from "@defs";
 
 import { logEvent } from "../lib/activity";
 import { createAccessToken, verifyAccessToken, verifyPasswordHash } from "../lib/crypto";
+import { presignPath } from "../lib/object-keys";
 import { ApiError, withErrorHandling } from "../lib/errors";
 import { escapedDescendantPattern, normalizePath } from "../lib/paths";
 import { checkRateLimit, clearRateLimit, recordFailure } from "../lib/rate-limit";
@@ -367,7 +368,7 @@ publicSharesRoutes.get(
     const parsed = storage.tryParseS3Uri(target.s3Uri);
     if (!parsed) throw new ApiError(404, "upload_not_found", "Storage path is invalid");
 
-    const presigned = await storage.from(buckets.drive).createPresignedGetUrl(parsed.path, SHARE_DOWNLOAD_URL_TTL_SECS);
+    const presigned = await storage.from(buckets.drive).createPresignedGetUrl(presignPath(parsed.path), SHARE_DOWNLOAD_URL_TTL_SECS);
     await incrementDownloadCountOrThrow(db, share.id);
     await logEvent(db, {
       eventType: "share.downloaded",

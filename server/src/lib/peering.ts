@@ -1,5 +1,6 @@
 import { and, eq, isNull } from "drizzle-orm";
 import { nanoid } from "nanoid";
+import { driveObjectKey } from "./object-keys";
 
 import { buckets, contacts, files } from "@defs";
 
@@ -111,7 +112,7 @@ export async function storeInboxFile(
 
   const fileId = nanoid();
   const name = targetPath.split("/").pop() ?? payload.filename;
-  const objectPath = `${fileId}/${encodeURIComponent(name)}`;
+  const objectPath = driveObjectKey(fileId, name);
   await storage.from(buckets.drive).put(objectPath, bytes, { contentType: payload.contentType ?? "application/octet-stream" });
 
   const timestamp = nowIso();

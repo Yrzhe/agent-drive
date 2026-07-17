@@ -20,7 +20,7 @@ const ID_ALPHABET = "useandom-26T198340PX75pxJACKVERYMINDBUSHWOLF_GQZbfghjklqvwy
 const ORPHAN_SWEEP_SAMPLE_RATE = 0.02;
 const ORPHAN_SWEEP_LIMIT = 500;
 
-/** Every drive key is `${fileId}/${encodeURIComponent(name)}` — take the owning id. */
+/** Every drive key is `/` (see lib/object-keys.ts) — take the owning id. */
 function fileIdOf(objectPath: string): string | null {
   const slash = objectPath.indexOf("/");
   if (slash <= 0) return null;

@@ -5,6 +5,7 @@ import { nanoid } from "nanoid";
 import { buckets, bundleVersions, files } from "@defs";
 
 import { getRequestActor, logEvent } from "../lib/activity";
+import { driveObjectKey } from "../lib/object-keys";
 import { ApiError, withErrorHandling } from "../lib/errors";
 import { ensureFolderChain, nowIso } from "../lib/files";
 import { joinPath, normalizePath } from "../lib/paths";
@@ -138,7 +139,7 @@ async function snapshotCurrentManifestToHistory(
   await purgeConflictingTrashAtPath(db, storage, historyPath);
   const [existingHistoryRow] = await db.select().from(files).where(and(eq(files.path, historyPath), isNull(files.deletedAt))).limit(1);
   const historyFileId = existingHistoryRow?.id ?? nanoid();
-  const historyR2Path = `${historyFileId}/${encodeURIComponent(historyName)}`;
+  const historyR2Path = driveObjectKey(historyFileId, historyName);
   await storage.from(buckets.drive).put(historyR2Path, bytes, { contentType: "application/json" });
 
   const row: typeof files.$inferInsert = {
@@ -302,7 +303,7 @@ bundlesRoutes.post(
     }
 
     const manifestFileId = existingManifestRow?.id ?? nanoid();
-    const manifestR2Path = `${manifestFileId}/${encodeURIComponent(manifestName)}`;
+    const manifestR2Path = driveObjectKey(manifestFileId, manifestName);
     await storage.from(buckets.drive).put(manifestR2Path, manifestBytes, { contentType: "application/json" });
 
     const manifestFileRow: typeof files.$inferInsert = {

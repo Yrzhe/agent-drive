@@ -108,6 +108,13 @@ class InMemoryBucket {
     }
   }
 
+  // The presign family embeds `pathname` in the URL VERBATIM — it applies no
+  // encoding of its own (verified against production: an already-encoded path
+  // came back as `%E6…`, not `%25E6…`). S3/R2 then URL-decodes the key once when
+  // it serves the request, so the effective key is `decodeURIComponent(pathname)`.
+  // The binding family (put/get/head/delete) treats `pathname` as a literal key.
+  // Modelling that split is the whole point: an encoder-agnostic mock cannot
+  // reproduce the raw-vs-encoded key bug at all.
   async createPresignedPutUrl(
     pathname: string,
     expiresInSecs = 3600,
@@ -115,7 +122,7 @@ class InMemoryBucket {
   ): Promise<{ uploadUrl: string; requiredHeaders: Record<string, string>; expiresAt: Date }> {
     const requiredHeaders = options.contentType ? { "content-type": options.contentType } : {};
     return {
-      uploadUrl: `memory://put/${this.name}/${encodeURIComponent(pathname)}`,
+      uploadUrl: `memory://put/${this.name}/${pathname}`,
       requiredHeaders,
       expiresAt: new Date(Date.now() + expiresInSecs * 1000),
     };
@@ -126,10 +133,40 @@ class InMemoryBucket {
     expiresInSecs = 3600
   ): Promise<{ downloadUrl: string; expiresAt: Date }> {
     return {
-      downloadUrl: `memory://get/${this.name}/${encodeURIComponent(pathname)}`,
+      downloadUrl: `memory://get/${this.name}/${pathname}`,
       expiresAt: new Date(Date.now() + expiresInSecs * 1000),
     };
   }
+}
+
+/** Split a `memory://{op}/{bucket}/{verbatimPath}` URL the mock handed out. */
+function parsePresignedUrl(url: string): { op: string; bucket: string; key: string } {
+  const match = /^memory:\/\/(put|get)\/([^/]+)\/(.*)$/su.exec(url);
+  if (!match) throw new Error(`not a presigned mock url: ${url}`);
+  // S3/R2 decodes the key once when serving the presigned request.
+  return { op: match[1], bucket: match[2], key: decodeURIComponent(match[3]) };
+}
+
+/**
+ * Simulate the client's direct PUT to a presigned URL. The object lands at the
+ * key S3 resolves — `decodeURIComponent(path-in-url)` — NOT at the string we
+ * handed the presign call.
+ */
+export async function putViaPresignedUrl(
+  uploadUrl: string,
+  body: string | Uint8Array,
+  contentType = "application/octet-stream"
+): Promise<void> {
+  const { bucket, key } = parsePresignedUrl(uploadUrl);
+  const bytes = typeof body === "string" ? new TextEncoder().encode(body) : body;
+  await runtime.storage.from(bucket).put(key, bytes, { contentType });
+}
+
+/** Simulate a client GET against a presigned URL; null when S3 would 404. */
+export async function getViaPresignedUrl(downloadUrl: string): Promise<Uint8Array | null> {
+  const { bucket, key } = parsePresignedUrl(downloadUrl);
+  const object = await runtime.storage.from(bucket).get(key);
+  return object ? new Uint8Array(object.body) : null;
 }
 
 export class InMemoryStorage {
