@@ -26,6 +26,13 @@ guideRoutes.get(
         llmsTxt: `${origin}/llms.txt — plain-text index of everything above`,
         note: `Only /api/* paths return honest status. Any other path (e.g. bare /skill/manifest.json, /.well-known/agent.json) falls through the SPA static layer and returns 200 + index.html even when nothing exists — a platform limitation. Machines must probe the /api/public/* canonicals above, where 200 means it exists and 404 means it does not.`,
       },
+      accountAccess: {
+        description: "Session (browser) callers are gated by their app-level access status; bearer/agent tokens are already owner-scoped credentials and are never gated.",
+        status: `GET ${origin}/api/public/v1/account/status — session auth only. Returns { status: "active"|"pending"|"suspended", email, isAdmin }.`,
+        apply: `POST ${origin}/api/public/v1/account/apply { message?, ref? } — session auth only. Attaches an optional waitlist message/referral to the caller's pending row. NEVER grants access by itself — only admin approval does.`,
+        gate: "A session request to any /api/public/v1/* route other than /account/* and /admin/* is rejected unless status is \"active\": pending -> 403 access_pending, suspended -> 403 access_suspended. The two exempt prefixes let a pending/suspended session always check its status and apply to the waitlist.",
+        onboarding: "A new signup starts pending (or active immediately if its email is on the owner's allowlist) and needs the owner to approve it before other endpoints become reachable for that session.",
+      },
       quickStart: {
         step1: `GET ${origin}/api/public/s/{shareId} → Get share info (type, hasPassword, fileCount, expired). Password-protected shares withhold name/size/fileCount until you present a valid accessToken`,
         step2: `POST ${origin}/api/public/s/{shareId}/access with body {"password":"xxx"} (or {} if no password) → Get accessToken (15 min TTL)`,

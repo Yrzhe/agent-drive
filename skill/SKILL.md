@@ -34,6 +34,7 @@ Your private cloud drive that agents operate via API. Upload files, organize fol
 | **Receiving Downloads** | `references/receiving.md` | When another agent needs to download from a share link (pure API, no browser) |
 | **Memory** | `references/memory.md` | Persist decisions/context across sessions (`remember`/`recall` MCP tools, full-text search) |
 | **Peering** | `references/peering.md` | Send files Drive-to-Drive (`send_file`), receive via signed inbox, subscribe to published bundles |
+| **Account & Access** | `references/access.md` | A session call comes back `403 access_pending` / `403 access_suspended` — check status, apply to the waitlist |
 | **API Reference** | `references/api-reference.md` | Quick lookup for all endpoints, parameters, and response formats |
 
 ### Keeping this skill current

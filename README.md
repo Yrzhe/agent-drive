@@ -193,6 +193,8 @@ Use `/api/public/mcp` as the remote MCP URL. OAuth/MCP discovery is served from 
 | POST | `/api/public/v1/tokens` | Mint a scoped drive token (session-only) |
 | GET | `/api/public/v1/tokens` | List minted tokens (session-only) |
 | DELETE | `/api/public/v1/tokens/:id` | Revoke a minted token (session-only) |
+| GET | `/api/public/v1/account/status` | Check your access status (`active`/`pending`/`suspended`) (session-only) |
+| POST | `/api/public/v1/account/apply` | Attach an optional waitlist message/referral to a pending account (session-only) |
 | POST | `/api/public/v1/contacts` | Add a peer Drive contact (session-only) |
 | GET | `/api/public/v1/contacts` | List contacts (session-only) |
 | POST | `/api/public/v1/contacts/:name/send` | Send a file to a contact's Drive inbox |

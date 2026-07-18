@@ -43,6 +43,21 @@
   write:memory. Path scopes (path:/prefix/*) limit blast radius to a subtree.
   Scopes are enforced on both MCP tools and REST endpoints.
 
+## Account status & access gate
+
+- Session (browser) callers only. GET /api/public/v1/account/status →
+  { status: "active"|"pending"|"suspended", email, isAdmin }. POST
+  /api/public/v1/account/apply { message?, ref? } attaches an optional
+  waitlist message/referral to a pending account; it never grants access
+  itself — only admin approval does.
+- Session requests to any /api/public/v1/* route are gated by that status:
+  active passes, pending -> 403 access_pending, suspended -> 403
+  access_suspended. /account/* and /admin/* are exempt so a pending or
+  suspended session can always check its own status. Bearer/agent tokens
+  are NOT gated — an agent token is already an owner-scoped credential.
+- A new signup starts pending (or active immediately if its email is
+  allowlisted) and needs owner approval.
+
 ## Installable skill (self-describing, honest status)
 
 - GET /api/public/skill/manifest — { version, files: [{ path, sha256, bytes }] }
