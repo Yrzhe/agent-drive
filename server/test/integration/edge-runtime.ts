@@ -484,6 +484,7 @@ export async function seedPublishedBundle(ownerId: string | null = null): Promis
     totalSize: 2,
     pushedAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
+    ownerId,
   });
   return { publicId, prefix };
 }

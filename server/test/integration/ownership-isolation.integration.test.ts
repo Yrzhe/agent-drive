@@ -6,7 +6,7 @@ import { ensureFolderChain } from "../../src/lib/files";
 import { callMcpTool } from "../../src/lib/mcp-tools";
 import { getMemory, listMemories, recallMemories } from "../../src/lib/memory";
 import { getContactByName, getContactByUrl } from "../../src/lib/peering";
-import { jsonHeaders, resetRuntime, runtime, seedContact, seedDriveFile, seedMemory, seedOwner, seedShareRow, useBearer, useSession } from "./edge-runtime";
+import { jsonHeaders, resetRuntime, runtime, seedBundleRow, seedContact, seedDriveFile, seedMemory, seedOwner, seedShareRow, useBearer, useSession } from "./edge-runtime";
 
 describe("two-owner isolation harness (#30 Part ①a)", () => {
   beforeEach(() => resetRuntime());
@@ -204,5 +204,27 @@ describe("two-owner isolation harness (#30 Part ①a)", () => {
     await runtime.db.insert(activityLog).values({ id: "actb", eventType: "file.uploaded", actor: "owner", createdAt: new Date().toISOString(), ownerId: "B" } as never);
     const rowsB = await listActivities(runtime.db as never, { limit: 100 }, "B");
     expect(rowsB.map((r) => r.id)).toEqual(["actb"]);
+  });
+
+  it("owner B's bundle reads exclude owner A's bundles; public-by-publicId stays global", async () => {
+    seedOwner({ email: "b@x.test", id: "B" });
+    runtime.vars.set("OWNER_EMAIL", "b@x.test");
+    await seedBundleRow({ prefix: "/proj-a", publicId: "pb_a", ownerId: "A" });
+    // The public /current route resolves the manifest.json object off the
+    // files table (owner-agnostic, by publicId) — seed it so the public
+    // path can actually resolve, matching how a real committed bundle works.
+    await seedDriveFile({
+      path: "/proj-a/manifest.json",
+      body: JSON.stringify({ version: 1, files: [] }),
+      contentType: "application/json",
+      ownerId: "A",
+    });
+    const headers = jsonHeaders(useBearer(["read:drive", "path:/"]));
+    const { default: app } = await import("../../src/index");
+    const cur = await app.request("/api/public/v1/bundles/current?prefix=/proj-a", { headers });
+    const body = await cur.json() as { currentVersion: unknown | null };
+    expect(body.currentVersion).toBeNull(); // B cannot see A's bundle
+    const pub = await app.request("/api/public/b/pb_a/current");
+    expect(pub.status).toBe(200); // public path still resolves by publicId
   });
 });
