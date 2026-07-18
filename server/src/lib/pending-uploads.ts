@@ -3,11 +3,11 @@ import { and, eq, isNull, like, lt } from "drizzle-orm";
 import { buckets, files } from "@defs";
 
 import { driveObjectKey } from "./object-keys";
+import { PENDING_UPLOAD_PREFIX, readPendingUploadObjectKey } from "./pending-marker";
 import type { AppDb, FileRow } from "../types";
 
 type StorageClient = typeof import("edgespark")["storage"];
 
-const PENDING_UPLOAD_PREFIX = "pending:";
 /** Abandoned pending rows/objects are reaped by the background sweep after this. */
 export const PENDING_UPLOAD_TTL_MS = 24 * 60 * 60 * 1000; // 24 h
 /** A pending row can be reclaimed by a fresh /upload once its PUT URL has expired. */
@@ -18,8 +18,12 @@ function isPendingRow(row: Pick<FileRow, "size" | "s3Uri">): boolean {
   return row.size === 0 && typeof row.s3Uri === "string" && row.s3Uri.startsWith(PENDING_UPLOAD_PREFIX);
 }
 
-function pendingObjectPath(row: Pick<FileRow, "id" | "name">): string {
-  return driveObjectKey(row.id, row.name);
+// A row's name can change after /upload (e.g. PATCH rename to clear a restore
+// path-conflict) without changing the R2 key the presigned PUT actually
+// targeted. Resolve from the marker's stored key first; only rows created
+// before #50 (no key segment in the marker) fall back to the name-derived key.
+function pendingObjectPath(row: Pick<FileRow, "id" | "name" | "s3Uri">): string {
+  return readPendingUploadObjectKey(row.s3Uri) ?? driveObjectKey(row.id, row.name);
 }
 
 /** Returns true only if a still-pending row was claimed and removed. */
