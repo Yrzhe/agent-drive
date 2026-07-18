@@ -5,6 +5,7 @@ import { nanoid } from "nanoid";
 import { memories } from "@defs";
 
 import { nowIso } from "./files";
+import { currentOwnerId } from "./request-owner";
 import type { AppDb } from "../types";
 
 export type MemoryRow = typeof memories.$inferSelect;
@@ -144,7 +145,7 @@ export async function rememberMemory(db: AppDb, input: RememberInput): Promise<{
     const id = nanoid();
     const [createdRows] = await db.batch([
       db.insert(memories)
-        .values({ id, key, content, tags, source, createdAt: timestamp, updatedAt: timestamp })
+        .values({ id, key, content, tags, source, createdAt: timestamp, updatedAt: timestamp, ownerId: currentOwnerId() })
         .returning(),
       db.delete(memoriesFts).where(eq(memoriesFts.id, id)),
       db.insert(memoriesFts).values(ftsRowValues(id, content, tags)),

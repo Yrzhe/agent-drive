@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import { nanoid } from "nanoid";
 import { buckets, files, shares } from "@defs";
 import { getRequestActor, logEvent } from "../lib/activity";
+import { currentOwnerId } from "../lib/request-owner";
 import { rewriteBundlePrefixesForMove } from "../lib/bundle-prefixes";
 import { ensureFolderChain, nowIso, toFileObject } from "../lib/files";
 import { ApiError, withErrorHandling } from "../lib/errors";
@@ -115,6 +116,7 @@ filesRoutes.post(
         s3Uri: createPendingUploadMarker(declaredSize),
         createdAt: timestamp,
         updatedAt: timestamp,
+        ownerId: currentOwnerId(),
       });
     } catch (error) {
       if (isPathUniqueConflict(error)) {

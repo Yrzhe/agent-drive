@@ -5,6 +5,7 @@ import { nanoid } from "nanoid";
 import { files } from "@defs";
 
 import { getRequestActor, logEvent } from "../lib/activity";
+import { currentOwnerId } from "../lib/request-owner";
 import { ensureFolderChain, nowIso, toFileObject } from "../lib/files";
 import { ApiError, withErrorHandling } from "../lib/errors";
 import { joinPath, normalizeName, normalizePath } from "../lib/paths";
@@ -51,6 +52,7 @@ foldersRoutes.post(
           s3Uri: null,
           createdAt: nowIso(),
           updatedAt: nowIso(),
+          ownerId: currentOwnerId(),
         })
         .returning();
     } catch (error) {

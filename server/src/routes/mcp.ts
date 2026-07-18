@@ -2,8 +2,9 @@ import { Hono } from "hono";
 
 import { authenticateMcpBearer, type McpAuthContext } from "../lib/mcp-auth";
 import { callMcpTool, listMcpTools } from "../lib/mcp-tools";
+import type { AppEnv } from "../types";
 
-export const mcpRoutes = new Hono();
+export const mcpRoutes = new Hono<AppEnv>();
 
 interface JsonRpcRequest {
   jsonrpc?: string;
@@ -80,6 +81,8 @@ mcpRoutes.post("/", async (c) => {
   const { db } = await import("edgespark");
   const auth = await authenticateMcpBearer(db, c.req.header("authorization"));
   if (!auth) return unauthorized(origin);
+  // Stamp new rows created by this tool call with the token's owner (Phase 2 owner-on-insert).
+  c.set("ownerId", auth.userId);
 
   const request = (await c.req.json().catch(() => null)) as JsonRpcRequest | null;
   if (!request || request.jsonrpc !== "2.0" || !request.method) {

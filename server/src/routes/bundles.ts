@@ -5,6 +5,7 @@ import { nanoid } from "nanoid";
 import { buckets, bundleVersions, files } from "@defs";
 
 import { getRequestActor, logEvent } from "../lib/activity";
+import { currentOwnerId } from "../lib/request-owner";
 import { driveObjectKey } from "../lib/object-keys";
 import { ApiError, withErrorHandling } from "../lib/errors";
 import { ensureFolderChain, nowIso } from "../lib/files";
@@ -334,12 +335,12 @@ bundlesRoutes.post(
 
     const manifestStmt = existingManifestRow
       ? db.update(files).set(manifestFileRow).where(eq(files.id, existingManifestRow.id)).returning()
-      : db.insert(files).values(manifestFileRow).returning();
+      : db.insert(files).values({ ...manifestFileRow, ownerId: currentOwnerId() }).returning();
 
     const historyStmt = historySnapshot
       ? historySnapshot.existingId
         ? db.update(files).set(historySnapshot.filesRow).where(eq(files.id, historySnapshot.existingId)).returning()
-        : db.insert(files).values(historySnapshot.filesRow).returning()
+        : db.insert(files).values({ ...historySnapshot.filesRow, ownerId: currentOwnerId() }).returning()
       : null;
 
     let versionStmtResult: typeof bundleVersions.$inferSelect[] = [];
@@ -370,7 +371,7 @@ bundlesRoutes.post(
       }
     } else {
       try {
-        const batchStatements = [manifestStmt, db.insert(bundleVersions).values(newVersionRow).returning()];
+        const batchStatements = [manifestStmt, db.insert(bundleVersions).values({ ...newVersionRow, ownerId: currentOwnerId() }).returning()];
         const batchResults = await db.batch(batchStatements as [typeof batchStatements[0], ...typeof batchStatements]);
         versionStmtResult = batchResults[batchResults.length - 1] as typeof bundleVersions.$inferSelect[];
       } catch (error) {

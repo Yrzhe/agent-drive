@@ -11,8 +11,9 @@ import {
   storeInboxFile,
 } from "../lib/peering";
 import { triggerWebhooks } from "../lib/webhooks";
+import type { AppEnv } from "../types";
 
-export const inboxRoutes = new Hono();
+export const inboxRoutes = new Hono<AppEnv>();
 
 function payloadError(error: unknown): never {
   const message = error instanceof Error ? error.message : String(error);
@@ -54,6 +55,9 @@ inboxRoutes.post(
       // owner to add the contact first.
       throw new ApiError(403, "unknown_sender", "Sender is not a contact of this Drive");
     }
+    // A delivery belongs to whoever owns the receiving contact, not to the peer that sent it
+    // (external, unauthenticated) — so the stored file and its activity row carry that owner.
+    c.set("ownerId", contact.ownerId ?? null);
 
     const verified = await verifyWithJwk(
       JSON.parse(contact.publicKeyJwk) as Jwk,

@@ -6,6 +6,7 @@ import { files } from "@defs";
 import type { AppDb, FileObject, FileRow } from "../types";
 import { ApiError } from "./errors";
 import { joinPath, normalizeName, normalizePath } from "./paths";
+import { currentOwnerId } from "./request-owner";
 
 export function nowIso(): string {
   return new Date().toISOString();
@@ -80,6 +81,7 @@ export async function ensureFolderChain(db: AppDb, targetPath: string): Promise<
       s3Uri: null,
       createdAt: timestamp,
       updatedAt: timestamp,
+      ownerId: currentOwnerId(),
     });
   }
 }

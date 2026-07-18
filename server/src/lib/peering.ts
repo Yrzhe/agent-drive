@@ -7,6 +7,7 @@ import { buckets, contacts, files } from "@defs";
 import { signWithIdentity, type Jwk } from "./agent-identity";
 import { ensureFolderChain, nowIso, toFileObject } from "./files";
 import { joinPath, normalizeName } from "./paths";
+import { currentOwnerId } from "./request-owner";
 import { validateWebhookUrlForDelivery } from "./webhooks";
 import type { AppDb, FileObject } from "../types";
 
@@ -129,6 +130,7 @@ export async function storeInboxFile(
       s3Uri: storage.createS3Uri(buckets.drive, objectPath),
       createdAt: timestamp,
       updatedAt: timestamp,
+      ownerId: currentOwnerId(),
     })
     .returning();
 

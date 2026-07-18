@@ -14,6 +14,7 @@ export const requireDualAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
     if (auth.isAuthenticated()) {
       await assertRequestOwner();
       c.set("restAuth", { kind: "session", ownerId: auth.user.id });
+      c.set("ownerId", auth.user.id);
       await next();
       return;
     }
@@ -34,6 +35,7 @@ export const requireDualAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
     }
 
     c.set("restAuth", { kind: "bearer", scopes: authContext.scopes, ownerId: authContext.userId });
+    c.set("ownerId", authContext.userId);
     await next();
   } catch (error) {
     return handleApiError(c, error);

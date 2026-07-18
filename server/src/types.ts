@@ -20,7 +20,14 @@ export type RestAuth =
   | { kind: "session"; ownerId: string | null }
   | { kind: "bearer"; scopes: readonly string[]; ownerId: string | null };
 
-export type AppEnv = { Variables: { restAuth?: RestAuth } };
+export type AppEnv = {
+  Variables: {
+    restAuth?: RestAuth;
+    // Owner id stamped on rows inserted during this request (multi-tenancy Phase 2).
+    // Set by requireDualAuth / the MCP handler / the inbox handler; read by currentOwnerId().
+    ownerId?: string | null;
+  };
+};
 
 export interface FileObject {
   id: string;
