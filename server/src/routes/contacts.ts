@@ -100,8 +100,15 @@ contactsRoutes.get(
   withErrorHandling(async (c) => {
     requireSessionAuth(c);
     const { limit, offset } = parseListPagination((name) => c.req.query(name), { defaultLimit: 100, maxLimit: 500 });
+    const ownerId = c.get("ownerId") ?? null;
     const { db } = await import("edgespark");
-    const rows = await db.select().from(contacts).orderBy(desc(contacts.addedAt)).limit(limit).offset(offset);
+    const rows = await db
+      .select()
+      .from(contacts)
+      .where(ownerId ? eq(contacts.ownerId, ownerId) : undefined)
+      .orderBy(desc(contacts.addedAt))
+      .limit(limit)
+      .offset(offset);
     return c.json({ contacts: rows.map(toContactObject), limit, offset });
   })
 );
@@ -159,7 +166,7 @@ contactsRoutes.post(
     const message = typeof body.message === "string" && body.message.trim() ? body.message.trim() : null;
 
     const { db, storage } = await import("edgespark");
-    const contact = await getContactByName(db, c.req.param("name") ?? "");
+    const contact = await getContactByName(db, c.req.param("name") ?? "", c.get("ownerId") ?? null);
     if (!contact) throw new ApiError(404, "contact_not_found", "Contact not found");
 
     const origin = new URL(c.req.url).origin;

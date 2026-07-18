@@ -427,7 +427,7 @@ export async function callMcpTool(db: AppDb, origin: string, scopes: readonly st
     const path = normalizePath(stringArg(input, "path") ?? "");
     requirePathAllowed(scopes, path);
     const message = stringArg(input, "message", false);
-    const contact = await getContactByName(db, contactName);
+    const contact = await getContactByName(db, contactName, ownerId);
     if (!contact) throw new Error("contact_not_found");
     const { storage } = await import("edgespark");
     const result = await sendFileToContact(db, storage, contact, path, message, origin);

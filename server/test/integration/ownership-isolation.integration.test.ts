@@ -4,7 +4,8 @@ import { files, memories } from "../../src/defs";
 import { ensureFolderChain } from "../../src/lib/files";
 import { callMcpTool } from "../../src/lib/mcp-tools";
 import { getMemory, listMemories, recallMemories } from "../../src/lib/memory";
-import { jsonHeaders, resetRuntime, runtime, seedDriveFile, seedMemory, seedOwner, seedShareRow, useBearer } from "./edge-runtime";
+import { getContactByName, getContactByUrl } from "../../src/lib/peering";
+import { jsonHeaders, resetRuntime, runtime, seedContact, seedDriveFile, seedMemory, seedOwner, seedShareRow, useBearer } from "./edge-runtime";
 
 describe("two-owner isolation harness (#30 Part ①a)", () => {
   beforeEach(() => resetRuntime());
@@ -164,5 +165,13 @@ describe("two-owner isolation harness (#30 Part ①a)", () => {
     expect(body.totalFiles).toBe(0);
     expect(body.totalFolders).toBe(0);
     expect(body.totalSize).toBe(0);
+  });
+
+  it("owner B's contact list + get-by-name exclude owner A's contacts; getContactByUrl stays global (inbox)", async () => {
+    await seedContact({ id: "ca", name: "peer-a", url: "https://a.peer", publicKeyJwk: {}, ownerId: "A" });
+    expect(await getContactByName(runtime.db as never, "peer-a", "B")).toBeNull();
+    expect(await getContactByName(runtime.db as never, "peer-a", "A")).not.toBeNull();
+    // inbox resolution stays global (peer isn't an authenticated owner):
+    expect(await getContactByUrl(runtime.db as never, "https://a.peer")).not.toBeNull();
   });
 });
