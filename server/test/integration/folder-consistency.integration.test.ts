@@ -78,7 +78,7 @@ describe("folder move/rename/purge consistency", () => {
   });
 
   it("hard-purge removes both DB rows and R2 objects", async () => {
-    await seedDriveFile({ id: "doomed", path: "/tmp/f.txt", body: "gone" });
+    await seedDriveFile({ id: "doomed", path: "/tmp/f.txt", body: "gone", ownerId: "owner-user" });
     const objectPath = `doomed/${encodeURIComponent("f.txt")}`;
     expect(await runtime.storage.from(buckets.drive).head(objectPath)).not.toBeNull();
 
@@ -93,7 +93,7 @@ describe("folder move/rename/purge consistency", () => {
   });
 
   it("keeps the DB consistent when R2 deletion fails during purge (orphan, not a broken reference)", async () => {
-    await seedDriveFile({ id: "leaky", path: "/x/f.txt", body: "z" });
+    await seedDriveFile({ id: "leaky", path: "/x/f.txt", body: "z", ownerId: "owner-user" });
     const objectPath = `leaky/${encodeURIComponent("f.txt")}`;
     const id = await folderId("/x");
     await app.request(`/api/public/v1/files/${id}`, { method: "DELETE" });

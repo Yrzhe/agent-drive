@@ -43,4 +43,40 @@ describe("two-owner isolation harness (#30 Part ①a)", () => {
     const body = (await res.json()) as { files: Array<{ path: string }> };
     expect(body.files.map((f) => f.path).sort()).toEqual(["/b.txt"]);
   });
+
+  it("a bearer token bound to owner B cannot delete/restore/purge owner A's files by id", async () => {
+    seedOwner({ email: "b@x.test", id: "B" });
+    runtime.vars.set("OWNER_EMAIL", "b@x.test");
+    await seedDriveFile({ id: "fa", path: "/a-secret.txt", body: "x", ownerId: "A" }); // A's live file
+
+    const trashedId = "fa-trashed";
+    const trashedPath = `/a-trashed.txt${"~trash~"}${trashedId}`;
+    const timestamp = new Date().toISOString();
+    await runtime.db.insert(files).values({
+      id: trashedId,
+      name: "a-trashed.txt",
+      path: trashedPath,
+      parentPath: "/",
+      isFolder: 0,
+      size: 1,
+      contentType: "text/plain",
+      s3Uri: null,
+      deletedAt: timestamp,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      ownerId: "A",
+    } as never); // A's trashed file
+
+    const headers = jsonHeaders(useBearer(["read:drive", "write:drive", "path:/"]));
+    const { default: app } = await import("../../src/index");
+
+    const del = await app.request("/api/public/v1/files/fa", { method: "DELETE", headers });
+    expect(del.status).toBe(404);
+
+    const restore = await app.request(`/api/public/v1/files/${trashedId}/restore`, { method: "POST", headers });
+    expect(restore.status).toBe(404);
+
+    const purge = await app.request(`/api/public/v1/files/${trashedId}/purge`, { method: "DELETE", headers });
+    expect(purge.status).toBe(404);
+  });
 });

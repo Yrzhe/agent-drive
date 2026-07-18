@@ -131,7 +131,7 @@ describe("route-level integration security behaviors", () => {
 
   it("keeps trashed files tombstoned until restore conflict is cleared", async () => {
     useSession();
-    const originalId = await seedDriveFile({ id: "original-report", path: "/docs/report.txt", body: "old" });
+    const originalId = await seedDriveFile({ id: "original-report", path: "/docs/report.txt", body: "old", ownerId: "owner-user" });
 
     const deleteResponse = await app.request(`/api/public/v1/files/${originalId}`, { method: "DELETE" });
     expect(deleteResponse.status).toBe(200);

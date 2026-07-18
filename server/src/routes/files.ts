@@ -716,10 +716,11 @@ filesRoutes.delete(
   "/:id",
   withErrorHandling(async (c) => {
     const { db, storage } = await import("edgespark");
+    const ownerId = c.get("ownerId") ?? null;
     const [target] = await db
       .select()
       .from(files)
-      .where(and(eq(files.id, getIdParam(c)), isNull(files.deletedAt)))
+      .where(and(eq(files.id, getIdParam(c)), isNull(files.deletedAt), ownerId ? eq(files.ownerId, ownerId) : undefined))
       .limit(1);
     if (!target) throw new ApiError(404, "file_not_found", "File not found");
     assertRestPathAllowed(c, target.path);
@@ -751,10 +752,11 @@ filesRoutes.post(
   "/:id/restore",
   withErrorHandling(async (c) => {
     const { db, storage } = await import("edgespark");
+    const ownerId = c.get("ownerId") ?? null;
     const [target] = await db
       .select()
       .from(files)
-      .where(and(eq(files.id, getIdParam(c)), isNotNull(files.deletedAt)))
+      .where(and(eq(files.id, getIdParam(c)), isNotNull(files.deletedAt), ownerId ? eq(files.ownerId, ownerId) : undefined))
       .limit(1);
     if (!target) throw new ApiError(404, "file_not_found", "Trashed item not found");
 
@@ -763,7 +765,7 @@ filesRoutes.post(
     const [conflict] = await db
       .select()
       .from(files)
-      .where(and(eq(files.path, originalPath), ne(files.id, target.id), isNull(files.deletedAt)))
+      .where(and(eq(files.path, originalPath), ne(files.id, target.id), isNull(files.deletedAt), ownerId ? eq(files.ownerId, ownerId) : undefined))
       .limit(1);
     if (conflict) {
       throw new ApiError(409, "path_conflict", `An item already exists at ${originalPath}. Rename or move it before restoring.`);
@@ -792,10 +794,11 @@ filesRoutes.delete(
   "/:id/purge",
   withErrorHandling(async (c) => {
     const { db, storage } = await import("edgespark");
+    const ownerId = c.get("ownerId") ?? null;
     const [target] = await db
       .select()
       .from(files)
-      .where(and(eq(files.id, getIdParam(c)), isNotNull(files.deletedAt)))
+      .where(and(eq(files.id, getIdParam(c)), isNotNull(files.deletedAt), ownerId ? eq(files.ownerId, ownerId) : undefined))
       .limit(1);
     if (!target) throw new ApiError(404, "file_not_found", "Trashed item not found");
     assertRestPathAllowed(c, originalTrashPath(target));
