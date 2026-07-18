@@ -4,7 +4,7 @@ import { nanoid } from "nanoid";
 import { buckets, files, shares } from "@defs";
 import { getRequestActor, logEvent } from "../lib/activity";
 import { rewriteBundlePrefixesForMove } from "../lib/bundle-prefixes";
-import { ensureFolderChain, nowIso, toFileObject } from "../lib/files";
+import { ensureFolderChain, isPathUniqueConflict, nowIso, toFileObject } from "../lib/files";
 import { ApiError, withErrorHandling } from "../lib/errors";
 import { escapedDescendantPattern, joinPath, normalizeName, normalizePath, parentOfPath } from "../lib/paths";
 import { parseListPagination } from "../lib/pagination";
@@ -28,11 +28,6 @@ import { PRESIGNED_URL_TTL_SECS, PREVIEW_URL_TTL_SECS, type AppEnv } from "../ty
 export const filesRoutes = new Hono<AppEnv>();
 const PENDING_UPLOAD_PREFIX = "pending:";
 const FILE_SIZE_TOLERANCE_RATIO = 0.1;
-
-function isPathUniqueConflict(error: unknown): boolean {
-  const message = (error as { message?: string } | null)?.message?.toLowerCase() ?? "";
-  return message.includes("unique constraint failed: files.path") || (message.includes("duplicate key") && message.includes("files.path"));
-}
 
 function createPendingUploadMarker(declaredSize: number): string {
   return `${PENDING_UPLOAD_PREFIX}${declaredSize}`;
@@ -476,7 +471,7 @@ filesRoutes.patch(
             return [db.update(shares).set({ folderPath: updatedFolderPath }).where(eq(shares.id, linkedShare.id))];
           });
 
-          const bundleUpdates = [rewriteBundlePrefixesForMove(db, existing.path, nextPath, updatedAt)];
+          const bundleUpdates = [rewriteBundlePrefixesForMove(db, existing.path, nextPath, updatedAt, ownerId)];
           // Rewrite root + every descendant + share + bundle path in ONE atomic batch,
           // so a mid-move failure can't leave children pointing at the old prefix.
           const updates = [rootUpdate, ...descendantUpdates, ...shareUpdates, ...bundleUpdates];
@@ -658,7 +653,7 @@ filesRoutes.patch(
         return [db.update(shares).set({ folderPath: updatedFolderPath }).where(eq(shares.id, linkedShare.id))];
       });
 
-      const bundleUpdates = [rewriteBundlePrefixesForMove(db, existing.path, nextPath, updatedAt)];
+      const bundleUpdates = [rewriteBundlePrefixesForMove(db, existing.path, nextPath, updatedAt, ownerId)];
       // Root + descendants + shares + bundles rewritten in ONE atomic batch.
       const updates = [rootUpdate, ...descendantUpdates, ...shareUpdates, ...bundleUpdates];
       try {
@@ -819,7 +814,7 @@ filesRoutes.delete(
     if (!target) throw new ApiError(404, "file_not_found", "Trashed item not found");
     assertRestPathAllowed(c, originalTrashPath(target));
 
-    const { rowCount, objectCount } = await hardPurgeSubtree(db, storage, target);
+    const { rowCount, objectCount } = await hardPurgeSubtree(db, storage, target, ownerId);
     await logEvent(db, {
       ownerId: c.get("ownerId") ?? null,
       eventType: "file.purged",

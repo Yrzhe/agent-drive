@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNotNull, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNotNull } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
 import { files } from "@defs";
@@ -9,6 +9,20 @@ import { joinPath, normalizeName, normalizePath } from "./paths";
 
 export function nowIso(): string {
   return new Date().toISOString();
+}
+
+/**
+ * True when `error` is a unique-constraint violation on the files table's path uniqueness
+ * (either the legacy plain `files.path` unique index, or the composite `(owner_id, path)`
+ * unique index). Matches both SQLite ("UNIQUE constraint failed: files.owner_id, files.path")
+ * and Postgres-style ("duplicate key ... files.path") error message shapes.
+ */
+export function isPathUniqueConflict(error: unknown): boolean {
+  const message = (error as { message?: string } | null)?.message?.toLowerCase() ?? "";
+  return (
+    (message.includes("unique constraint failed") && message.includes("files.path")) ||
+    (message.includes("duplicate key") && message.includes("files.path"))
+  );
 }
 
 export function toFileObject(file: FileRow): FileObject {
@@ -69,18 +83,27 @@ export async function ensureFolderChain(db: AppDb, targetPath: string, ownerId: 
     if (!segment || !parentPath) {
       throw new ApiError(400, "validation_error", "Folder path is invalid");
     }
-    await db.insert(files).values({
-      id: nanoid(),
-      name: segment,
-      path: folderPath,
-      parentPath,
-      isFolder: 1,
-      size: 0,
-      contentType: null,
-      s3Uri: null,
-      createdAt: timestamp,
-      updatedAt: timestamp,
-      ownerId,
-    });
+    try {
+      await db.insert(files).values({
+        id: nanoid(),
+        name: segment,
+        path: folderPath,
+        parentPath,
+        isFolder: 1,
+        size: 0,
+        contentType: null,
+        s3Uri: null,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+        ownerId,
+      });
+    } catch (error) {
+      if (isPathUniqueConflict(error)) {
+        // Lost a concurrent race to create this folder for this owner — it now exists, so
+        // treat as already-created and move on to the next path segment.
+        continue;
+      }
+      throw error;
+    }
   }
 }

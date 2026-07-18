@@ -325,7 +325,7 @@ bundlesRoutes.post(
       updatedAt: pushedAt,
     };
 
-    const newVersionRow: typeof bundleVersions.$inferInsert = {
+    const newVersionRow: Omit<typeof bundleVersions.$inferInsert, "id"> = {
       prefix,
       currentVersionId: versionId,
       previousVersionId,
@@ -375,7 +375,7 @@ bundlesRoutes.post(
       }
     } else {
       try {
-        const batchStatements = [manifestStmt, db.insert(bundleVersions).values({ ...newVersionRow, ownerId }).returning()];
+        const batchStatements = [manifestStmt, db.insert(bundleVersions).values({ ...newVersionRow, id: nanoid(), ownerId }).returning()];
         const batchResults = await db.batch(batchStatements as [typeof batchStatements[0], ...typeof batchStatements]);
         versionStmtResult = batchResults[batchResults.length - 1] as typeof bundleVersions.$inferSelect[];
       } catch (error) {

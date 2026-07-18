@@ -1,12 +1,12 @@
 import { sql } from "drizzle-orm";
-import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { index, integer, sqliteTable, text, unique } from "drizzle-orm/sqlite-core";
 
 export const files = sqliteTable(
   "files",
   {
     id: text("id").primaryKey(),
     name: text("name").notNull(),
-    path: text("path").notNull().unique(),
+    path: text("path").notNull(),
     parentPath: text("parent_path").notNull().default("/"),
     isFolder: integer("is_folder").notNull().default(0),
     size: integer("size").notNull().default(0),
@@ -22,6 +22,7 @@ export const files = sqliteTable(
     index("idx_files_parent_path").on(table.parentPath),
     index("idx_files_deleted_at").on(table.deletedAt),
     index("idx_files_owner").on(table.ownerId),
+    unique("files_owner_path_unq").on(table.ownerId, table.path),
   ]
 );
 
@@ -103,22 +104,26 @@ export const contacts = sqliteTable(
   "contacts",
   {
     id: text("id").primaryKey(),
-    name: text("name").notNull().unique(),
-    url: text("url").notNull().unique(),
+    name: text("name").notNull(),
+    url: text("url").notNull(),
     publicKeyJwk: text("public_key_jwk").notNull(),
     algorithm: text("algorithm").notNull().default("Ed25519"),
     autoRelease: integer("auto_release").notNull().default(0),
     addedAt: text("added_at").notNull().default(sql`(datetime('now'))`),
     ownerId: text("owner_id"),
   },
-  (table) => [index("idx_contacts_owner").on(table.ownerId)]
+  (table) => [
+    index("idx_contacts_owner").on(table.ownerId),
+    unique("contacts_owner_name_unq").on(table.ownerId, table.name),
+    unique("contacts_owner_url_unq").on(table.ownerId, table.url),
+  ]
 );
 
 export const memories = sqliteTable(
   "memories",
   {
     id: text("id").primaryKey(),
-    key: text("key").unique(),
+    key: text("key"),
     content: text("content").notNull(),
     tags: text("tags"),
     source: text("source"),
@@ -129,6 +134,7 @@ export const memories = sqliteTable(
   (table) => [
     index("idx_memories_updated_at").on(table.updatedAt),
     index("idx_memories_owner").on(table.ownerId),
+    unique("memories_owner_key_unq").on(table.ownerId, table.key),
   ]
 );
 
@@ -173,7 +179,8 @@ export const oauthAuthorizationCodes = sqliteTable(
 export const bundleVersions = sqliteTable(
   "bundle_versions",
   {
-    prefix: text("prefix").primaryKey(),
+    id: text("id").primaryKey(),
+    prefix: text("prefix").notNull(),
     publicId: text("public_id").unique(),
     currentVersionId: text("current_version_id").notNull(),
     previousVersionId: text("previous_version_id"),
@@ -189,6 +196,7 @@ export const bundleVersions = sqliteTable(
     index("idx_bundle_versions_current").on(table.currentVersionId),
     index("idx_bundle_versions_pushed_at").on(table.pushedAt),
     index("idx_bundle_versions_owner").on(table.ownerId),
+    unique("bundle_versions_owner_prefix_unq").on(table.ownerId, table.prefix),
   ]
 );
 

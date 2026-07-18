@@ -47,12 +47,17 @@ function s3PathsFor(rows: readonly FileRow[], storage: StorageClient): string[] 
     .map((x) => x.path);
 }
 
-export async function expandSubtree(db: AppDb, root: FileRow): Promise<FileRow[]> {
+export async function expandSubtree(db: AppDb, root: FileRow, ownerId: string | null = null): Promise<FileRow[]> {
   if (root.isFolder !== 1) return [root];
   return db
     .select()
     .from(files)
-    .where(or(eq(files.path, root.path), sql`${files.path} LIKE ${escapedDescendantPattern(root.path)} ESCAPE '\\'`));
+    .where(
+      and(
+        or(eq(files.path, root.path), sql`${files.path} LIKE ${escapedDescendantPattern(root.path)} ESCAPE '\\'`),
+        ownerId ? eq(files.ownerId, ownerId) : undefined
+      )
+    );
 }
 
 export async function softDeleteSubtree(
@@ -60,20 +65,26 @@ export async function softDeleteSubtree(
   root: FileRow,
   options: { actor?: ActivityActor; ownerId?: string | null } = {}
 ): Promise<{ rows: FileRow[]; fileIds: string[]; unpublishedBundlePublicIds: string[] }> {
-  const rows = await expandSubtree(db, root);
+  const ownerId = options.ownerId ?? null;
+  const rows = await expandSubtree(db, root, ownerId);
   const fileIds = rows.filter((x) => x.isFolder === 0).map((x) => x.id);
   const timestamp = nowIso();
-  const publishedBundles = await selectPublishedBundleRowsInSubtree(db, root.path);
+  const publishedBundles = await selectPublishedBundleRowsInSubtree(db, root.path, ownerId);
 
   const folderShareCondition =
     root.isFolder === 1
-      ? or(eq(shares.folderPath, root.path), sql`${shares.folderPath} LIKE ${escapedDescendantPattern(root.path)} ESCAPE '\\'`)
+      ? and(
+          or(eq(shares.folderPath, root.path), sql`${shares.folderPath} LIKE ${escapedDescendantPattern(root.path)} ESCAPE '\\'`),
+          ownerId ? eq(shares.ownerId, ownerId) : undefined
+        )
       : undefined;
 
   const ops: any[] = [];
-  if (publishedBundles.length > 0) ops.push(unpublishBundlePrefixesInSubtree(db, root.path, timestamp));
+  if (publishedBundles.length > 0) ops.push(unpublishBundlePrefixesInSubtree(db, root.path, timestamp, ownerId));
   if (folderShareCondition) ops.push(db.delete(shares).where(folderShareCondition));
-  if (fileIds.length > 0) ops.push(db.delete(shares).where(inArray(shares.fileId, fileIds)));
+  if (fileIds.length > 0) {
+    ops.push(db.delete(shares).where(and(inArray(shares.fileId, fileIds), ownerId ? eq(shares.ownerId, ownerId) : undefined)));
+  }
 
   const tombRootPath = tombstonePathFor(root.path, root.id);
   for (const row of rows) {
@@ -105,7 +116,7 @@ export async function softDeleteSubtree(
       targetPath: bundle.prefix,
       actor: options.actor ?? "agent",
       metadata: { publicId: bundle.publicId, reason: "trashed" },
-      ownerId: options.ownerId ?? null,
+      ownerId,
     });
   }
 
@@ -150,7 +161,8 @@ export async function restoreSubtree(db: AppDb, root: FileRow): Promise<number> 
 export async function hardPurgeSubtree(
   db: AppDb,
   storage: StorageClient,
-  root: FileRow
+  root: FileRow,
+  ownerId: string | null = null
 ): Promise<{ rowCount: number; objectCount: number }> {
   const rows = await expandSubtree(db, root);
   const fileIds = rows.filter((x) => x.isFolder === 0).map((x) => x.id);
@@ -159,12 +171,12 @@ export async function hardPurgeSubtree(
   if (root.isFolder === 1) {
     const originalBundleRoot = originalTrashPath(root);
     const ops: any[] = [
-      deleteBundlePrefixesInSubtree(db, originalBundleRoot),
+      deleteBundlePrefixesInSubtree(db, originalBundleRoot, ownerId),
       db
         .delete(shares)
         .where(or(eq(shares.folderPath, root.path), sql`${shares.folderPath} LIKE ${escapedDescendantPattern(root.path)} ESCAPE '\\'`)),
     ];
-    if (originalBundleRoot !== root.path) ops.push(deleteBundlePrefixesInSubtree(db, root.path));
+    if (originalBundleRoot !== root.path) ops.push(deleteBundlePrefixesInSubtree(db, root.path, ownerId));
     if (fileIds.length > 0) ops.push(db.delete(shares).where(inArray(shares.fileId, fileIds)));
     ops.push(
       db.delete(files).where(or(eq(files.path, root.path), sql`${files.path} LIKE ${escapedDescendantPattern(root.path)} ESCAPE '\\'`))
@@ -211,7 +223,7 @@ export async function purgeConflictingTrashAtPath(
     .where(and(eq(files.path, path), isNotNull(files.deletedAt)))
     .limit(1);
   if (!trashed) return false;
-  await hardPurgeSubtree(db, storage, trashed);
+  await hardPurgeSubtree(db, storage, trashed, trashed.ownerId ?? null);
   return true;
 }
 
@@ -228,7 +240,7 @@ export async function maybePurgeStaleTrash(db: AppDb, storage: StorageClient): P
     .where(and(isNotNull(files.deletedAt), lt(files.deletedAt, cutoff)));
   for (const row of stale) {
     try {
-      await hardPurgeSubtree(db, storage, row);
+      await hardPurgeSubtree(db, storage, row, row.ownerId ?? null);
     } catch {
       // best-effort; one bad row shouldn't stop the rest
     }

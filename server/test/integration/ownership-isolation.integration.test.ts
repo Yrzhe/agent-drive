@@ -100,7 +100,7 @@ describe("two-owner isolation harness (#30 Part ①a)", () => {
     expect(purge.status).toBe(404);
   });
 
-  it("a cross-owner path collision on rename returns 409, not a raw D1 500", async () => {
+  it("a cross-owner path 'collision' on rename now succeeds — per-owner namespaces (#30 Part ①b)", async () => {
     seedOwner({ email: "b@x.test", id: "B" });
     runtime.vars.set("OWNER_EMAIL", "b@x.test");
     await seedDriveFile({ id: "fa", path: "/a.txt", body: "x", ownerId: "A" }); // A's file
@@ -109,17 +109,22 @@ describe("two-owner isolation harness (#30 Part ①a)", () => {
     const headers = jsonHeaders(useBearer(["read:drive", "write:drive", "path:/"]));
     const { default: app } = await import("../../src/index");
 
-    // B's owner-scoped path-conflict pre-check can no longer see A's row at /a.txt,
-    // so the rename must be caught by the D1 unique-violation catch instead and
-    // surfaced as a clean 409 — not an unhandled 500.
+    // Since Task 1 of #30 Part ①b, files.path is unique per-owner, not globally, so B
+    // renaming to /a.txt no longer collides with A's row at /a.txt (separate owner
+    // namespaces) — this must now succeed instead of raising a D1 unique-violation.
     const rename = await app.request(`/api/public/v1/files/${bFileId}`, {
       method: "PATCH",
       headers,
       body: JSON.stringify({ parentPath: "/", name: "a.txt" }),
     });
-    expect(rename.status).toBe(409);
-    const body = (await rename.json()) as { error?: { code?: string } };
-    expect(body.error?.code).toBe("path_conflict");
+    expect(rename.status).toBe(200);
+
+    const [aRow] = await runtime.db.select().from(files).where(eq(files.id, "fa")).limit(1);
+    const [bRow] = await runtime.db.select().from(files).where(eq(files.id, bFileId)).limit(1);
+    expect(aRow?.path).toBe("/a.txt");
+    expect(aRow?.ownerId).toBe("A");
+    expect(bRow?.path).toBe("/a.txt");
+    expect(bRow?.ownerId).toBe("B");
   });
 
   it("MCP list_files/search_files/read_file bound to B never surface A's files", async () => {
@@ -225,7 +230,7 @@ describe("two-owner isolation harness (#30 Part ①a)", () => {
   it("owner B's bundle reads exclude owner A's bundles; public-by-publicId stays global", async () => {
     seedOwner({ email: "b@x.test", id: "B" });
     runtime.vars.set("OWNER_EMAIL", "b@x.test");
-    await seedBundleRow({ prefix: "/proj-a", publicId: "pb_a", ownerId: "A" });
+    await seedBundleRow({ id: "bv-proj-a", prefix: "/proj-a", publicId: "pb_a", ownerId: "A" });
     // The public /current route resolves the manifest.json object off the
     // files table (owner-agnostic, by publicId) — seed it so the public
     // path can actually resolve, matching how a real committed bundle works.
@@ -370,7 +375,7 @@ describe("adversarial: a principal bound to owner B is fully isolated from owner
     await seedMemory({ id: "adv-ma", key: "adv-a-key", content: "A's private memory", ownerId: "A" });
     await seedContact({ id: "adv-ca", name: A_CONTACT_NAME, url: "https://adv-a.peer", publicKeyJwk: {}, ownerId: "A" });
     await seedShareRow({ id: A_SHARE_ID, fileId: A_FILE_ID, ownerId: "A" });
-    await seedBundleRow({ prefix: A_BUNDLE_PREFIX, publicId: A_BUNDLE_PUBLIC_ID, ownerId: "A" });
+    await seedBundleRow({ id: "bv-adv-a", prefix: A_BUNDLE_PREFIX, publicId: A_BUNDLE_PUBLIC_ID, ownerId: "A" });
     // The public /current route resolves the manifest.json object off the
     // files table (owner-agnostic, by publicId) — seed it so the public
     // path can actually resolve, matching how a real committed bundle works.
