@@ -39,6 +39,7 @@ memoryRoutes.post(
         key: typeof body.key === "string" ? body.key : null,
         tags: body.tags,
         source: typeof body.source === "string" ? body.source : null,
+        ownerId: c.get("ownerId") ?? null,
       });
       await logEvent(db, {
         eventType: created ? "memory.created" : "memory.updated",

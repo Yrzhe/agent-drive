@@ -3,7 +3,6 @@ import { Hono } from "hono";
 import { nanoid } from "nanoid";
 import { buckets, files, shares } from "@defs";
 import { getRequestActor, logEvent } from "../lib/activity";
-import { currentOwnerId } from "../lib/request-owner";
 import { rewriteBundlePrefixesForMove } from "../lib/bundle-prefixes";
 import { ensureFolderChain, nowIso, toFileObject } from "../lib/files";
 import { ApiError, withErrorHandling } from "../lib/errors";
@@ -86,7 +85,7 @@ filesRoutes.post(
     const quotaCheck = await checkTotalQuota(db, declaredSize);
     if (!quotaCheck.ok) throw new ApiError(413, quotaCheck.code, quotaCheck.message);
 
-    await ensureFolderChain(db, parentPath);
+    await ensureFolderChain(db, parentPath, c.get("ownerId") ?? null);
 
     await purgeConflictingTrashAtPath(db, storage, targetPath);
     const [conflict] = await db
@@ -116,7 +115,7 @@ filesRoutes.post(
         s3Uri: createPendingUploadMarker(declaredSize),
         createdAt: timestamp,
         updatedAt: timestamp,
-        ownerId: currentOwnerId(),
+        ownerId: c.get("ownerId") ?? null,
       });
     } catch (error) {
       if (isPathUniqueConflict(error)) {
@@ -396,7 +395,7 @@ filesRoutes.patch(
     assertRestPathAllowed(c, nextParentPath);
 
     const { db, storage } = await import("edgespark");
-    await ensureFolderChain(db, nextParentPath);
+    await ensureFolderChain(db, nextParentPath, c.get("ownerId") ?? null);
 
     const targets = await db
       .select()
@@ -605,7 +604,7 @@ filesRoutes.patch(
 
     const nextPath = joinPath(nextParentPath, nextName);
     assertRestPathAllowed(c, nextPath);
-    await ensureFolderChain(db, nextParentPath);
+    await ensureFolderChain(db, nextParentPath, c.get("ownerId") ?? null);
 
     if (nextPath !== existing.path) {
       await purgeConflictingTrashAtPath(db, storage, nextPath);
@@ -744,7 +743,7 @@ filesRoutes.post(
       throw new ApiError(409, "path_conflict", `An item already exists at ${originalPath}. Rename or move it before restoring.`);
     }
 
-    await ensureFolderChain(db, target.parentPath);
+    await ensureFolderChain(db, target.parentPath, c.get("ownerId") ?? null);
     const restored = await restoreSubtree(db, target);
     await maybePurgeStaleTrash(db, storage);
     await maybePurgeStalePendingUploads(db, storage);

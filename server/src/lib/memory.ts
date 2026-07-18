@@ -5,7 +5,6 @@ import { nanoid } from "nanoid";
 import { memories } from "@defs";
 
 import { nowIso } from "./files";
-import { currentOwnerId } from "./request-owner";
 import type { AppDb } from "../types";
 
 export type MemoryRow = typeof memories.$inferSelect;
@@ -111,6 +110,8 @@ export interface RememberInput {
   key?: string | null;
   tags?: unknown;
   source?: string | null;
+  /** Owner stamped on a newly-inserted memory. Ignored on update-by-key (owner preserved). */
+  ownerId?: string | null;
 }
 
 /** Insert a memory, or update in place when `key` matches an existing row. */
@@ -145,7 +146,7 @@ export async function rememberMemory(db: AppDb, input: RememberInput): Promise<{
     const id = nanoid();
     const [createdRows] = await db.batch([
       db.insert(memories)
-        .values({ id, key, content, tags, source, createdAt: timestamp, updatedAt: timestamp, ownerId: currentOwnerId() })
+        .values({ id, key, content, tags, source, createdAt: timestamp, updatedAt: timestamp, ownerId: input.ownerId ?? null })
         .returning(),
       db.delete(memoriesFts).where(eq(memoriesFts.id, id)),
       db.insert(memoriesFts).values(ftsRowValues(id, content, tags)),

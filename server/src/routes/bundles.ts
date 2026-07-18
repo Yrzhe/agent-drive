@@ -5,7 +5,6 @@ import { nanoid } from "nanoid";
 import { buckets, bundleVersions, files } from "@defs";
 
 import { getRequestActor, logEvent } from "../lib/activity";
-import { currentOwnerId } from "../lib/request-owner";
 import { driveObjectKey } from "../lib/object-keys";
 import { ApiError, withErrorHandling } from "../lib/errors";
 import { ensureFolderChain, nowIso } from "../lib/files";
@@ -205,6 +204,7 @@ bundlesRoutes.post(
   "/commit",
   withErrorHandling(async (c) => {
     const { db, storage } = await import("edgespark");
+    const ownerId = c.get("ownerId") ?? null;
     const body = (await c.req.json()) as CommitRequestBody;
 
     if (typeof body.prefix !== "string") {
@@ -281,13 +281,13 @@ bundlesRoutes.post(
     };
     const manifestBytes = new TextEncoder().encode(JSON.stringify(fullManifest, null, 2));
 
-    await ensureFolderChain(db, prefix);
+    await ensureFolderChain(db, prefix, ownerId);
 
     let historySnapshot: Awaited<ReturnType<typeof snapshotCurrentManifestToHistory>> = null;
     if (current && previousVersionId) {
       historySnapshot = await snapshotCurrentManifestToHistory(db, storage, prefix, previousVersionId, pushedAt);
       if (historySnapshot) {
-        await ensureFolderChain(db, joinPath(prefix, ".history"));
+        await ensureFolderChain(db, joinPath(prefix, ".history"), ownerId);
       }
     }
 
@@ -335,12 +335,12 @@ bundlesRoutes.post(
 
     const manifestStmt = existingManifestRow
       ? db.update(files).set(manifestFileRow).where(eq(files.id, existingManifestRow.id)).returning()
-      : db.insert(files).values({ ...manifestFileRow, ownerId: currentOwnerId() }).returning();
+      : db.insert(files).values({ ...manifestFileRow, ownerId }).returning();
 
     const historyStmt = historySnapshot
       ? historySnapshot.existingId
         ? db.update(files).set(historySnapshot.filesRow).where(eq(files.id, historySnapshot.existingId)).returning()
-        : db.insert(files).values({ ...historySnapshot.filesRow, ownerId: currentOwnerId() }).returning()
+        : db.insert(files).values({ ...historySnapshot.filesRow, ownerId }).returning()
       : null;
 
     let versionStmtResult: typeof bundleVersions.$inferSelect[] = [];
@@ -371,7 +371,7 @@ bundlesRoutes.post(
       }
     } else {
       try {
-        const batchStatements = [manifestStmt, db.insert(bundleVersions).values({ ...newVersionRow, ownerId: currentOwnerId() }).returning()];
+        const batchStatements = [manifestStmt, db.insert(bundleVersions).values({ ...newVersionRow, ownerId }).returning()];
         const batchResults = await db.batch(batchStatements as [typeof batchStatements[0], ...typeof batchStatements]);
         versionStmtResult = batchResults[batchResults.length - 1] as typeof bundleVersions.$inferSelect[];
       } catch (error) {

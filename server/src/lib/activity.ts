@@ -4,7 +4,6 @@ import { nanoid } from "nanoid";
 import { activityLog } from "@defs";
 
 import { nowIso } from "./files";
-import { currentOwnerId } from "./request-owner";
 import type { ActivityEventInput, ActivityLogRow, AppDb } from "../types";
 
 const ACTIVITY_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
@@ -47,7 +46,6 @@ export async function logEvent(db: AppDb, event: ActivityEventInput): Promise<vo
       ip: event.ip ?? null,
       userAgent: event.userAgent ?? null,
       createdAt,
-      ownerId: currentOwnerId(),
     });
   } catch (error) {
     console.error("Failed to write activity log", { eventType: event.eventType, error });
@@ -99,7 +97,6 @@ export async function logEventsBatch(
       ip: event.ip ?? null,
       userAgent: event.userAgent ?? null,
       createdAt: nowIso(),
-      ownerId: currentOwnerId(),
     }));
     await db.batch(inserts as [typeof inserts[number], ...Array<typeof inserts[number]>]);
   } catch (error) {

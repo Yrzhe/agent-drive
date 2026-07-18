@@ -7,7 +7,6 @@ import { buckets, contacts, files } from "@defs";
 import { signWithIdentity, type Jwk } from "./agent-identity";
 import { ensureFolderChain, nowIso, toFileObject } from "./files";
 import { joinPath, normalizeName } from "./paths";
-import { currentOwnerId } from "./request-owner";
 import { validateWebhookUrlForDelivery } from "./webhooks";
 import type { AppDb, FileObject } from "../types";
 
@@ -97,8 +96,10 @@ export async function storeInboxFile(
   payload: InboxPayload,
   bytes: Uint8Array
 ): Promise<{ file: FileObject; folder: string; quarantined: boolean }> {
+  // A delivery belongs to whoever owns the receiving contact, not the external peer.
+  const ownerId = contact.ownerId ?? null;
   const folder = inboxTargetFolder(contact);
-  await ensureFolderChain(db, folder);
+  await ensureFolderChain(db, folder, ownerId);
 
   let targetPath = joinPath(folder, payload.filename);
   const [occupied] = await db.select({ id: files.id }).from(files).where(and(eq(files.path, targetPath), isNull(files.deletedAt))).limit(1);
@@ -130,7 +131,7 @@ export async function storeInboxFile(
       s3Uri: storage.createS3Uri(buckets.drive, objectPath),
       createdAt: timestamp,
       updatedAt: timestamp,
-      ownerId: currentOwnerId(),
+      ownerId,
     })
     .returning();
 
