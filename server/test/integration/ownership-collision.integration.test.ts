@@ -258,6 +258,42 @@ describe("Part ①b — per-owner uniqueness (#30)", () => {
     expect(rows.map((r: FileRow) => r.ownerId).sort()).toEqual(["A", "B"]);
   });
 
+  it("owner B trashing their own /shared folder leaves owner A's colliding file at /shared/x.txt untouched (#30 Part ①b final review)", async () => {
+    const { default: app } = await import("../../src/index");
+
+    // B owns the folder /shared itself.
+    await seedFolder("/shared", "B");
+    // A owns a real FILE at a path inside that same subtree — a cross-owner path collision.
+    await seedDriveFile({ id: "a-shared-x", path: "/shared/x.txt", body: "A's content", ownerId: "A" });
+
+    const [bFolder] = await runtime.db.select().from(files).where(and(eq(files.path, "/shared"), eq(files.ownerId, "B"))).limit(1);
+    expect(bFolder).toBeDefined();
+
+    useSession({ id: "B" });
+    const trashRes = await app.request(`/api/public/v1/files/${bFolder.id}`, { method: "DELETE", headers: jsonHeaders() });
+    expect(trashRes.status).toBe(200);
+
+    const [aFile] = await runtime.db.select().from(files).where(eq(files.id, "a-shared-x")).limit(1);
+    expect(aFile).toBeDefined();
+    expect(aFile?.path).toBe("/shared/x.txt"); // not tombstoned/path-mangled
+    expect(aFile?.deletedAt).toBeNull();
+    expect(aFile?.ownerId).toBe("A");
+  });
+
+  it("sendFileToContact cannot resolve another owner's file by a colliding path (#30 Part ①b final review)", async () => {
+    const { sendFileToContact } = await import("../../src/lib/peering");
+
+    // B owns a file at /b-secret.txt; A owns a contact and tries to send that same path.
+    await seedDriveFile({ id: "b-secret", path: "/b-secret.txt", body: "B's secret", ownerId: "B" });
+    await seedContact({ id: "contact-a", name: "peer-a", url: "https://peer-a.example", publicKeyJwk: {}, ownerId: "A" });
+    const [contact] = await runtime.db.select().from(contacts).where(eq(contacts.id, "contact-a")).limit(1);
+    expect(contact).toBeDefined();
+
+    await expect(
+      sendFileToContact(runtime.db as never, runtime.storage as never, contact, "/b-secret.txt", null, "https://a.example")
+    ).rejects.toThrow(/file_not_found/);
+  });
+
   it("two owners can each remember memory key 'profile-rest' via REST and each reads back only their own", async () => {
     const { default: app } = await import("../../src/index");
 

@@ -47,12 +47,17 @@ function s3PathsFor(rows: readonly FileRow[], storage: StorageClient): string[] 
     .map((x) => x.path);
 }
 
-export async function expandSubtree(db: AppDb, root: FileRow): Promise<FileRow[]> {
+export async function expandSubtree(db: AppDb, root: FileRow, ownerId: string | null = null): Promise<FileRow[]> {
   if (root.isFolder !== 1) return [root];
   return db
     .select()
     .from(files)
-    .where(or(eq(files.path, root.path), sql`${files.path} LIKE ${escapedDescendantPattern(root.path)} ESCAPE '\\'`));
+    .where(
+      and(
+        or(eq(files.path, root.path), sql`${files.path} LIKE ${escapedDescendantPattern(root.path)} ESCAPE '\\'`),
+        ownerId ? eq(files.ownerId, ownerId) : undefined
+      )
+    );
 }
 
 export async function softDeleteSubtree(
@@ -60,21 +65,26 @@ export async function softDeleteSubtree(
   root: FileRow,
   options: { actor?: ActivityActor; ownerId?: string | null } = {}
 ): Promise<{ rows: FileRow[]; fileIds: string[]; unpublishedBundlePublicIds: string[] }> {
-  const rows = await expandSubtree(db, root);
+  const ownerId = options.ownerId ?? null;
+  const rows = await expandSubtree(db, root, ownerId);
   const fileIds = rows.filter((x) => x.isFolder === 0).map((x) => x.id);
   const timestamp = nowIso();
-  const ownerId = options.ownerId ?? null;
   const publishedBundles = await selectPublishedBundleRowsInSubtree(db, root.path, ownerId);
 
   const folderShareCondition =
     root.isFolder === 1
-      ? or(eq(shares.folderPath, root.path), sql`${shares.folderPath} LIKE ${escapedDescendantPattern(root.path)} ESCAPE '\\'`)
+      ? and(
+          or(eq(shares.folderPath, root.path), sql`${shares.folderPath} LIKE ${escapedDescendantPattern(root.path)} ESCAPE '\\'`),
+          ownerId ? eq(shares.ownerId, ownerId) : undefined
+        )
       : undefined;
 
   const ops: any[] = [];
   if (publishedBundles.length > 0) ops.push(unpublishBundlePrefixesInSubtree(db, root.path, timestamp, ownerId));
   if (folderShareCondition) ops.push(db.delete(shares).where(folderShareCondition));
-  if (fileIds.length > 0) ops.push(db.delete(shares).where(inArray(shares.fileId, fileIds)));
+  if (fileIds.length > 0) {
+    ops.push(db.delete(shares).where(and(inArray(shares.fileId, fileIds), ownerId ? eq(shares.ownerId, ownerId) : undefined)));
+  }
 
   const tombRootPath = tombstonePathFor(root.path, root.id);
   for (const row of rows) {
