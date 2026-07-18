@@ -222,10 +222,10 @@ export async function callMcpTool(db: AppDb, origin: string, scopes: readonly st
     const loadRows = async (pageLimit: number, pageOffset: number): Promise<Array<typeof files.$inferSelect>> => {
       if (recursive) {
         return path === "/"
-          ? db.select().from(files).where(isNull(files.deletedAt)).orderBy(asc(files.path)).limit(pageLimit).offset(pageOffset)
-          : db.select().from(files).where(and(sql`${files.path} LIKE ${escapedDescendantPattern(path)} ESCAPE '\\'`, isNull(files.deletedAt))).orderBy(asc(files.path)).limit(pageLimit).offset(pageOffset);
+          ? db.select().from(files).where(and(isNull(files.deletedAt), ownerId ? eq(files.ownerId, ownerId) : undefined)).orderBy(asc(files.path)).limit(pageLimit).offset(pageOffset)
+          : db.select().from(files).where(and(sql`${files.path} LIKE ${escapedDescendantPattern(path)} ESCAPE '\\'`, isNull(files.deletedAt), ownerId ? eq(files.ownerId, ownerId) : undefined)).orderBy(asc(files.path)).limit(pageLimit).offset(pageOffset);
       }
-      return db.select().from(files).where(and(eq(files.parentPath, path), isNull(files.deletedAt))).orderBy(desc(files.isFolder), asc(files.name)).limit(pageLimit).offset(pageOffset);
+      return db.select().from(files).where(and(eq(files.parentPath, path), isNull(files.deletedAt), ownerId ? eq(files.ownerId, ownerId) : undefined)).orderBy(desc(files.isFolder), asc(files.name)).limit(pageLimit).offset(pageOffset);
     };
 
     const visible: Array<typeof files.$inferSelect> = [];
@@ -255,7 +255,7 @@ export async function callMcpTool(db: AppDb, origin: string, scopes: readonly st
     const [file] = await db
       .select()
       .from(files)
-      .where(and(eq(files.path, path), eq(files.isFolder, 0), isNull(files.deletedAt)))
+      .where(and(eq(files.path, path), eq(files.isFolder, 0), isNull(files.deletedAt), ownerId ? eq(files.ownerId, ownerId) : undefined))
       .limit(1);
     if (!file?.s3Uri) throw new Error("file_not_found");
     const { storage } = await import("edgespark");
@@ -290,7 +290,7 @@ export async function callMcpTool(db: AppDb, origin: string, scopes: readonly st
     const [existing] = await db
       .select()
       .from(files)
-      .where(and(eq(files.path, path), isNull(files.deletedAt)))
+      .where(and(eq(files.path, path), isNull(files.deletedAt), ownerId ? eq(files.ownerId, ownerId) : undefined))
       .limit(1);
     if (existing?.isFolder === 1) throw new Error("path_conflict:target is a folder");
     if (existing && !overwrite) throw new Error("path_conflict:file already exists");
@@ -338,7 +338,8 @@ export async function callMcpTool(db: AppDb, origin: string, scopes: readonly st
       .from(files)
       .where(and(
         or(sql`${files.name} LIKE ${pattern} ESCAPE '\\'`, sql`${files.path} LIKE ${pattern} ESCAPE '\\'`),
-        isNull(files.deletedAt)
+        isNull(files.deletedAt),
+        ownerId ? eq(files.ownerId, ownerId) : undefined
       ))
       .orderBy(desc(files.isFolder), asc(files.name))
       .limit(limit);
@@ -365,7 +366,7 @@ export async function callMcpTool(db: AppDb, origin: string, scopes: readonly st
       const [file] = await db
         .select()
         .from(files)
-        .where(and(eq(files.path, normalizePath(filePath)), eq(files.isFolder, 0), isNull(files.deletedAt)))
+        .where(and(eq(files.path, normalizePath(filePath)), eq(files.isFolder, 0), isNull(files.deletedAt), ownerId ? eq(files.ownerId, ownerId) : undefined))
         .limit(1);
       if (!file) throw new Error("file_not_found");
       fileId = file.id;
@@ -375,7 +376,7 @@ export async function callMcpTool(db: AppDb, origin: string, scopes: readonly st
         const [folder] = await db
           .select()
           .from(files)
-          .where(and(eq(files.path, folderPath), eq(files.isFolder, 1), isNull(files.deletedAt)))
+          .where(and(eq(files.path, folderPath), eq(files.isFolder, 1), isNull(files.deletedAt), ownerId ? eq(files.ownerId, ownerId) : undefined))
           .limit(1);
         if (!folder) throw new Error("folder_not_found");
       }

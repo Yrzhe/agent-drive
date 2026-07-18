@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { files, memories } from "../../src/defs";
+import { callMcpTool } from "../../src/lib/mcp-tools";
 import { getMemory, listMemories, recallMemories } from "../../src/lib/memory";
 import { jsonHeaders, resetRuntime, runtime, seedDriveFile, seedMemory, seedOwner, useBearer } from "./edge-runtime";
 
@@ -100,5 +101,15 @@ describe("two-owner isolation harness (#30 Part ①a)", () => {
     expect(rename.status).toBe(409);
     const body = (await rename.json()) as { error?: { code?: string } };
     expect(body.error?.code).toBe("path_conflict");
+  });
+
+  it("MCP list_files/search_files/read_file bound to B never surface A's files", async () => {
+    await seedDriveFile({ id: "fa", path: "/a.txt", body: "aaa", ownerId: "A" });
+    await seedDriveFile({ id: "fb", path: "/b.txt", body: "bbb", ownerId: "B" });
+    const list = await callMcpTool(runtime.db as never, "https://x", ["read:drive", "path:/"], "list_files", { path: "/" }, "B");
+    expect(JSON.stringify(list)).not.toContain("/a.txt");
+    const search = await callMcpTool(runtime.db as never, "https://x", ["read:drive", "path:/"], "search_files", { query: "a.txt" }, "B");
+    expect(JSON.stringify(search)).not.toContain("/a.txt");
+    await expect(callMcpTool(runtime.db as never, "https://x", ["read:drive", "path:/"], "read_file", { path: "/a.txt" }, "B")).rejects.toThrow(/file_not_found/);
   });
 });
