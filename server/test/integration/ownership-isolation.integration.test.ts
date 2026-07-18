@@ -79,4 +79,26 @@ describe("two-owner isolation harness (#30 Part ①a)", () => {
     const purge = await app.request(`/api/public/v1/files/${trashedId}/purge`, { method: "DELETE", headers });
     expect(purge.status).toBe(404);
   });
+
+  it("a cross-owner path collision on rename returns 409, not a raw D1 500", async () => {
+    seedOwner({ email: "b@x.test", id: "B" });
+    runtime.vars.set("OWNER_EMAIL", "b@x.test");
+    await seedDriveFile({ id: "fa", path: "/a.txt", body: "x", ownerId: "A" }); // A's file
+    const bFileId = await seedDriveFile({ id: "fb", path: "/b.txt", body: "y", ownerId: "B" }); // B's file
+
+    const headers = jsonHeaders(useBearer(["read:drive", "write:drive", "path:/"]));
+    const { default: app } = await import("../../src/index");
+
+    // B's owner-scoped path-conflict pre-check can no longer see A's row at /a.txt,
+    // so the rename must be caught by the D1 unique-violation catch instead and
+    // surfaced as a clean 409 — not an unhandled 500.
+    const rename = await app.request(`/api/public/v1/files/${bFileId}`, {
+      method: "PATCH",
+      headers,
+      body: JSON.stringify({ parentPath: "/", name: "a.txt" }),
+    });
+    expect(rename.status).toBe(409);
+    const body = (await rename.json()) as { error?: { code?: string } };
+    expect(body.error?.code).toBe("path_conflict");
+  });
 });

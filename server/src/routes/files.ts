@@ -505,7 +505,7 @@ filesRoutes.patch(
         failures.push({
           id,
           error: "move_failed",
-          message: error instanceof Error ? error.message : String(error),
+          message: isPathUniqueConflict(error) ? "Path already exists" : error instanceof Error ? error.message : String(error),
         });
       }
     }
@@ -661,9 +661,19 @@ filesRoutes.patch(
       const bundleUpdates = [rewriteBundlePrefixesForMove(db, existing.path, nextPath, updatedAt)];
       // Root + descendants + shares + bundles rewritten in ONE atomic batch.
       const updates = [rootUpdate, ...descendantUpdates, ...shareUpdates, ...bundleUpdates];
-      await db.batch(updates as [typeof updates[number], ...Array<typeof updates[number]>]);
+      try {
+        await db.batch(updates as [typeof updates[number], ...Array<typeof updates[number]>]);
+      } catch (error) {
+        if (isPathUniqueConflict(error)) throw new ApiError(409, "path_conflict", "Path already exists");
+        throw error;
+      }
     } else {
-      await rootUpdate;
+      try {
+        await rootUpdate;
+      } catch (error) {
+        if (isPathUniqueConflict(error)) throw new ApiError(409, "path_conflict", "Path already exists");
+        throw error;
+      }
     }
 
     const [updated] = await db
@@ -772,7 +782,13 @@ filesRoutes.post(
     }
 
     await ensureFolderChain(db, target.parentPath, c.get("ownerId") ?? null);
-    const restored = await restoreSubtree(db, target);
+    let restored: number;
+    try {
+      restored = await restoreSubtree(db, target);
+    } catch (error) {
+      if (isPathUniqueConflict(error)) throw new ApiError(409, "path_conflict", "Path already exists");
+      throw error;
+    }
     await maybePurgeStaleTrash(db, storage);
     await maybePurgeStalePendingUploads(db, storage);
     await maybeReconcileOrphanObjects(db, storage);
