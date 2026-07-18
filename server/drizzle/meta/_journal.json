@@ -127,6 +127,13 @@
       "when": 1784390699432,
       "tag": "0017_bundle_versions_surrogate_pk",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "6",
+      "when": 1784396564923,
+      "tag": "0018_user_access_allowlist",
+      "breakpoints": true
     }
   ]
 }
