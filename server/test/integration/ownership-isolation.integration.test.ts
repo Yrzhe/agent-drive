@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { files, memories } from "../../src/defs";
+import { ensureFolderChain } from "../../src/lib/files";
 import { callMcpTool } from "../../src/lib/mcp-tools";
 import { getMemory, listMemories, recallMemories } from "../../src/lib/memory";
 import { jsonHeaders, resetRuntime, runtime, seedDriveFile, seedMemory, seedOwner, useBearer } from "./edge-runtime";
@@ -111,5 +112,18 @@ describe("two-owner isolation harness (#30 Part ①a)", () => {
     const search = await callMcpTool(runtime.db as never, "https://x", ["read:drive", "path:/"], "search_files", { query: "a.txt" }, "B");
     expect(JSON.stringify(search)).not.toContain("/a.txt");
     await expect(callMcpTool(runtime.db as never, "https://x", ["read:drive", "path:/"], "read_file", { path: "/a.txt" }, "B")).rejects.toThrow(/file_not_found/);
+  });
+
+  it("ensureFolderChain for owner B does not adopt owner A's folder at the same path", async () => {
+    await seedDriveFile({ id: "fa", path: "/shared/a.txt", body: "x", ownerId: "A" }); // creates /shared owned by A
+    // pre-1b files.path is still a global unique column: B's owner-scoped lookup no longer sees A's
+    // /shared row as existing, so B's ensureFolderChain attempts its own insert, which the unique
+    // constraint rejects. That insert-collision handling is Part ①b's concern (composite unique) and
+    // out of scope here — this test only asserts B's call never adopted/mutated A's existing row.
+    await ensureFolderChain(runtime.db as never, "/shared", "B").catch(() => undefined);
+    const rows = await runtime.db.select().from(files).where(eq(files.path, "/shared"));
+    const a = rows.find((r) => r.ownerId === "A");
+    expect(a).toBeDefined();
+    expect(rows.every((r) => r.ownerId === "A")).toBe(true); // no B-owned duplicate created (blocked by unique) and A's untouched
   });
 });
