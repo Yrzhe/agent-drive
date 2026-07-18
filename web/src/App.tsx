@@ -10,6 +10,7 @@ const ConnectSetupPage = lazy(() => import("@/pages/ConnectSetupPage"));
 const BundlesPage = lazy(() => import("@/pages/BundlesPage"));
 const TrashPage = lazy(() => import("@/pages/TrashPage"));
 const WaitlistPage = lazy(() => import("@/pages/WaitlistPage"));
+const AdminPage = lazy(() => import("@/pages/AdminPage"));
 
 function RouteFallback() {
   return (
@@ -33,6 +34,7 @@ function App() {
           <Route element={<BundlesPage />} path="/bundles" />
           <Route element={<TrashPage />} path="/trash" />
           <Route element={<WaitlistPage />} path="/waitlist" />
+          <Route element={<AdminPage />} path="/admin" />
           <Route element={<Navigate replace to="/" />} path="*" />
         </Routes>
       </Suspense>
