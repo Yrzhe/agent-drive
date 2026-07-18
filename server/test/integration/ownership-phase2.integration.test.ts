@@ -197,7 +197,7 @@ describe("multi-tenancy Phase 2 — owner-on-insert (#30)", () => {
   });
 
   describe("owner is preserved on update, never reassigned", () => {
-    it("remember-by-key updates content without overwriting an existing owner", async () => {
+    it("remember-by-key is per-owner: a session owner's remember at another owner's key creates its own row, leaving the other owner's row untouched", async () => {
       await runtime.db.insert(memories).values({
         id: "m-existing",
         key: "shared-key",
@@ -213,11 +213,21 @@ describe("multi-tenancy Phase 2 — owner-on-insert (#30)", () => {
         headers: jsonHeaders(),
         body: JSON.stringify({ content: "new", key: "shared-key" }),
       });
-      expect(res.status).toBe(200); // updated, not created
+      expect(res.status).toBe(201); // created its own row, not an update
 
-      const [mem] = await runtime.db.select().from(memories).where(eq(memories.key, "shared-key")).limit(1);
-      expect(mem?.content).toBe("new");
-      expect(mem?.ownerId).toBe("someone-else"); // owner untouched
+      const others = await runtime.db
+        .select()
+        .from(memories)
+        .where(and(eq(memories.key, "shared-key"), eq(memories.ownerId, "someone-else")));
+      expect(others).toHaveLength(1);
+      expect(others[0]?.content).toBe("old"); // untouched
+
+      const mine = await runtime.db
+        .select()
+        .from(memories)
+        .where(and(eq(memories.key, "shared-key"), eq(memories.ownerId, OWNER_ID)));
+      expect(mine).toHaveLength(1);
+      expect(mine[0]?.content).toBe("new");
     });
   });
 

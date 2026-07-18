@@ -41,6 +41,17 @@ describe("Part ①b — per-owner uniqueness (#30)", () => {
     await expect(seedBundleRow({ id: "bv2", prefix: "/y", publicId: "pb_dup", ownerId: "B" })).rejects.toThrow(/unique/i);
   });
 
+  it("remember-by-key is per-owner: B's remember creates B's own row, A's untouched", async () => {
+    await seedMemory({ id: "ma", key: "profile", content: "A original", ownerId: "A" });
+    const { rememberMemory } = await import("../../src/lib/memory");
+    const res = await rememberMemory(runtime.db as never, { content: "B new", key: "profile", ownerId: "B" });
+    expect(res.created).toBe(true); // B got a NEW row, did not update A's
+    const a = (await runtime.db.select().from(memories).where(and(eq(memories.key, "profile"), eq(memories.ownerId, "A"))))[0];
+    expect(a.content).toBe("A original"); // A untouched
+    const b = (await runtime.db.select().from(memories).where(and(eq(memories.key, "profile"), eq(memories.ownerId, "B"))))[0];
+    expect(b.content).toBe("B new");
+  });
+
   it("owner B moving/trashing/purging their own /shared folder leaves owner A's bundle at /shared/x untouched (#30 Part ①b review)", async () => {
     const { default: app } = await import("../../src/index");
 

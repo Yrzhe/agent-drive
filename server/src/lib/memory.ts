@@ -124,13 +124,11 @@ export async function rememberMemory(db: AppDb, input: RememberInput): Promise<{
 
   const updateByKey = async (): Promise<MemoryObject | null> => {
     if (!key) return null;
-    // NOTE: deliberately NOT owner-scoped — see ownership-phase2.integration.test.ts
-    // ("remember-by-key updates content without overwriting an existing owner"),
-    // which asserts cross-owner key-based updates succeed while preserving the
-    // original row's owner. Adding an owner predicate here breaks that existing,
-    // still-in-suite test. Flagged as a concern in the task report rather than
-    // silently reconciled.
-    const [existing] = await db.select({ id: memories.id }).from(memories).where(eq(memories.key, key)).limit(1);
+    const [existing] = await db
+      .select({ id: memories.id })
+      .from(memories)
+      .where(and(eq(memories.key, key), input.ownerId ? eq(memories.ownerId, input.ownerId) : undefined))
+      .limit(1);
     if (!existing) return null;
     const [updatedRows] = await db.batch([
       db.update(memories)
