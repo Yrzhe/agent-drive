@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **Multi-tenancy Part ② Task 2 — account status + waitlist-apply endpoints (#30).** `GET /api/public/v1/account/status` → `{ status, email, isAdmin }` (calls `resolveAccessStatus`, which materializes the caller's `user_access` row on first call). `POST /api/public/v1/account/apply { message?, ref? }` attaches an optional waitlist message/referral to the caller's `pending` row; a no-op when already `active`, and it never sets `active` itself — only admin approval (a later task) does. Both are session-only (`requireSessionAuth`, 403 `session_required` for bearer callers).
+  - **Deliberately exempted from the single-owner boundary.** `requireDualAuth`'s `assertRequestOwner()` call previously rejected *every* non-owner session with 403 `not_owner`, which would have made these endpoints unreachable by the very `pending`/`suspended` users they exist to serve. `/api/public/v1/account/*` is now the one path pattern skipped by that assertion — confirmed by first reproducing the 403 with the exemption reverted, then re-adding it. The forthcoming access-gate (Task 3) will need the same exemption for its own pending/suspended check.
+  - `/apply`'s `message`/`ref` fields are three-way parsed (omitted vs. explicitly cleared vs. provided) so a follow-up call without a message never wipes one sent earlier; capped at 500 / 128 characters respectively (400 `validation_error` over the limit).
+  - Suite green: 47 unit + 161 integration (7 new). Local-only, not deployed.
+
 ### Changed
 
 - **Multi-tenancy Part ①b — per-owner constraint surgery (#30).** The destructive migration: `files.path`, `memories.key`, `contacts.name`, `contacts.url` global uniques → composite `(owner_id, X)`; `bundle_versions` gains a surrogate `id` PK with `unique(owner_id, prefix)` (`publicId` stays global). Two owners can now hold the same path/key/name/prefix; same-owner duplicates still 409. Lands the two ①a deferrals (owner-scoped memory upsert-by-key, concurrency-safe `ensureFolderChain`). Requires a fresh backfill (0 NULL owners) + a D1 snapshot before applying — see `docs/implementation/part1b-deploy-runbook.md`. Behaviour-neutral at single-owner.

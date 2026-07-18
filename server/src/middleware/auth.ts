@@ -8,11 +8,20 @@ import { assertRequestOwner } from "../lib/owner";
 import { requiredRestScope } from "../lib/rest-scopes";
 import type { AppEnv } from "../types";
 
+// Account status/waitlist-apply must be reachable by every signed-in session — including
+// `pending` and `suspended` users who are, by definition, not the owner — so the
+// single-owner boundary below is deliberately not enforced for these paths. This is the
+// one exemption to `assertRequestOwner()`; the forthcoming access-gate (Part ② Task 3)
+// must apply the same exemption for its own pending/suspended check.
+const ACCOUNT_ROUTE_PATTERN = /^\/api\/public\/v1\/account(\/|$)/u;
+
 export const requireDualAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
   try {
     const { auth } = await import("edgespark/http");
     if (auth.isAuthenticated()) {
-      await assertRequestOwner();
+      if (!ACCOUNT_ROUTE_PATTERN.test(c.req.path)) {
+        await assertRequestOwner();
+      }
       c.set("restAuth", { kind: "session", ownerId: auth.user.id });
       c.set("ownerId", auth.user.id);
       await next();

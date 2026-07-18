@@ -3,9 +3,10 @@ import { afterAll, beforeEach, describe, expect, it } from "vitest";
 
 import { allowlist, userAccess } from "@defs";
 
+import app from "../../src/index";
 import { resolveAccessStatus } from "../../src/lib/access";
 import { nowIso } from "../../src/lib/files";
-import { resetRuntime, runtime, seedOwner } from "./edge-runtime";
+import { jsonHeaders, resetRuntime, runtime, seedOwner, useSession } from "./edge-runtime";
 
 describe("resolveAccessStatus", () => {
   beforeEach(() => {
@@ -92,5 +93,110 @@ describe("resolveAccessStatus", () => {
 
     const rows = await runtime.db.select().from(userAccess).where(eq(userAccess.userId, "u7"));
     expect(rows).toHaveLength(1);
+  });
+});
+
+describe("account routes", () => {
+  beforeEach(() => {
+    resetRuntime();
+  });
+
+  afterAll(() => {
+    runtime.sqlite?.close();
+  });
+
+  it("rejects an unauthenticated caller with 401", async () => {
+    const res = await app.request("/api/public/v1/account/status");
+    expect(res.status).toBe(401);
+  });
+
+  it("a pending user's /status returns pending, is not admin, and is not blocked by the single-owner boundary", async () => {
+    runtime.vars.set("OWNER_EMAIL", "owner@x.test");
+    useSession({ id: "pending-1", email: "rando@x.test" });
+
+    const res = await app.request("/api/public/v1/account/status");
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ status: "pending", email: "rando@x.test", isAdmin: false });
+  });
+
+  it("/apply stores the message and referral on the pending row and keeps status pending", async () => {
+    runtime.vars.set("OWNER_EMAIL", "owner@x.test");
+    useSession({ id: "pending-2", email: "rando2@x.test" });
+
+    const res = await app.request("/api/public/v1/account/apply", {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ message: "please let me in", ref: "friend-123" }),
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ status: "pending", email: "rando2@x.test", isAdmin: false });
+
+    const [row] = await runtime.db.select().from(userAccess).where(eq(userAccess.userId, "pending-2"));
+    expect(row.status).toBe("pending");
+    expect(row.message).toBe("please let me in");
+    expect(row.referredBy).toBe("friend-123");
+  });
+
+  it("a follow-up /apply without a message does not wipe a previously stored message", async () => {
+    runtime.vars.set("OWNER_EMAIL", "owner@x.test");
+    useSession({ id: "pending-3", email: "rando3@x.test" });
+
+    await app.request("/api/public/v1/account/apply", {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ message: "first message" }),
+    });
+    await app.request("/api/public/v1/account/apply", {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({}),
+    });
+
+    const [row] = await runtime.db.select().from(userAccess).where(eq(userAccess.userId, "pending-3"));
+    expect(row.message).toBe("first message");
+  });
+
+  it("rejects an oversized message with 400 validation_error", async () => {
+    runtime.vars.set("OWNER_EMAIL", "owner@x.test");
+    useSession({ id: "pending-4", email: "rando4@x.test" });
+
+    const res = await app.request("/api/public/v1/account/apply", {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ message: "x".repeat(501) }),
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error?: { code?: string } };
+    expect(body.error?.code).toBe("validation_error");
+  });
+
+  it("an allowlisted user's /status is active and /apply is a no-op", async () => {
+    seedOwner({ email: "owner@x.test", id: "OWNER" });
+    runtime.vars.set("OWNER_EMAIL", "owner@x.test");
+    await runtime.db.insert(allowlist).values({ email: "vip@x.test", addedBy: "OWNER", addedAt: nowIso() } as never);
+    useSession({ id: "vip-1", email: "vip@x.test" });
+
+    const statusRes = await app.request("/api/public/v1/account/status");
+    expect(await statusRes.json()).toEqual({ status: "active", email: "vip@x.test", isAdmin: false });
+
+    const applyRes = await app.request("/api/public/v1/account/apply", {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ message: "should be ignored" }),
+    });
+    expect(applyRes.status).toBe(200);
+    expect(await applyRes.json()).toEqual({ status: "active", email: "vip@x.test", isAdmin: false });
+
+    const [row] = await runtime.db.select().from(userAccess).where(eq(userAccess.userId, "vip-1"));
+    expect(row.status).toBe("active");
+    expect(row.message).toBeNull();
+  });
+
+  it("the owner's /status is active and isAdmin", async () => {
+    runtime.vars.set("OWNER_EMAIL", "owner@x.test");
+    useSession({ id: "OWNER", email: "owner@x.test" });
+
+    const res = await app.request("/api/public/v1/account/status");
+    expect(await res.json()).toEqual({ status: "active", email: "owner@x.test", isAdmin: true });
   });
 });
