@@ -320,3 +320,190 @@ describe("drive tokens are owner-scoped (list + delete)", () => {
     expect(aToken?.revokedAt).toBeNull();
   });
 });
+
+describe("admin routes (#30 Part ② Task 4)", () => {
+  const ADMIN_EMAIL = "owner@x.test";
+  const ADMIN_ID = "OWNER";
+
+  function seedAdmin(): void {
+    seedOwner({ email: ADMIN_EMAIL, id: ADMIN_ID });
+    runtime.vars.set("OWNER_EMAIL", ADMIN_EMAIL);
+  }
+
+  const ADMIN_ENDPOINTS: { method: string; path: string; body?: unknown }[] = [
+    { method: "POST", path: "/api/public/v1/admin/backfill-owner" },
+    { method: "GET", path: "/api/public/v1/admin/waitlist" },
+    { method: "POST", path: "/api/public/v1/admin/waitlist/some-user/approve" },
+    { method: "POST", path: "/api/public/v1/admin/waitlist/some-user/reject" },
+    { method: "GET", path: "/api/public/v1/admin/allowlist" },
+    { method: "POST", path: "/api/public/v1/admin/allowlist", body: { email: "x@x.test" } },
+    { method: "DELETE", path: "/api/public/v1/admin/allowlist/x@x.test" },
+    { method: "GET", path: "/api/public/v1/admin/users" },
+    { method: "POST", path: "/api/public/v1/admin/users/some-user/suspend" },
+    { method: "POST", path: "/api/public/v1/admin/users/some-user/unsuspend" },
+  ];
+
+  beforeEach(() => {
+    resetRuntime();
+  });
+
+  afterAll(() => {
+    runtime.sqlite?.close();
+  });
+
+  it("rejects a non-admin session with 403 not_admin on every admin route, including backfill-owner", async () => {
+    seedAdmin();
+    useSession({ id: "not-admin", email: "not-admin@x.test" });
+
+    for (const endpoint of ADMIN_ENDPOINTS) {
+      const init: RequestInit = { method: endpoint.method };
+      if (endpoint.body) {
+        init.headers = jsonHeaders();
+        init.body = JSON.stringify(endpoint.body);
+      }
+      const res = await app.request(endpoint.path, init);
+      expect(res.status, `${endpoint.method} ${endpoint.path}`).toBe(403);
+      const body = (await res.json()) as { error?: { code?: string } };
+      expect(body.error?.code, `${endpoint.method} ${endpoint.path}`).toBe("not_admin");
+    }
+  });
+
+  it("rejects a bearer token on an admin route — admin is session-only, same as backfill", async () => {
+    seedAdmin();
+    const headers = useBearer(["read:drive", "write:drive"]);
+    const res = await app.request("/api/public/v1/admin/waitlist", { headers });
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { error?: { code?: string } };
+    expect(body.error?.code).toBe("session_required");
+  });
+
+  it("admin can list the waitlist and approve a pending user, flipping their status to active", async () => {
+    seedAdmin();
+    seedOwner({ id: "pend-1", email: "pend1@x.test" });
+    await resolveAccessStatus(runtime.db as never, { id: "pend-1", email: "pend1@x.test" });
+
+    useSession({ id: ADMIN_ID, email: ADMIN_EMAIL });
+    const waitlistRes = await app.request("/api/public/v1/admin/waitlist");
+    expect(waitlistRes.status).toBe(200);
+    const waitlistBody = (await waitlistRes.json()) as { waitlist: { userId: string; email: string }[] };
+    expect(waitlistBody.waitlist.map((w) => w.userId)).toContain("pend-1");
+
+    const approveRes = await app.request("/api/public/v1/admin/waitlist/pend-1/approve", { method: "POST" });
+    expect(approveRes.status).toBe(200);
+    expect(await approveRes.json()).toEqual({ userId: "pend-1", status: "active" });
+
+    const [row] = await runtime.db.select().from(userAccess).where(eq(userAccess.userId, "pend-1"));
+    expect(row.status).toBe("active");
+    expect(row.decidedBy).toBe(ADMIN_ID);
+    expect(row.decidedAt).not.toBeNull();
+  });
+
+  it("admin can reject a pending user, flipping their status to suspended", async () => {
+    seedAdmin();
+    seedOwner({ id: "pend-2", email: "pend2@x.test" });
+    await resolveAccessStatus(runtime.db as never, { id: "pend-2", email: "pend2@x.test" });
+
+    useSession({ id: ADMIN_ID, email: ADMIN_EMAIL });
+    const rejectRes = await app.request("/api/public/v1/admin/waitlist/pend-2/reject", { method: "POST" });
+    expect(rejectRes.status).toBe(200);
+    expect(await rejectRes.json()).toEqual({ userId: "pend-2", status: "suspended" });
+
+    const [row] = await runtime.db.select().from(userAccess).where(eq(userAccess.userId, "pend-2"));
+    expect(row.status).toBe("suspended");
+  });
+
+  it("returns 404 approving a userId with no user_access row", async () => {
+    seedAdmin();
+    useSession({ id: ADMIN_ID, email: ADMIN_EMAIL });
+
+    const res = await app.request("/api/public/v1/admin/waitlist/ghost/approve", { method: "POST" });
+    expect(res.status).toBe(404);
+    const body = (await res.json()) as { error?: { code?: string } };
+    expect(body.error?.code).toBe("user_not_found");
+  });
+
+  it("admin can add and remove an allowlist email, lowercased regardless of input casing", async () => {
+    seedAdmin();
+    useSession({ id: ADMIN_ID, email: ADMIN_EMAIL });
+
+    const addRes = await app.request("/api/public/v1/admin/allowlist", {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ email: "New@X.test" }),
+    });
+    expect(addRes.status).toBe(201);
+    expect(await addRes.json()).toEqual({ email: "new@x.test" });
+
+    const listRes = await app.request("/api/public/v1/admin/allowlist");
+    const listBody = (await listRes.json()) as { allowlist: { email: string }[] };
+    expect(listBody.allowlist.map((row) => row.email)).toEqual(["new@x.test"]);
+
+    const deleteRes = await app.request("/api/public/v1/admin/allowlist/New%40X.test", { method: "DELETE" });
+    expect(deleteRes.status).toBe(200);
+
+    const listAfter = await app.request("/api/public/v1/admin/allowlist");
+    const listAfterBody = (await listAfter.json()) as { allowlist: { email: string }[] };
+    expect(listAfterBody.allowlist).toEqual([]);
+  });
+
+  it("admin GET /users lists every user with resolved status: owner active, unmaterialized pending, allowlisted active", async () => {
+    seedAdmin();
+    seedOwner({ id: "fresh-1", email: "fresh1@x.test" }); // never resolved — no user_access row
+    seedOwner({ id: "active-1", email: "active1@x.test" });
+    await runtime.db.insert(allowlist).values({ email: "active1@x.test", addedBy: ADMIN_ID, addedAt: nowIso() } as never);
+    await resolveAccessStatus(runtime.db as never, { id: "active-1", email: "active1@x.test" });
+
+    useSession({ id: ADMIN_ID, email: ADMIN_EMAIL });
+    const res = await app.request("/api/public/v1/admin/users");
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { users: { userId: string; status: string }[] };
+    const byId = Object.fromEntries(body.users.map((u) => [u.userId, u.status]));
+    expect(byId[ADMIN_ID]).toBe("active");
+    expect(byId["fresh-1"]).toBe("pending");
+    expect(byId["active-1"]).toBe("active");
+  });
+
+  it("admin can suspend and unsuspend a user, flipping the access-gate result on their next request", async () => {
+    seedAdmin();
+    seedOwner({ id: "target-1", email: "target1@x.test" });
+    await runtime.db.insert(allowlist).values({ email: "target1@x.test", addedBy: ADMIN_ID, addedAt: nowIso() } as never);
+    await resolveAccessStatus(runtime.db as never, { id: "target-1", email: "target1@x.test" });
+
+    useSession({ id: "target-1", email: "target1@x.test" });
+    const beforeRes = await app.request("/api/public/v1/files?path=/");
+    expect(beforeRes.status).toBe(200);
+
+    useSession({ id: ADMIN_ID, email: ADMIN_EMAIL });
+    const suspendRes = await app.request("/api/public/v1/admin/users/target-1/suspend", { method: "POST" });
+    expect(suspendRes.status).toBe(200);
+    expect(await suspendRes.json()).toEqual({ userId: "target-1", status: "suspended" });
+
+    useSession({ id: "target-1", email: "target1@x.test" });
+    const suspendedRes = await app.request("/api/public/v1/files?path=/");
+    expect(suspendedRes.status).toBe(403);
+    const suspendedBody = (await suspendedRes.json()) as { error?: { code?: string } };
+    expect(suspendedBody.error?.code).toBe("access_suspended");
+
+    useSession({ id: ADMIN_ID, email: ADMIN_EMAIL });
+    const unsuspendRes = await app.request("/api/public/v1/admin/users/target-1/unsuspend", { method: "POST" });
+    expect(unsuspendRes.status).toBe(200);
+    expect(await unsuspendRes.json()).toEqual({ userId: "target-1", status: "active" });
+
+    useSession({ id: "target-1", email: "target1@x.test" });
+    const activeAgainRes = await app.request("/api/public/v1/files?path=/");
+    expect(activeAgainRes.status).toBe(200);
+  });
+
+  it("admin cannot suspend the owner (themselves)", async () => {
+    seedAdmin();
+    useSession({ id: ADMIN_ID, email: ADMIN_EMAIL });
+
+    const res = await app.request(`/api/public/v1/admin/users/${ADMIN_ID}/suspend`, { method: "POST" });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error?: { code?: string } };
+    expect(body.error?.code).toBe("cannot_suspend_owner");
+
+    const statusRes = await app.request("/api/public/v1/account/status");
+    expect(await statusRes.json()).toMatchObject({ status: "active" });
+  });
+});
