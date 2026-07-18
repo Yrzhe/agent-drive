@@ -1,11 +1,11 @@
 import { eq } from "drizzle-orm";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
-import { files, memories } from "../../src/defs";
+import { contacts, files, memories } from "../../src/defs";
 import { ensureFolderChain } from "../../src/lib/files";
 import { callMcpTool } from "../../src/lib/mcp-tools";
 import { getMemory, listMemories, recallMemories } from "../../src/lib/memory";
 import { getContactByName, getContactByUrl } from "../../src/lib/peering";
-import { jsonHeaders, resetRuntime, runtime, seedContact, seedDriveFile, seedMemory, seedOwner, seedShareRow, useBearer } from "./edge-runtime";
+import { jsonHeaders, resetRuntime, runtime, seedContact, seedDriveFile, seedMemory, seedOwner, seedShareRow, useBearer, useSession } from "./edge-runtime";
 
 describe("two-owner isolation harness (#30 Part ①a)", () => {
   beforeEach(() => resetRuntime());
@@ -173,5 +173,28 @@ describe("two-owner isolation harness (#30 Part ①a)", () => {
     expect(await getContactByName(runtime.db as never, "peer-a", "A")).not.toBeNull();
     // inbox resolution stays global (peer isn't an authenticated owner):
     expect(await getContactByUrl(runtime.db as never, "https://a.peer")).not.toBeNull();
+  });
+
+  it("owner B cannot PATCH/DELETE owner A's contact by name", async () => {
+    seedOwner({ email: "b@x.test", id: "B" });
+    runtime.vars.set("OWNER_EMAIL", "b@x.test");
+    useSession({ id: "B", email: "b@x.test" });
+    await seedContact({ name: "a-peer", url: "https://a.peer", publicKeyJwk: {}, ownerId: "A" });
+
+    const { default: app } = await import("../../src/index");
+
+    const del = await app.request("/api/public/v1/contacts/a-peer", { method: "DELETE", headers: jsonHeaders() });
+    expect(del.status).toBe(404);
+
+    const patch = await app.request("/api/public/v1/contacts/a-peer", {
+      method: "PATCH",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ autoRelease: true }),
+    });
+    expect(patch.status).toBe(404);
+
+    const [row] = await runtime.db.select().from(contacts).where(eq(contacts.name, "a-peer")).limit(1);
+    expect(row?.ownerId).toBe("A");
+    expect(row?.autoRelease).toBe(0);
   });
 });
