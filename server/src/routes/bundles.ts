@@ -505,7 +505,14 @@ bundlesRoutes.get(
     const historyRows = await db
       .select()
       .from(files)
-      .where(and(eq(files.parentPath, historyDir), eq(files.isFolder, 0), isNull(files.deletedAt)))
+      .where(
+        and(
+          eq(files.parentPath, historyDir),
+          eq(files.isFolder, 0),
+          isNull(files.deletedAt),
+          ownerId ? eq(files.ownerId, ownerId) : undefined
+        )
+      )
       .orderBy(desc(files.updatedAt))
       .limit(limit);
 
@@ -574,7 +581,11 @@ bundlesRoutes.get(
       ? joinPath(prefix, "manifest.json")
       : joinPath(prefix, `.history/${versionId}.json`);
 
-    const [row] = await db.select().from(files).where(and(eq(files.path, manifestFsPath), isNull(files.deletedAt))).limit(1);
+    const [row] = await db
+      .select()
+      .from(files)
+      .where(and(eq(files.path, manifestFsPath), isNull(files.deletedAt), ownerId ? eq(files.ownerId, ownerId) : undefined))
+      .limit(1);
     if (!row?.s3Uri) {
       throw new ApiError(404, "not_found", `Manifest for ${versionId} not found at ${manifestFsPath}`);
     }

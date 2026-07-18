@@ -244,6 +244,56 @@ describe("two-owner isolation harness (#30 Part ①a)", () => {
     expect(pub.status).toBe(200); // public path still resolves by publicId
   });
 
+  it("owner B's bundle /history excludes owner A's history entries at A's prefix", async () => {
+    seedOwner({ email: "b@x.test", id: "B" });
+    runtime.vars.set("OWNER_EMAIL", "b@x.test");
+    const manifest = {
+      versionId: "dv_a1",
+      previousVersionId: null,
+      hash: "hash-a",
+      machineId: "machine-a",
+      pushedAt: new Date().toISOString(),
+      fileCount: 1,
+      totalSize: 2,
+    };
+    await seedDriveFile({
+      path: "/proj-a/.history/dv_a1.json",
+      body: JSON.stringify(manifest),
+      contentType: "application/json",
+      ownerId: "A",
+    });
+    const headers = jsonHeaders(useBearer(["read:drive", "path:/"]));
+    const { default: app } = await import("../../src/index");
+    const res = await app.request("/api/public/v1/bundles/history?prefix=/proj-a", { headers });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { history: Array<{ versionId: string }> };
+    expect(body.history).toHaveLength(0);
+  });
+
+  it("owner B's bundle /manifest cannot fetch owner A's manifest at A's prefix/versionId", async () => {
+    seedOwner({ email: "b@x.test", id: "B" });
+    runtime.vars.set("OWNER_EMAIL", "b@x.test");
+    const manifest = {
+      versionId: "dv_a1",
+      previousVersionId: null,
+      hash: "hash-a",
+      machineId: "machine-a",
+      pushedAt: new Date().toISOString(),
+      fileCount: 1,
+      totalSize: 2,
+    };
+    await seedDriveFile({
+      path: "/proj-a/.history/dv_a1.json",
+      body: JSON.stringify(manifest),
+      contentType: "application/json",
+      ownerId: "A",
+    });
+    const headers = jsonHeaders(useBearer(["read:drive", "path:/"]));
+    const { default: app } = await import("../../src/index");
+    const res = await app.request("/api/public/v1/bundles/manifest?prefix=/proj-a&versionId=dv_a1", { headers });
+    expect(res.status).toBe(404);
+  });
+
   it("owner B cannot list/delete/test owner A's webhook by id", async () => {
     seedOwner({ email: "b@x.test", id: "B" });
     runtime.vars.set("OWNER_EMAIL", "b@x.test");
