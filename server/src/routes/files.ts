@@ -10,6 +10,7 @@ import { escapedDescendantPattern, joinPath, normalizeName, normalizePath, paren
 import { parseListPagination } from "../lib/pagination";
 import { driveObjectKey, presignPath } from "../lib/object-keys";
 import { maybeReconcileOrphanObjects } from "../lib/orphan-objects";
+import { createPendingUploadMarker, readPendingUploadDeclaredSize, readPendingUploadObjectKey } from "../lib/pending-marker";
 import { maybePurgeStalePendingUploads, reclaimStalePendingUpload } from "../lib/pending-uploads";
 import { checkFileSize, checkTotalQuota } from "../lib/quota";
 import { assertRestListPathAllowed, assertRestPathAllowed, restPathFilter } from "../lib/rest-scopes";
@@ -26,18 +27,7 @@ import {
 import { PRESIGNED_URL_TTL_SECS, PREVIEW_URL_TTL_SECS, type AppEnv } from "../types";
 
 export const filesRoutes = new Hono<AppEnv>();
-const PENDING_UPLOAD_PREFIX = "pending:";
 const FILE_SIZE_TOLERANCE_RATIO = 0.1;
-
-function createPendingUploadMarker(declaredSize: number): string {
-  return `${PENDING_UPLOAD_PREFIX}${declaredSize}`;
-}
-
-function readPendingUploadDeclaredSize(marker: string | null): number | null {
-  if (!marker || !marker.startsWith(PENDING_UPLOAD_PREFIX)) return null;
-  const size = Number(marker.slice(PENDING_UPLOAD_PREFIX.length));
-  return Number.isFinite(size) && size >= 0 ? size : null;
-}
 
 function isFileSizeWithinTolerance(expected: number, actual: number): boolean {
   const diff = Math.abs(actual - expected);
@@ -108,7 +98,7 @@ filesRoutes.post(
         isFolder: 0,
         size: 0,
         contentType,
-        s3Uri: createPendingUploadMarker(declaredSize),
+        s3Uri: createPendingUploadMarker(declaredSize, objectPath),
         createdAt: timestamp,
         updatedAt: timestamp,
         ownerId: c.get("ownerId") ?? null,
@@ -170,7 +160,11 @@ filesRoutes.post(
       throw new ApiError(400, "invalid_upload_ticket", "Upload ticket metadata is invalid");
     }
 
-    const objectPath = driveObjectKey(fileId, filename);
+    // Resolve the key the presigned PUT actually targeted, not the current name —
+    // a rename after /upload (e.g. to clear a restore path-conflict) must not
+    // desync the two (#50). Old-format markers carry no key; fall back to the
+    // name-derived key for backward compat with rows created before this change.
+    const objectPath = readPendingUploadObjectKey(pendingMarker) ?? driveObjectKey(fileId, filename);
     const metadata = await storage.from(buckets.drive).head(objectPath);
     if (!metadata) throw new ApiError(404, "upload_not_found", "Uploaded file not found in storage");
 
