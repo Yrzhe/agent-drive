@@ -2,7 +2,7 @@ import { eq } from "drizzle-orm";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { files, memories } from "../../src/defs";
 import { getMemory, listMemories, recallMemories } from "../../src/lib/memory";
-import { resetRuntime, runtime, seedDriveFile, seedMemory, seedOwner } from "./edge-runtime";
+import { jsonHeaders, resetRuntime, runtime, seedDriveFile, seedMemory, seedOwner, useBearer } from "./edge-runtime";
 
 describe("two-owner isolation harness (#30 Part ①a)", () => {
   beforeEach(() => resetRuntime());
@@ -30,5 +30,17 @@ describe("two-owner isolation harness (#30 Part ①a)", () => {
     expect(await getMemory(runtime.db as never, "ma", "B")).toBeNull();
     expect(await getMemory(runtime.db as never, "secret", "B")).toBeNull();
     expect(await getMemory(runtime.db as never, "ma", "A")).not.toBeNull();
+  });
+
+  it("a bearer token bound to owner B sees only B's files", async () => {
+    seedOwner({ email: "b@x.test", id: "B" });
+    runtime.vars.set("OWNER_EMAIL", "b@x.test");
+    await seedDriveFile({ id: "fa", path: "/a.txt", body: "x", ownerId: "A" }); // A's file
+    await seedDriveFile({ id: "fb", path: "/b.txt", body: "y", ownerId: "B" }); // B's file
+    const headers = jsonHeaders(useBearer(["read:drive", "path:/"]));
+    const { default: app } = await import("../../src/index");
+    const res = await app.request("/api/public/v1/files?path=/", { headers });
+    const body = (await res.json()) as { files: Array<{ path: string }> };
+    expect(body.files.map((f) => f.path).sort()).toEqual(["/b.txt"]);
   });
 });

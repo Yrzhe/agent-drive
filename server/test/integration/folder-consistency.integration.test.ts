@@ -38,7 +38,7 @@ describe("folder move/rename/purge consistency", () => {
   });
 
   it("rewrites root + every descendant + linked share atomically on rename", async () => {
-    await seedDriveFile({ id: "nested", path: "/docs/sub/a.txt", body: "x" });
+    await seedDriveFile({ id: "nested", path: "/docs/sub/a.txt", body: "x", ownerId: "owner-user" });
     await seedFolderShare("/docs", "share-docs");
 
     const response = await app.request(`/api/public/v1/files/${await folderId("/docs")}`, {
@@ -58,7 +58,7 @@ describe("folder move/rename/purge consistency", () => {
   });
 
   it("rewrites root + descendants + share atomically on move", async () => {
-    await seedDriveFile({ id: "deep", path: "/src/lib/x.ts", body: "y" });
+    await seedDriveFile({ id: "deep", path: "/src/lib/x.ts", body: "y", ownerId: "owner-user" });
     await seedFolderShare("/src", "share-src");
 
     const response = await app.request(`/api/public/v1/files/${await folderId("/src")}`, {

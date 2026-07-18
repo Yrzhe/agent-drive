@@ -454,7 +454,7 @@ export async function seedContact(options: {
   } as never);
 }
 
-export async function seedPublishedBundle(): Promise<{ publicId: string; prefix: string }> {
+export async function seedPublishedBundle(ownerId: string | null = null): Promise<{ publicId: string; prefix: string }> {
   const prefix = "/bundle";
   const publicId = "pb_test_bundle";
   const manifest = {
@@ -470,9 +470,9 @@ export async function seedPublishedBundle(): Promise<{ publicId: string; prefix:
     files: [{ path: "ok.txt", hash: "hash-ok", size: 2 }],
     directories: [],
   };
-  await seedDriveFile({ id: "manifest-file", path: `${prefix}/manifest.json`, body: JSON.stringify(manifest), contentType: "application/json" });
-  await seedDriveFile({ id: "ok-file", path: `${prefix}/ok.txt`, body: "ok", contentType: "text/plain" });
-  await seedDriveFile({ id: "secret-file", path: `${prefix}/secret.txt`, body: "no", contentType: "text/plain" });
+  await seedDriveFile({ id: "manifest-file", path: `${prefix}/manifest.json`, body: JSON.stringify(manifest), contentType: "application/json", ownerId });
+  await seedDriveFile({ id: "ok-file", path: `${prefix}/ok.txt`, body: "ok", contentType: "text/plain", ownerId });
+  await seedDriveFile({ id: "secret-file", path: `${prefix}/secret.txt`, body: "no", contentType: "text/plain", ownerId });
   await runtime.db.insert(bundleVersions).values({
     prefix,
     publicId,

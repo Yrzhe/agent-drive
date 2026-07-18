@@ -32,6 +32,7 @@ async function insertPending(id: string, name: string, ageMs: number): Promise<v
   await runtime.db.insert(files).values({
     id, name, path: `/${name}`, parentPath: "/", isFolder: 0, size: 0,
     contentType: "text/plain", s3Uri: "pending:5", createdAt: at, updatedAt: at,
+    ownerId: "owner-user",
   });
 }
 

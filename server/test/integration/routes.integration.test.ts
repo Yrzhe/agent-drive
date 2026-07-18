@@ -221,7 +221,7 @@ describe("route-level integration security behaviors", () => {
 
   it("keeps published bundle rows coherent through folder rename, trash, restore, and purge", async () => {
     useSession();
-    const { publicId, prefix } = await seedPublishedBundle();
+    const { publicId, prefix } = await seedPublishedBundle("owner-user");
     const [folder] = await runtime.db.select().from(files).where(eq(files.path, prefix)).limit(1);
     expect(folder?.isFolder).toBe(1);
 
