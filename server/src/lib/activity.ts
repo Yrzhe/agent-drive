@@ -121,11 +121,14 @@ export async function logEventsBatch(
 
 export async function listActivities(
   db: AppDb,
-  filters: { type?: string | null; limit: number; since?: string | null }
+  filters: { type?: string | null; limit: number; since?: string | null },
+  ownerId: string | null = null
 ): Promise<ActivityLogRow[]> {
-  const clauses: ReturnType<typeof eq>[] = [];
-  if (filters.type) clauses.push(eq(activityLog.eventType, filters.type));
-  if (filters.since) clauses.push(gte(activityLog.createdAt, filters.since));
+  const clauses = [
+    filters.type ? eq(activityLog.eventType, filters.type) : undefined,
+    filters.since ? gte(activityLog.createdAt, filters.since) : undefined,
+    ownerId ? eq(activityLog.ownerId, ownerId) : undefined,
+  ].filter((clause): clause is ReturnType<typeof eq> => clause !== undefined);
 
   if (clauses.length === 0) {
     return db.select().from(activityLog).orderBy(desc(activityLog.createdAt)).limit(filters.limit);

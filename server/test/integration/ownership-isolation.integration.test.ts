@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
-import { contacts, files, memories } from "../../src/defs";
+import { activityLog, contacts, files, memories } from "../../src/defs";
+import { listActivities } from "../../src/lib/activity";
 import { ensureFolderChain } from "../../src/lib/files";
 import { callMcpTool } from "../../src/lib/mcp-tools";
 import { getMemory, listMemories, recallMemories } from "../../src/lib/memory";
@@ -196,5 +197,12 @@ describe("two-owner isolation harness (#30 Part ①a)", () => {
     const [row] = await runtime.db.select().from(contacts).where(eq(contacts.name, "a-peer")).limit(1);
     expect(row?.ownerId).toBe("A");
     expect(row?.autoRelease).toBe(0);
+  });
+
+  it("owner B's activity feed excludes owner A's events", async () => {
+    await runtime.db.insert(activityLog).values({ id: "acta", eventType: "file.uploaded", actor: "owner", createdAt: new Date().toISOString(), ownerId: "A" } as never);
+    await runtime.db.insert(activityLog).values({ id: "actb", eventType: "file.uploaded", actor: "owner", createdAt: new Date().toISOString(), ownerId: "B" } as never);
+    const rowsB = await listActivities(runtime.db as never, { limit: 100 }, "B");
+    expect(rowsB.map((r) => r.id)).toEqual(["actb"]);
   });
 });
