@@ -6,7 +6,7 @@ import { allowlist, oauthTokens, userAccess } from "@defs";
 import app from "../../src/index";
 import { resolveAccessStatus } from "../../src/lib/access";
 import { nowIso } from "../../src/lib/files";
-import { clearSession, jsonHeaders, resetRuntime, runtime, seedOwner, useBearer, useSession } from "./edge-runtime";
+import { clearSession, jsonHeaders, resetRuntime, runtime, seedDriveFile, seedOwner, useBearer, useSession } from "./edge-runtime";
 
 describe("resolveAccessStatus", () => {
   beforeEach(() => {
@@ -113,6 +113,21 @@ describe("resolveAccessStatus", () => {
     runtime.vars.set("OWNER_EMAIL", "owner@x.test");
 
     expect(await resolveAccessStatus(runtime.db as never, { id: "OWNER", email: "owner@x.test" })).toBe("active");
+  });
+
+  // Minor (defensive) — a bearer principal carries no email; on FIRST materialization the
+  // resolver must look the email up by id so an allowlisted user is not spuriously pending.
+  it("materializes an allowlisted bearer principal (email null) as active by resolving the email from its id", async () => {
+    seedOwner({ email: "owner@x.test", id: "OWNER" });
+    seedOwner({ email: "member@x.test", id: "member-9" });
+    runtime.vars.set("OWNER_EMAIL", "owner@x.test");
+    await runtime.db.insert(allowlist).values({ email: "member@x.test", addedBy: "OWNER", addedAt: nowIso() } as never);
+
+    // Principal has no email (bearer path) — without the by-id lookup this would fall to pending.
+    expect(await resolveAccessStatus(runtime.db as never, { id: "member-9", email: null })).toBe("active");
+
+    const [row] = await runtime.db.select().from(userAccess).where(eq(userAccess.userId, "member-9"));
+    expect(row.status).toBe("active");
   });
 });
 
@@ -388,6 +403,85 @@ describe("bearer access is gated by principal status (#30 Part ② final review)
     const rows = await runtime.db.select().from(oauthTokens).where(eq(oauthTokens.userId, "member-2"));
     expect(rows.length).toBeGreaterThan(0);
     for (const row of rows) expect(row.revokedAt).not.toBeNull();
+  });
+});
+
+describe("MCP surface is gated by access status (#30 Part ② re-review)", () => {
+  const OWNER_EMAIL = "owner@x.test";
+
+  beforeEach(() => {
+    resetRuntime();
+  });
+
+  afterAll(() => {
+    runtime.sqlite?.close();
+  });
+
+  async function mcpCall(headers: HeadersInit, method: string, params?: unknown): Promise<Response> {
+    return app.request("/api/public/mcp", {
+      method: "POST",
+      headers: { "content-type": "application/json", ...headers },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+    });
+  }
+
+  // The exploit: an active non-owner mints a drive token, the admin suspends them, and the
+  // still-valid token reaches full drive content via MCP tools/call. The gate must close it.
+  it("a suspended user's still-valid drive token is rejected by MCP tools/call, not served content", async () => {
+    seedOwner({ email: OWNER_EMAIL, id: "OWNER" });
+    runtime.vars.set("OWNER_EMAIL", OWNER_EMAIL);
+    await runtime.db.insert(allowlist).values({ email: "member@x.test", addedBy: "OWNER", addedAt: nowIso() } as never);
+
+    // An active non-owner mints a drive token bound to themselves (materializes active).
+    useSession({ id: "member-1", email: "member@x.test" });
+    const mintRes = await app.request("/api/public/v1/tokens", {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ scopes: ["read:drive"], pathPrefix: "/", label: "member token" }),
+    });
+    expect(mintRes.status).toBe(201);
+    const token = ((await mintRes.json()) as { token: string }).token;
+
+    // A file the member owns — read_file would return its content while they are active.
+    await seedDriveFile({ id: "secret", path: "/report.txt", body: "TOPSECRET", ownerId: "member-1" });
+
+    // Sanity: the token serves content on MCP while the user is active (bearer path).
+    clearSession();
+    const okRes = await mcpCall({ authorization: `Bearer ${token}` }, "tools/call", {
+      name: "read_file",
+      arguments: { path: "/report.txt" },
+    });
+    expect(await okRes.text()).toContain("TOPSECRET");
+
+    // Suspend out-of-band — leaves the token row intact/unrevoked (isolates the gate check).
+    await runtime.db
+      .update(userAccess)
+      .set({ status: "suspended", decidedBy: "OWNER", decidedAt: nowIso() })
+      .where(eq(userAccess.userId, "member-1"));
+
+    // The still-valid token no longer reaches drive content — the gate blocks before dispatch.
+    clearSession();
+    const blockedRes = await mcpCall({ authorization: `Bearer ${token}` }, "tools/call", {
+      name: "read_file",
+      arguments: { path: "/report.txt" },
+    });
+    const raw = await blockedRes.text();
+    expect(raw).not.toContain("TOPSECRET");
+    const body = JSON.parse(raw) as { error?: { message?: string }; result?: unknown };
+    expect(body.result).toBeUndefined();
+    expect(body.error?.message).toContain("access_suspended");
+  });
+
+  it("the owner-bound global AGENT_TOKEN still reaches MCP tools/call — no regression", async () => {
+    seedOwner({ email: OWNER_EMAIL, id: "OWNER" });
+    runtime.vars.set("OWNER_EMAIL", OWNER_EMAIL);
+    const headers = useBearer(["read:drive", "path:/"]);
+    await seedDriveFile({ id: "ownerfile", path: "/o.txt", body: "HELLO", ownerId: "OWNER" });
+
+    const res = await mcpCall(headers, "tools/call", { name: "read_file", arguments: { path: "/o.txt" } });
+    const body = (await res.json()) as { error?: unknown; result?: unknown };
+    expect(body.error).toBeUndefined();
+    expect(JSON.stringify(body.result)).toContain("HELLO");
   });
 });
 

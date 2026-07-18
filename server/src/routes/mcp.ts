@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 
+import { checkAccessGate } from "../lib/access";
 import { authenticateMcpBearer, type McpAuthContext } from "../lib/mcp-auth";
 import { callMcpTool, listMcpTools } from "../lib/mcp-tools";
 
@@ -80,6 +81,16 @@ mcpRoutes.post("/", async (c) => {
   const { db } = await import("edgespark");
   const auth = await authenticateMcpBearer(db, c.req.header("authorization"));
   if (!auth) return unauthorized(origin);
+
+  // Gate the MCP surface by the caller's app-level access status, same as REST. A
+  // suspended/pending principal must not reach any method dispatch (initialize / tools).
+  // The legacy global AGENT_TOKEN on an OWNER_EMAIL-unset deployment has no principal
+  // (userId null) — pass through, like the REST gate's trust-any bearer branch. The
+  // owner-bound AGENT_TOKEN resolves `active` by owner id and passes.
+  if (auth.userId !== null) {
+    const denial = await checkAccessGate(db, { id: auth.userId, email: null });
+    if (denial) return jsonRpcError(null, -32000, `${denial.code}: ${denial.message}`);
+  }
 
   const request = (await c.req.json().catch(() => null)) as JsonRpcRequest | null;
   if (!request || request.jsonrpc !== "2.0" || !request.method) {

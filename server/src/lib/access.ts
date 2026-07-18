@@ -1,6 +1,6 @@
 import { eq, sql } from "drizzle-orm";
 
-import { allowlist, userAccess } from "@defs";
+import { allowlist, esSystemAuthUser, userAccess } from "@defs";
 
 import type { AppDb } from "../types";
 import { nowIso } from "./files";
@@ -57,13 +57,27 @@ export async function resolveAccessStatus(
   const ownerId = await resolveOwnerUserId(db);
   if (ownerId !== null && user.id === ownerId) return "active";
 
-  const userEmail = user.email?.trim();
   const [existing] = await db
     .select({ status: userAccess.status })
     .from(userAccess)
     .where(eq(userAccess.userId, user.id))
     .limit(1);
   if (existing) return existing.status as AccessStatus;
+
+  // Materializing a new row. A bearer principal carries no email; resolve it from the
+  // auth-user table by id so an allowlisted user whose row is first seen via a bearer
+  // is not spuriously stuck `pending`. This lookup only runs on first materialization
+  // (rare — token holders normally already have a session-materialized row), and the
+  // owner / OWNER_EMAIL-unset paths returned above never reach it.
+  let userEmail = user.email?.trim();
+  if (!userEmail) {
+    const [authRow] = await db
+      .select({ email: esSystemAuthUser.email })
+      .from(esSystemAuthUser)
+      .where(eq(esSystemAuthUser.id, user.id))
+      .limit(1);
+    userEmail = authRow?.email?.trim();
+  }
 
   let initialStatus: AccessStatus = "pending";
   if (userEmail) {
@@ -90,4 +104,25 @@ export async function resolveAccessStatus(
     .where(eq(userAccess.userId, user.id))
     .limit(1);
   return (row?.status as AccessStatus | undefined) ?? initialStatus;
+}
+
+/**
+ * Denial code + message for a resolved access status, or `null` when the principal
+ * may proceed.
+ *
+ * Single source of truth for the principal→status gate shared by every content surface
+ * (REST `middleware/access-gate.ts` and the MCP route). Callers that hold the legacy
+ * global AGENT_TOKEN on an OWNER_EMAIL-unset deployment (no principal to gate) must skip
+ * this and pass through — there is no id to resolve.
+ */
+export async function checkAccessGate(
+  db: AppDb,
+  principal: { id: string; email: string | null }
+): Promise<{ code: "access_pending" | "access_suspended"; message: string } | null> {
+  const status = await resolveAccessStatus(db, principal);
+  if (status === "active") return null;
+  if (status === "pending") {
+    return { code: "access_pending", message: "Your account is pending admin approval." };
+  }
+  return { code: "access_suspended", message: "Your access has been suspended." };
 }

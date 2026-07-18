@@ -1,6 +1,6 @@
 import type { MiddlewareHandler } from "hono";
 
-import { resolveAccessStatus } from "../lib/access";
+import { checkAccessGate } from "../lib/access";
 import { ApiError, handleApiError } from "../lib/errors";
 import { getRestAuth } from "../lib/rest-scopes";
 import type { AppEnv } from "../types";
@@ -76,18 +76,13 @@ export const requireActiveAccess: MiddlewareHandler<AppEnv> = async (c, next) =>
     }
 
     const { db } = await import("edgespark");
-    const status = await resolveAccessStatus(db, principal);
+    const denial = await checkAccessGate(db, principal);
 
-    if (status === "active") {
-      await next();
-      return;
+    if (denial) {
+      throw new ApiError(403, denial.code, denial.message);
     }
 
-    if (status === "pending") {
-      throw new ApiError(403, "access_pending", "Your account is pending admin approval.");
-    }
-
-    throw new ApiError(403, "access_suspended", "Your access has been suspended.");
+    await next();
   } catch (error) {
     return handleApiError(c, error);
   }
