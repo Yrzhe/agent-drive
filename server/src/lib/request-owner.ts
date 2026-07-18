@@ -21,3 +21,14 @@ import type { AppEnv } from "../types";
 export function currentOwnerId(): string | null {
   return tryGetContext<AppEnv>()?.var.ownerId ?? null;
 }
+
+/**
+ * Set the owner for rows inserted (and events logged) during the rest of this request.
+ *
+ * Used by surfaces that resolve the owner from the target resource rather than from the
+ * caller — e.g. a public-share request is unauthenticated, but the activity it logs belongs
+ * to the share's owner (`share.ownerId`). No-op outside a request context.
+ */
+export function setRequestOwner(ownerId: string | null): void {
+  tryGetContext<AppEnv>()?.set("ownerId", ownerId);
+}
