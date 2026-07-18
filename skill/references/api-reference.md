@@ -246,6 +246,28 @@ GET /api/public/guide
 Returns: JSON with API documentation for receiving agents
 ```
 
+### Registration Hand-off
+
+Agent-native invite flow for a human with no account yet. Full guide, including the
+security boundary: `registration.md`.
+
+```
+POST /api/public/register/start
+Body: { email: string, name?: string, ref?: string }
+Returns: 201 { handoffUrl, expiresAt }
+No auth. Rate-limited (10/hour/IP -> 429 too_many_attempts).
+
+GET /api/public/register/intent/{token}
+Returns: 200 { email, name, ref }   or   404 intent_not_found
+No auth. Read-only — never consumes the intent.
+```
+
+- The agent NEVER handles a password, session, or email verification — only the
+  human, in a browser at `/signup?token=...`, does. A `password` field sent to
+  `/start` is silently ignored.
+- `ref` is copied once into `user_access.referredBy` on first sign-in for the owner's
+  waitlist review — it never grants access.
+
 ### Share Info
 ```
 GET /api/public/s/{shareId}
@@ -351,11 +373,13 @@ Returns: binary ZIP file (Content-Type: application/zip)
 | 404 | `file_not_found` | File or folder not found |
 | 404 | `share_not_found` | Share link not found or deleted |
 | 404 | `upload_not_found` | File not in R2 (upload incomplete) |
+| 404 | `intent_not_found` | Registration intent token unknown, expired, or already consumed |
 | 409 | `path_conflict` | Path already exists |
 | 410 | `share_expired` | Share link expired |
 | 413 | `zip_file_count_exceeded` | Folder ZIP has more than 400 files |
 | 413 | `zip_too_large` | Folder ZIP exceeds 30MB |
 | 429 | `share_exhausted` | Download limit reached |
+| 429 | `too_many_attempts` | Too many `/register/start` calls from one IP within an hour |
 | 500 | `internal_error` | Server error |
 
 All errors return:

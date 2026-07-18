@@ -9,6 +9,7 @@ This directory documents the public HTTP surface of an Agent Drive deployment.
 | [`drive-bundles.md`](./drive-bundles.md) | `adrive sync` users + anyone building versioned bundle workflows |
 | [`memory.md`](./memory.md) | Agents persisting/recalling cross-session context (remember/recall) |
 | [`access.md`](./access.md) | Session callers hitting `403 access_pending`/`access_suspended` — status, waitlist apply, the access gate |
+| [`registration.md`](./registration.md) | Agents helping a human with no account yet sign up — mint an intent, hand off a link, never touch the password |
 | [`agent-card.md`](./agent-card.md) | Peers discovering this deployment's identity, key, and capabilities |
 | [`tokens.md`](./tokens.md) | Owners minting/revoking scoped bearer tokens for third-party agents |
 | [`peering.md`](./peering.md) | Drive-to-Drive contacts, signed inbox delivery, published bundle subscriptions |
