@@ -58,7 +58,7 @@ export async function expandSubtree(db: AppDb, root: FileRow): Promise<FileRow[]
 export async function softDeleteSubtree(
   db: AppDb,
   root: FileRow,
-  options: { actor?: ActivityActor } = {}
+  options: { actor?: ActivityActor; ownerId?: string | null } = {}
 ): Promise<{ rows: FileRow[]; fileIds: string[]; unpublishedBundlePublicIds: string[] }> {
   const rows = await expandSubtree(db, root);
   const fileIds = rows.filter((x) => x.isFolder === 0).map((x) => x.id);
@@ -105,6 +105,7 @@ export async function softDeleteSubtree(
       targetPath: bundle.prefix,
       actor: options.actor ?? "agent",
       metadata: { publicId: bundle.publicId, reason: "trashed" },
+      ownerId: options.ownerId ?? null,
     });
   }
 

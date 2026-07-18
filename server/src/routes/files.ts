@@ -203,6 +203,7 @@ filesRoutes.post(
     if (!inserted) throw new ApiError(409, "upload_state_conflict", "Upload ticket was already completed");
 
     await logEvent(db, {
+      ownerId: c.get("ownerId") ?? null,
       eventType: "file.uploaded",
       targetType: "file",
       targetId: inserted.id,
@@ -336,10 +337,11 @@ filesRoutes.delete(
         continue;
       }
       try {
-        const { rows, fileIds: childFileIds } = await softDeleteSubtree(db, target, { actor });
+        const { rows, fileIds: childFileIds } = await softDeleteSubtree(db, target, { actor, ownerId: c.get("ownerId") ?? null });
         if (target.isFolder === 1) {
           trashedFolderIds.push(target.id);
           await logEvent(db, {
+            ownerId: c.get("ownerId") ?? null,
             eventType: "file.trashed",
             targetType: "folder",
             targetId: target.id,
@@ -350,6 +352,7 @@ filesRoutes.delete(
         } else {
           trashedFileIds.push(target.id);
           await logEvent(db, {
+            ownerId: c.get("ownerId") ?? null,
             eventType: "file.trashed",
             targetType: "file",
             targetId: target.id,
@@ -473,6 +476,7 @@ filesRoutes.patch(
 
         movedIds.push(existing.id);
         await logEvent(db, {
+          ownerId: c.get("ownerId") ?? null,
           eventType: "file.moved",
           targetType: existing.isFolder === 1 ? "folder" : "file",
           targetId: existing.id,
@@ -654,6 +658,7 @@ filesRoutes.patch(
     const targetType = updated.isFolder === 1 ? "folder" : "file";
     if (existing.name !== updated.name) {
       await logEvent(db, {
+        ownerId: c.get("ownerId") ?? null,
         eventType: "file.renamed",
         targetType,
         targetId: updated.id,
@@ -669,6 +674,7 @@ filesRoutes.patch(
     }
     if (existing.parentPath !== updated.parentPath) {
       await logEvent(db, {
+        ownerId: c.get("ownerId") ?? null,
         eventType: "file.moved",
         targetType,
         targetId: updated.id,
@@ -700,13 +706,14 @@ filesRoutes.delete(
     assertRestPathAllowed(c, target.path);
 
     const actor = await getRequestActor();
-    const { rows, fileIds } = await softDeleteSubtree(db, target, { actor });
+    const { rows, fileIds } = await softDeleteSubtree(db, target, { actor, ownerId: c.get("ownerId") ?? null });
     await maybePurgeStaleTrash(db, storage);
     await maybePurgeStalePendingUploads(db, storage);
     await maybeReconcileOrphanObjects(db, storage);
 
     const targetType = target.isFolder === 1 ? "folder" : "file";
     await logEvent(db, {
+      ownerId: c.get("ownerId") ?? null,
       eventType: "file.trashed",
       targetType,
       targetId: target.id,
@@ -750,6 +757,7 @@ filesRoutes.post(
     await maybeReconcileOrphanObjects(db, storage);
 
     await logEvent(db, {
+      ownerId: c.get("ownerId") ?? null,
       eventType: "file.restored",
       targetType: target.isFolder === 1 ? "folder" : "file",
       targetId: target.id,
@@ -775,6 +783,7 @@ filesRoutes.delete(
 
     const { rowCount, objectCount } = await hardPurgeSubtree(db, storage, target);
     await logEvent(db, {
+      ownerId: c.get("ownerId") ?? null,
       eventType: "file.purged",
       targetType: target.isFolder === 1 ? "folder" : "file",
       targetId: target.id,

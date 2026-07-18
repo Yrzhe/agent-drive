@@ -191,6 +191,7 @@ sharesRoutes.post(
       .returning();
 
     await logEvent(db, {
+      ownerId: c.get("ownerId") ?? null,
       eventType: "share.created",
       targetType: "share",
       targetId: created.id,
@@ -326,6 +327,7 @@ sharesRoutes.delete(
     const deletedShare = deleted[0];
     if (!deletedShare) throw new ApiError(404, "share_not_found", "Share link not found");
     await logEvent(db, {
+      ownerId: c.get("ownerId") ?? null,
       eventType: "share.deleted",
       targetType: "share",
       targetId: deletedShare.id,

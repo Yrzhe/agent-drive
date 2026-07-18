@@ -11,8 +11,9 @@ import { nowIso } from "../lib/files";
 import { parseListPagination } from "../lib/pagination";
 import { MINTABLE_TOKEN_SCOPES, formatPathScope, isMcpScope, parsePathScope, serializeScopes, type McpScope } from "../lib/mcp-scopes";
 import { requireSessionAuth } from "../lib/rest-scopes";
+import type { AppEnv } from "../types";
 
-export const tokensRoutes = new Hono();
+export const tokensRoutes = new Hono<AppEnv>();
 
 /** Synthetic clientId separating owner-minted drive tokens from OAuth tokens. */
 export const DRIVE_TOKEN_CLIENT_ID = "drive_token";
@@ -110,6 +111,7 @@ tokensRoutes.post(
       .returning();
 
     await logEvent(db, {
+      ownerId: c.get("ownerId") ?? null,
       eventType: "token.minted",
       targetType: "token",
       targetId: created.id,
@@ -161,6 +163,7 @@ tokensRoutes.delete(
     if (revoked.length === 0) throw new ApiError(404, "token_not_found", "Token not found");
 
     await logEvent(db, {
+      ownerId: c.get("ownerId") ?? null,
       eventType: "token.revoked",
       targetType: "token",
       targetId: id,

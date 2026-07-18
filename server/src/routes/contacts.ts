@@ -84,6 +84,7 @@ contactsRoutes.post(
     }
 
     await logEvent(db, {
+      ownerId: c.get("ownerId") ?? null,
       eventType: "contact.added",
       targetType: "share",
       targetId: created.id,
@@ -130,6 +131,7 @@ contactsRoutes.delete(
     const deleted = await db.delete(contacts).where(eq(contacts.name, c.req.param("name") ?? "")).returning();
     if (deleted.length === 0) throw new ApiError(404, "contact_not_found", "Contact not found");
     await logEvent(db, {
+      ownerId: c.get("ownerId") ?? null,
       eventType: "contact.removed",
       targetType: "share",
       targetId: deleted[0].id,
@@ -164,6 +166,7 @@ contactsRoutes.post(
     try {
       const result = await sendFileToContact(db, storage, contact, filePath, message, origin);
       await logEvent(db, {
+        ownerId: c.get("ownerId") ?? null,
         eventType: "file.sent",
         targetType: "file",
         targetPath: filePath,

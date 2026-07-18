@@ -46,6 +46,7 @@ export async function logEvent(db: AppDb, event: ActivityEventInput): Promise<vo
       ip: event.ip ?? null,
       userAgent: event.userAgent ?? null,
       createdAt,
+      ownerId: event.ownerId ?? null,
     });
   } catch (error) {
     console.error("Failed to write activity log", { eventType: event.eventType, error });
@@ -97,6 +98,7 @@ export async function logEventsBatch(
       ip: event.ip ?? null,
       userAgent: event.userAgent ?? null,
       createdAt: nowIso(),
+      ownerId: event.ownerId ?? null,
     }));
     await db.batch(inserts as [typeof inserts[number], ...Array<typeof inserts[number]>]);
   } catch (error) {

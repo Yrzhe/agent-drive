@@ -75,6 +75,9 @@ export interface ActivityEventInput {
   metadata?: Record<string, unknown> | null;
   ip?: string | null;
   userAgent?: string | null;
+  // Owner this activity belongs to (multi-tenancy owner-on-insert). Callers set it from the
+  // request principal (c.get("ownerId")), the resolved share, or the receiving contact.
+  ownerId?: string | null;
 }
 
 export const ACCESS_TOKEN_TTL_MS = 15 * 60 * 1000;

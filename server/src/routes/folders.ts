@@ -64,6 +64,7 @@ foldersRoutes.post(
     if (!folder) throw new ApiError(500, "internal_error", "Folder was not created");
 
     await logEvent(db, {
+      ownerId: c.get("ownerId") ?? null,
       eventType: "folder.created",
       targetType: "folder",
       targetId: folder.id,
