@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { activityLog, contacts, files, memories, webhooks } from "../../src/defs";
+import { activityLog, contacts, files, memories, shares, webhooks } from "../../src/defs";
 import { listActivities } from "../../src/lib/activity";
 import { ensureFolderChain } from "../../src/lib/files";
 import { callMcpTool } from "../../src/lib/mcp-tools";
@@ -294,5 +294,164 @@ describe("two-owner isolation harness (#30 Part ①a)", () => {
 
     expect(requestedUrls.some((u) => u.includes("a-hook.test"))).toBe(true);
     expect(requestedUrls.some((u) => u.includes("b-hook.test"))).toBe(false);
+  });
+});
+
+describe("adversarial: a principal bound to owner B is fully isolated from owner A (#30 Part ①a comprehensive)", () => {
+  const A_FILE_ID = "adv-fa";
+  const A_TRASHED_ID = "adv-fa-trashed";
+  const A_CONTACT_NAME = "adv-a-peer";
+  const A_SHARE_ID = "adv-sha";
+  const A_WEBHOOK_ID = "adv-wh-a";
+  const A_BUNDLE_PREFIX = "/adv-a-bundle";
+  const A_BUNDLE_PUBLIC_ID = "adv_pb_a";
+
+  const bearerScopes = ["read:drive", "write:drive", "share:create", "read:memory", "write:memory", "path:/"] as const;
+
+  afterAll(() => runtime.sqlite?.close());
+
+  beforeEach(async () => {
+    resetRuntime();
+    seedOwner({ email: "b@x.test", id: "B" });
+    runtime.vars.set("OWNER_EMAIL", "b@x.test");
+
+    // A-owned rows across all 7 owned surfaces.
+    await seedDriveFile({ id: A_FILE_ID, path: "/adv-folder/a.txt", body: "A-only", ownerId: "A" });
+    await seedMemory({ id: "adv-ma", key: "adv-a-key", content: "A's private memory", ownerId: "A" });
+    await seedContact({ id: "adv-ca", name: A_CONTACT_NAME, url: "https://adv-a.peer", publicKeyJwk: {}, ownerId: "A" });
+    await seedShareRow({ id: A_SHARE_ID, fileId: A_FILE_ID, ownerId: "A" });
+    await seedBundleRow({ prefix: A_BUNDLE_PREFIX, publicId: A_BUNDLE_PUBLIC_ID, ownerId: "A" });
+    // The public /current route resolves the manifest.json object off the
+    // files table (owner-agnostic, by publicId) — seed it so the public
+    // path can actually resolve, matching how a real committed bundle works.
+    await seedDriveFile({
+      path: `${A_BUNDLE_PREFIX}/manifest.json`,
+      body: JSON.stringify({ version: 1, files: [] }),
+      contentType: "application/json",
+      ownerId: "A",
+    });
+    await seedWebhookRow({ id: A_WEBHOOK_ID, url: "https://adv-a-hook.test/x", eventTypes: ["file.uploaded"], ownerId: "A" });
+    await runtime.db.insert(activityLog).values({
+      id: "adv-act-a",
+      eventType: "file.uploaded",
+      actor: "owner",
+      createdAt: new Date().toISOString(),
+      ownerId: "A",
+    } as never);
+
+    // A's trashed file, used to exercise restore/purge isolation (both
+    // routes only operate on already soft-deleted rows).
+    const trashedTimestamp = new Date().toISOString();
+    const trashedPath = `/adv-trashed.txt~trash~${A_TRASHED_ID}`;
+    await runtime.db.insert(files).values({
+      id: A_TRASHED_ID,
+      name: "adv-trashed.txt",
+      path: trashedPath,
+      parentPath: "/",
+      isFolder: 0,
+      size: 1,
+      contentType: "text/plain",
+      s3Uri: null,
+      deletedAt: trashedTimestamp,
+      createdAt: trashedTimestamp,
+      updatedAt: trashedTimestamp,
+      ownerId: "A",
+    } as never);
+  });
+
+  it("B's reads across every owned surface show none of A's data", async () => {
+    const headers = jsonHeaders(useBearer([...bearerScopes]));
+    const { default: app } = await import("../../src/index");
+
+    const listChecks = [
+      ["/api/public/v1/files?path=/", "files"],
+      ["/api/public/v1/memory", "memories"],
+      ["/api/public/v1/shares", "shares"],
+      ["/api/public/v1/activity", "activities"],
+    ] as const;
+    for (const [url, key] of listChecks) {
+      const res = await app.request(url, { headers });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as Record<string, unknown[]>;
+      expect(JSON.stringify(body[key] ?? [])).not.toContain("adv-a");
+      expect(body[key] ?? []).toHaveLength(0);
+    }
+
+    // direct id access is 404, not another owner's row:
+    expect((await app.request(`/api/public/v1/files/${A_FILE_ID}`, { headers })).status).toBe(404);
+
+    // published-bundle current-version lookup never resolves A's bundle for B:
+    const bundleRes = await app.request(`/api/public/v1/bundles/current?prefix=${A_BUNDLE_PREFIX}`, { headers });
+    expect(bundleRes.status).toBe(200);
+    const bundleBody = (await bundleRes.json()) as { currentVersion: unknown | null };
+    expect(bundleBody.currentVersion).toBeNull();
+
+    // /stats aggregates exclude A's file/folder/size/share:
+    const statsRes = await app.request("/api/public/v1/stats", { headers });
+    expect(statsRes.status).toBe(200);
+    const statsBody = (await statsRes.json()) as { totalFiles: number; totalFolders: number; totalSize: number; totalShares: number };
+    expect(statsBody.totalFiles).toBe(0);
+    expect(statsBody.totalFolders).toBe(0);
+    expect(statsBody.totalSize).toBe(0);
+    expect(statsBody.totalShares).toBe(0);
+
+    // contacts is a session-only route:
+    useSession({ id: "B", email: "b@x.test" });
+    const contactsRes = await app.request("/api/public/v1/contacts", { headers: jsonHeaders() });
+    expect(contactsRes.status).toBe(200);
+    const contactsBody = (await contactsRes.json()) as { contacts: Array<{ name: string }> };
+    expect(contactsBody.contacts).toHaveLength(0);
+  });
+
+  it("B cannot mutate any of A's rows across owned surfaces; each attempt 404s and A's row is provably unchanged", async () => {
+    const bearerHeaders = jsonHeaders(useBearer([...bearerScopes]));
+    const { default: app } = await import("../../src/index");
+
+    // files: trash / restore / purge, all owner-scoped lookups so all 404.
+    const del = await app.request(`/api/public/v1/files/${A_FILE_ID}`, { method: "DELETE", headers: bearerHeaders });
+    expect(del.status).toBe(404);
+    const restore = await app.request(`/api/public/v1/files/${A_TRASHED_ID}/restore`, { method: "POST", headers: bearerHeaders });
+    expect(restore.status).toBe(404);
+    const purge = await app.request(`/api/public/v1/files/${A_TRASHED_ID}/purge`, { method: "DELETE", headers: bearerHeaders });
+    expect(purge.status).toBe(404);
+
+    const [liveFileRow] = await runtime.db.select().from(files).where(eq(files.id, A_FILE_ID)).limit(1);
+    expect(liveFileRow?.ownerId).toBe("A");
+    expect(liveFileRow?.deletedAt).toBeNull();
+    const [trashedFileRow] = await runtime.db.select().from(files).where(eq(files.id, A_TRASHED_ID)).limit(1);
+    expect(trashedFileRow?.ownerId).toBe("A");
+    expect(trashedFileRow?.deletedAt).not.toBeNull();
+
+    // shares:
+    const shareDel = await app.request(`/api/public/v1/shares/${A_SHARE_ID}`, { method: "DELETE", headers: bearerHeaders });
+    expect(shareDel.status).toBe(404);
+    const [shareRow] = await runtime.db.select().from(shares).where(eq(shares.id, A_SHARE_ID)).limit(1);
+    expect(shareRow?.ownerId).toBe("A");
+
+    // webhooks:
+    const webhookDel = await app.request(`/api/public/v1/webhooks/${A_WEBHOOK_ID}`, { method: "DELETE", headers: bearerHeaders });
+    expect(webhookDel.status).toBe(404);
+    const [webhookRow] = await runtime.db.select().from(webhooks).where(eq(webhooks.id, A_WEBHOOK_ID)).limit(1);
+    expect(webhookRow?.ownerId).toBe("A");
+
+    // contacts (session-only routes):
+    useSession({ id: "B", email: "b@x.test" });
+    const contactDel = await app.request(`/api/public/v1/contacts/${A_CONTACT_NAME}`, { method: "DELETE", headers: jsonHeaders() });
+    expect(contactDel.status).toBe(404);
+    const contactPatch = await app.request(`/api/public/v1/contacts/${A_CONTACT_NAME}`, {
+      method: "PATCH",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ autoRelease: true }),
+    });
+    expect(contactPatch.status).toBe(404);
+    const [contactRow] = await runtime.db.select().from(contacts).where(eq(contacts.name, A_CONTACT_NAME)).limit(1);
+    expect(contactRow?.ownerId).toBe("A");
+    expect(contactRow?.autoRelease).toBe(0);
+  });
+
+  it("a published bundle stays reachable by publicId regardless of the requester's owner", async () => {
+    const { default: app } = await import("../../src/index");
+    const pub = await app.request(`/api/public/b/${A_BUNDLE_PUBLIC_ID}/current`);
+    expect(pub.status).toBe(200);
   });
 });
