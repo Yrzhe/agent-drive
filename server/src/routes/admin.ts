@@ -14,10 +14,30 @@ export const adminRoutes = new Hono<AppEnv>();
 
 type DecidedStatus = "active" | "suspended";
 
+// RFC 5321 max total email length.
+const MAX_EMAIL_CHARS = 254;
+
 function requireParam(c: { req: { param: (name: string) => string | undefined } }, name: string): string {
   const value = c.req.param(name);
   if (!value) throw new ApiError(400, "validation_error", `Missing path param: ${name}`);
   return value;
+}
+
+/**
+ * Minimal email shape + length check for the allowlist PK — not full RFC 5322
+ * validation, just enough to reject obvious garbage (mirrors the discipline in
+ * `routes/account.ts`'s `parseOptionalField`): non-empty local part, non-empty
+ * domain part, exactly one `@`, capped at the RFC 5321 max length.
+ */
+function requireValidEmail(input: string): string {
+  if (input.length > MAX_EMAIL_CHARS) {
+    throw new ApiError(400, "invalid_email", `email must be at most ${MAX_EMAIL_CHARS} characters`);
+  }
+  const at = input.indexOf("@");
+  if (at <= 0 || at !== input.lastIndexOf("@") || at === input.length - 1) {
+    throw new ApiError(400, "invalid_email", "email must contain exactly one '@' with a non-empty local and domain part");
+  }
+  return input;
 }
 
 async function requireAuthenticatedAdmin(): Promise<{ id: string }> {
@@ -26,13 +46,24 @@ async function requireAuthenticatedAdmin(): Promise<{ id: string }> {
   return { id: auth.user.id };
 }
 
-/** Stamp a `user_access` decision. 404s if the target has no row yet (never invented here). */
+/**
+ * Stamp a `user_access` decision. 404s if the target has no row yet (never invented here).
+ *
+ * Refuses to act on the deployment owner's id first — defense-in-depth beyond the
+ * invariant that the owner never gets a `user_access` row (they short-circuit inside
+ * `resolveAccessStatus`), so `approve`/`reject`/`suspend`/`unsuspend` all share this guard
+ * instead of only the route that happened to check for it explicitly.
+ */
 async function setDecidedStatus(
   db: AppDb,
   userId: string,
   status: DecidedStatus,
   decidedBy: string
 ): Promise<{ userId: string; status: string }> {
+  const ownerId = await resolveOwnerUserId(db);
+  if (ownerId !== null && userId === ownerId) {
+    throw new ApiError(400, "cannot_suspend_owner", "The deployment owner cannot be suspended");
+  }
   const [row] = await db
     .update(userAccess)
     .set({ status, decidedBy, decidedAt: nowIso() })
@@ -139,7 +170,7 @@ adminRoutes.post(
     // Stored lowercased — resolveAccessStatus/the /apply flow both compare case-insensitively
     // via lower(), but storing lowercased too keeps GET /allowlist and DELETE /allowlist/:email
     // (an exact-match delete) consistent with what's actually on the row.
-    const email = body.email.trim().toLowerCase();
+    const email = requireValidEmail(body.email.trim().toLowerCase());
     const { db } = await import("edgespark");
     await db
       .insert(allowlist)
@@ -153,7 +184,17 @@ adminRoutes.delete(
   "/allowlist/:email",
   withErrorHandling(async (c) => {
     await assertAdmin(c);
-    const email = decodeURIComponent(requireParam(c, "email")).trim().toLowerCase();
+    const rawEmail = requireParam(c, "email");
+    let decoded: string;
+    try {
+      decoded = decodeURIComponent(rawEmail);
+    } catch (error) {
+      if (error instanceof URIError) {
+        throw new ApiError(400, "invalid_email", "email path segment is not a valid percent-encoding");
+      }
+      throw error;
+    }
+    const email = decoded.trim().toLowerCase();
     const { db } = await import("edgespark");
     await db.delete(allowlist).where(eq(allowlist.email, email));
     return c.json({ email });
@@ -196,22 +237,19 @@ adminRoutes.get(
   })
 );
 
+/**
+ * The owner-id guard lives centrally in `setDecidedStatus` (shared with
+ * reject/unsuspend), so no route-local owner check is needed here — `assertAdmin`
+ * already guarantees the caller IS the resolved owner, so `admin.id` and the target
+ * `userId` colliding is exactly the case `setDecidedStatus` refuses.
+ */
 adminRoutes.post(
   "/users/:userId/suspend",
   withErrorHandling(async (c) => {
     await assertAdmin(c);
-    const userId = requireParam(c, "userId");
     const admin = await requireAuthenticatedAdmin();
     const { db } = await import("edgespark");
-    const ownerId = await resolveOwnerUserId(db);
-    // The owner is always active; refuse suspending them (or the admin suspending
-    // themselves, which — under this codebase's single-owner boundary — is the same
-    // account whenever OWNER_EMAIL is configured, and worth blocking on its own even
-    // when it isn't resolvable, e.g. a legacy OWNER_EMAIL-unset deployment).
-    if (userId === admin.id || (ownerId !== null && userId === ownerId)) {
-      throw new ApiError(400, "cannot_suspend_owner", "The deployment owner cannot be suspended");
-    }
-    const row = await setDecidedStatus(db, userId, "suspended", admin.id);
+    const row = await setDecidedStatus(db, requireParam(c, "userId"), "suspended", admin.id);
     return c.json(row);
   })
 );

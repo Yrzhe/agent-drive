@@ -351,6 +351,40 @@ describe("admin routes (#30 Part ② Task 4)", () => {
     runtime.sqlite?.close();
   });
 
+  it("fails closed on 403 not_admin for every admin route when OWNER_EMAIL is unset — no trust-any admin", async () => {
+    // Deliberately do NOT call seedAdmin() / set OWNER_EMAIL: this is the legacy
+    // trust-any deployment mode. isRequestOwner() would treat this session as owner,
+    // but assertAdmin must fail closed regardless — admin is the only guard on
+    // these routes (access-gate exempts /admin/*), so it can never trust-any.
+    useSession({ id: "not-admin", email: "not-admin@x.test" });
+
+    for (const endpoint of ADMIN_ENDPOINTS) {
+      const init: RequestInit = { method: endpoint.method };
+      if (endpoint.body) {
+        init.headers = jsonHeaders();
+        init.body = JSON.stringify(endpoint.body);
+      }
+      const res = await app.request(endpoint.path, init);
+      expect(res.status, `${endpoint.method} ${endpoint.path}`).toBe(403);
+      const body = (await res.json()) as { error?: { code?: string } };
+      expect(body.error?.code, `${endpoint.method} ${endpoint.path}`).toBe("not_admin");
+    }
+  });
+
+  it("with OWNER_EMAIL set, the owner session still gets 200 and a non-owner session still gets 403 not_admin", async () => {
+    seedAdmin();
+
+    useSession({ id: "not-admin-2", email: "not-admin-2@x.test" });
+    const nonOwnerRes = await app.request("/api/public/v1/admin/waitlist");
+    expect(nonOwnerRes.status).toBe(403);
+    const nonOwnerBody = (await nonOwnerRes.json()) as { error?: { code?: string } };
+    expect(nonOwnerBody.error?.code).toBe("not_admin");
+
+    useSession({ id: ADMIN_ID, email: ADMIN_EMAIL });
+    const ownerRes = await app.request("/api/public/v1/admin/waitlist");
+    expect(ownerRes.status).toBe(200);
+  });
+
   it("rejects a non-admin session with 403 not_admin on every admin route, including backfill-owner", async () => {
     seedAdmin();
     useSession({ id: "not-admin", email: "not-admin@x.test" });
@@ -422,6 +456,38 @@ describe("admin routes (#30 Part ② Task 4)", () => {
     expect(body.error?.code).toBe("user_not_found");
   });
 
+  it("rejects POST /allowlist with a malformed email shape (400 invalid_email)", async () => {
+    seedAdmin();
+    useSession({ id: ADMIN_ID, email: ADMIN_EMAIL });
+
+    const res = await app.request("/api/public/v1/admin/allowlist", {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ email: "not-an-email" }),
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error?: { code?: string } };
+    expect(body.error?.code).toBe("invalid_email");
+
+    const listRes = await app.request("/api/public/v1/admin/allowlist");
+    expect(await listRes.json()).toEqual({ allowlist: [] });
+  });
+
+  it("rejects POST /allowlist with an over-length email (>254 chars, 400 invalid_email)", async () => {
+    seedAdmin();
+    useSession({ id: ADMIN_ID, email: ADMIN_EMAIL });
+
+    const overLong = `${"a".repeat(250)}@x.test`; // > 254 chars total
+    const res = await app.request("/api/public/v1/admin/allowlist", {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ email: overLong }),
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error?: { code?: string } };
+    expect(body.error?.code).toBe("invalid_email");
+  });
+
   it("admin can add and remove an allowlist email, lowercased regardless of input casing", async () => {
     seedAdmin();
     useSession({ id: ADMIN_ID, email: ADMIN_EMAIL });
@@ -444,6 +510,16 @@ describe("admin routes (#30 Part ② Task 4)", () => {
     const listAfter = await app.request("/api/public/v1/admin/allowlist");
     const listAfterBody = (await listAfter.json()) as { allowlist: { email: string }[] };
     expect(listAfterBody.allowlist).toEqual([]);
+  });
+
+  it("DELETE /allowlist/% (malformed percent-escape) returns 400 invalid_email, not 500", async () => {
+    seedAdmin();
+    useSession({ id: ADMIN_ID, email: ADMIN_EMAIL });
+
+    const res = await app.request("/api/public/v1/admin/allowlist/%", { method: "DELETE" });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error?: { code?: string } };
+    expect(body.error?.code).toBe("invalid_email");
   });
 
   it("admin GET /users lists every user with resolved status: owner active, unmaterialized pending, allowlisted active", async () => {
@@ -505,5 +581,25 @@ describe("admin routes (#30 Part ② Task 4)", () => {
 
     const statusRes = await app.request("/api/public/v1/account/status");
     expect(await statusRes.json()).toMatchObject({ status: "active" });
+  });
+
+  it("admin cannot reject the owner (themselves) — same defense-in-depth guard as suspend", async () => {
+    seedAdmin();
+    useSession({ id: ADMIN_ID, email: ADMIN_EMAIL });
+
+    const res = await app.request(`/api/public/v1/admin/waitlist/${ADMIN_ID}/reject`, { method: "POST" });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error?: { code?: string } };
+    expect(body.error?.code).toBe("cannot_suspend_owner");
+  });
+
+  it("admin cannot unsuspend-write-over the owner (themselves) — same defense-in-depth guard as suspend", async () => {
+    seedAdmin();
+    useSession({ id: ADMIN_ID, email: ADMIN_EMAIL });
+
+    const res = await app.request(`/api/public/v1/admin/users/${ADMIN_ID}/unsuspend`, { method: "POST" });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error?: { code?: string } };
+    expect(body.error?.code).toBe("cannot_suspend_owner");
   });
 });

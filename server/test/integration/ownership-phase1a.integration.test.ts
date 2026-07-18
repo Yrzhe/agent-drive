@@ -95,7 +95,7 @@ describe("multi-tenancy Phase 1a — owner_id column + backfill (#30)", () => {
     expect(await nullOwnerCount(files)).toBeGreaterThan(0); // nothing backfilled
   });
 
-  it("fails closed (409) when the owner cannot be resolved", async () => {
+  it("fails closed (403 not_admin) when OWNER_EMAIL is unresolvable — assertAdmin denies before the handler's own 409 check is ever reached", async () => {
     runtime.vars.delete("OWNER_EMAIL"); // unresolvable
     await seedSomeRows();
     const before = await nullOwnerCount(files);
@@ -103,7 +103,9 @@ describe("multi-tenancy Phase 1a — owner_id column + backfill (#30)", () => {
     const { default: app } = await import("../../src/index");
 
     const res = await app.request("/api/public/v1/admin/backfill-owner", { method: "POST" });
-    expect(res.status).toBe(409);
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { error?: { code?: string } };
+    expect(body.error?.code).toBe("not_admin");
     expect(await nullOwnerCount(files)).toBe(before); // nothing backfilled
   });
 
