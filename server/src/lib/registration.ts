@@ -1,4 +1,4 @@
-import { and, eq, gt, isNull } from "drizzle-orm";
+import { and, desc, eq, gt, isNotNull, isNull, lt, or } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
 import { registrationIntents } from "@defs";
@@ -11,10 +11,16 @@ import { nowIso } from "./files";
 // the human's behalf and hands back a pre-filled `/signup` link. The intent NEVER carries
 // a password, session, or verification state — those still flow through the normal
 // signup + email-verification path. This module only creates/reads/consumes the intent
-// row; Task 2 wires `consumeRegistrationIntent` into the signup-completion endpoint.
+// row; Task 2 wires `consumeRegistrationIntent` into the signup-completion endpoint and
+// donates a consumed intent's `ref` into `user_access.referredBy` via `consumeIntentForEmail`.
 
-const TOKEN_BYTES = 32;
+const TOKEN_LENGTH = 32; // nanoid() takes a character count, not a byte count.
 const INTENT_TTL_MS = 24 * 60 * 60 * 1000;
+
+// Sampled opportunistic reaping of dead rows (expired or already-consumed), mirroring
+// `rate-limit.ts`'s `CLEANUP_SAMPLE_RATE` pattern — best-effort, never blocks the caller
+// on failure, never runs on every request.
+const INTENT_CLEANUP_SAMPLE_RATE = 0.01;
 
 // RFC 5321 max total email length — mirrors routes/admin.ts's requireValidEmail.
 const MAX_EMAIL_CHARS = 254;
@@ -75,12 +81,30 @@ export function parseRegistrationStartBody(body: unknown): RegistrationIntentInp
   return { email, name, ref };
 }
 
+/**
+ * Best-effort sampled cleanup of dead rows — expired (regardless of consumed state) or
+ * already-consumed. Errors are swallowed: reaping is opportunistic housekeeping, never a
+ * correctness dependency, so a failure here must never block intent creation.
+ */
+async function maybeReapExpiredIntents(db: AppDb): Promise<void> {
+  if (Math.random() >= INTENT_CLEANUP_SAMPLE_RATE) return;
+  try {
+    const now = nowIso();
+    await db
+      .delete(registrationIntents)
+      .where(or(lt(registrationIntents.expiresAt, now), isNotNull(registrationIntents.consumedAt)));
+  } catch {
+    // Best-effort — swallow and move on.
+  }
+}
+
 /** Create a 24h registration intent. Never accepts or stores a password. */
 export async function createRegistrationIntent(
   db: AppDb,
   input: RegistrationIntentInput
 ): Promise<{ token: string; expiresAt: string }> {
-  const token = nanoid(TOKEN_BYTES);
+  await maybeReapExpiredIntents(db);
+  const token = nanoid(TOKEN_LENGTH);
   const expiresAt = new Date(Date.now() + INTENT_TTL_MS).toISOString();
   await db.insert(registrationIntents).values({
     token,
@@ -133,4 +157,51 @@ export async function consumeRegistrationIntent(
   const [row] = rows;
   if (!row) return null;
   return { email: row.email, name: row.name, ref: row.ref };
+}
+
+/**
+ * Consume-by-email: donates a registration intent's `ref` into `user_access.referredBy`
+ * when a user's access row is FIRST materialized (`resolveAccessStatus` in `access.ts`).
+ * Referral only annotates the waitlist for the admin — it never grants access.
+ *
+ * Finds the newest unexpired, unconsumed intent for `email` (lowercased — intents are
+ * always stored lowercased by `parseRegistrationStartBody`, so callers must pass an
+ * already-lowercased/trimmed email for the match to hit) and atomically stamps
+ * `consumedAt`, mirroring `consumeRegistrationIntent`'s race-safe conditional UPDATE:
+ * the `consumedAt IS NULL` + `expiresAt > now` guard is re-checked in the UPDATE itself,
+ * so a racing caller that already consumed this exact token loses cleanly (0 rows
+ * affected) instead of double-donating the same intent.
+ *
+ * Returns `null` when no matching intent exists (or the caller lost the update race) —
+ * callers must treat `null` the same as "no referral", never as an error.
+ */
+export async function consumeIntentForEmail(db: AppDb, email: string): Promise<{ ref: string | null } | null> {
+  const normalizedEmail = email.trim().toLowerCase();
+  const now = nowIso();
+
+  const [candidate] = await db
+    .select({ token: registrationIntents.token })
+    .from(registrationIntents)
+    .where(and(
+      eq(registrationIntents.email, normalizedEmail),
+      isNull(registrationIntents.consumedAt),
+      gt(registrationIntents.expiresAt, now)
+    ))
+    .orderBy(desc(registrationIntents.createdAt))
+    .limit(1);
+  if (!candidate) return null;
+
+  const consumedAt = nowIso();
+  const rows = await db
+    .update(registrationIntents)
+    .set({ consumedAt })
+    .where(and(
+      eq(registrationIntents.token, candidate.token),
+      isNull(registrationIntents.consumedAt),
+      gt(registrationIntents.expiresAt, consumedAt)
+    ))
+    .returning();
+  const [row] = rows;
+  if (!row) return null;
+  return { ref: row.ref };
 }

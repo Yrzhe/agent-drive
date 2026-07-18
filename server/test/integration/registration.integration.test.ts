@@ -1,10 +1,13 @@
 import { eq } from "drizzle-orm";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 
-import { registrationIntents } from "@defs";
+import { registrationIntents, userAccess } from "@defs";
 
 import app from "../../src/index";
-import { jsonHeaders, resetRuntime, runtime } from "./edge-runtime";
+import { resolveAccessStatus } from "../../src/lib/access";
+import { nowIso } from "../../src/lib/files";
+import { consumeIntentForEmail, createRegistrationIntent } from "../../src/lib/registration";
+import { jsonHeaders, resetRuntime, runtime, seedOwner } from "./edge-runtime";
 
 const IP_HEADER = "cf-connecting-ip";
 
@@ -185,5 +188,156 @@ describe("GET /api/public/register/intent/:token", () => {
     expect(response.status).toBe(404);
     const body = await response.json() as { error: { code: string } };
     expect(body.error.code).toBe("intent_not_found");
+  });
+});
+
+describe("resolveAccessStatus donates a registration intent's ref into referredBy (#30 Part ③ Task 2)", () => {
+  const OWNER_EMAIL = "owner@x.test";
+
+  beforeEach(() => {
+    resetRuntime();
+  });
+
+  afterAll(() => {
+    runtime.sqlite?.close();
+  });
+
+  it("a pending user whose email had a register/start intent gets referredBy set from its ref on first materialization", async () => {
+    seedOwner({ email: OWNER_EMAIL, id: "OWNER" });
+    runtime.vars.set("OWNER_EMAIL", OWNER_EMAIL);
+    await createRegistrationIntent(runtime.db as never, { email: "invitee@x.test", name: "Ada", ref: "owner-label" });
+
+    const status = await resolveAccessStatus(runtime.db as never, { id: "invitee-1", email: "invitee@x.test" });
+    expect(status).toBe("pending");
+
+    const [row] = await runtime.db.select().from(userAccess).where(eq(userAccess.userId, "invitee-1"));
+    expect(row.referredBy).toBe("owner-label");
+  });
+
+  it("a user with no matching intent gets referredBy: null", async () => {
+    seedOwner({ email: OWNER_EMAIL, id: "OWNER" });
+    runtime.vars.set("OWNER_EMAIL", OWNER_EMAIL);
+
+    await resolveAccessStatus(runtime.db as never, { id: "no-intent-1", email: "no-intent@x.test" });
+
+    const [row] = await runtime.db.select().from(userAccess).where(eq(userAccess.userId, "no-intent-1"));
+    expect(row.referredBy).toBeNull();
+  });
+
+  it("marks the donated intent consumed, and a second materialization does not re-apply or change the existing row", async () => {
+    seedOwner({ email: OWNER_EMAIL, id: "OWNER" });
+    runtime.vars.set("OWNER_EMAIL", OWNER_EMAIL);
+    const { token } = await createRegistrationIntent(runtime.db as never, { email: "onceonly@x.test", name: null, ref: "ref-once" });
+
+    await resolveAccessStatus(runtime.db as never, { id: "once-1", email: "onceonly@x.test" });
+
+    const [intentRow] = await runtime.db.select().from(registrationIntents).where(eq(registrationIntents.token, token));
+    expect(intentRow.consumedAt).not.toBeNull();
+
+    // Simulate an admin decision, then wipe referredBy out-of-band to prove a second
+    // materialization call never re-donates into an already-existing row.
+    await runtime.db.update(userAccess).set({
+      status: "suspended",
+      referredBy: null,
+      decidedBy: "OWNER",
+      decidedAt: nowIso(),
+    }).where(eq(userAccess.userId, "once-1"));
+
+    const statusAgain = await resolveAccessStatus(runtime.db as never, { id: "once-1", email: "onceonly@x.test" });
+    expect(statusAgain).toBe("suspended");
+
+    const [rowAgain] = await runtime.db.select().from(userAccess).where(eq(userAccess.userId, "once-1"));
+    expect(rowAgain.referredBy).toBeNull();
+  });
+
+  it("never grants access or flips status — an intent's ref is ignored for the allowlist decision", async () => {
+    seedOwner({ email: OWNER_EMAIL, id: "OWNER" });
+    runtime.vars.set("OWNER_EMAIL", OWNER_EMAIL);
+    await createRegistrationIntent(runtime.db as never, { email: "referred-not-allowlisted@x.test", name: null, ref: "some-ref" });
+
+    const status = await resolveAccessStatus(runtime.db as never, {
+      id: "referred-1",
+      email: "referred-not-allowlisted@x.test",
+    });
+
+    expect(status).toBe("pending");
+    const [row] = await runtime.db.select().from(userAccess).where(eq(userAccess.userId, "referred-1"));
+    expect(row.referredBy).toBe("some-ref");
+    expect(row.status).toBe("pending");
+  });
+});
+
+describe("consumeIntentForEmail", () => {
+  beforeEach(() => {
+    resetRuntime();
+  });
+
+  afterAll(() => {
+    runtime.sqlite?.close();
+  });
+
+  it("returns null when no intent exists for the email", async () => {
+    const result = await consumeIntentForEmail(runtime.db as never, "ghost@x.test");
+    expect(result).toBeNull();
+  });
+
+  it("is case-insensitive on lookup (intents are stored lowercased)", async () => {
+    await createRegistrationIntent(runtime.db as never, { email: "mixedcase@x.test", name: null, ref: "case-ref" });
+
+    const result = await consumeIntentForEmail(runtime.db as never, "MixedCase@X.Test");
+    expect(result).toEqual({ ref: "case-ref" });
+  });
+
+  it("returns null for an already-consumed intent and does not resurrect it", async () => {
+    await createRegistrationIntent(runtime.db as never, { email: "usedup@x.test", name: null, ref: "used-ref" });
+
+    const first = await consumeIntentForEmail(runtime.db as never, "usedup@x.test");
+    expect(first).toEqual({ ref: "used-ref" });
+
+    const second = await consumeIntentForEmail(runtime.db as never, "usedup@x.test");
+    expect(second).toBeNull();
+  });
+
+  it("returns null for an expired intent", async () => {
+    await runtime.db.insert(registrationIntents).values({
+      token: "expired-for-consume",
+      email: "expired@x.test",
+      name: null,
+      ref: "expired-ref",
+      createdAt: new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString(),
+      expiresAt: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+      consumedAt: null,
+    } as never);
+
+    const result = await consumeIntentForEmail(runtime.db as never, "expired@x.test");
+    expect(result).toBeNull();
+  });
+
+  it("picks the newest unexpired, unconsumed intent when several exist for the same email", async () => {
+    // Explicit, well-separated createdAt values — createRegistrationIntent's back-to-back
+    // millisecond timestamps aren't reliably distinguishable, so this asserts the
+    // ordering deterministically rather than depending on real-clock skew between calls.
+    const expiresAt = new Date(Date.now() + 60_000).toISOString();
+    await runtime.db.insert(registrationIntents).values({
+      token: "multi-older",
+      email: "multi@x.test",
+      name: null,
+      ref: "older-ref",
+      createdAt: new Date(Date.now() - 60_000).toISOString(),
+      expiresAt,
+      consumedAt: null,
+    } as never);
+    await runtime.db.insert(registrationIntents).values({
+      token: "multi-newer",
+      email: "multi@x.test",
+      name: null,
+      ref: "newer-ref",
+      createdAt: new Date().toISOString(),
+      expiresAt,
+      consumedAt: null,
+    } as never);
+
+    const result = await consumeIntentForEmail(runtime.db as never, "multi@x.test");
+    expect(result).toEqual({ ref: "newer-ref" });
   });
 });
