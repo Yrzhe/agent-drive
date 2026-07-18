@@ -152,4 +152,17 @@ describe("two-owner isolation harness (#30 Part ①a)", () => {
     const del = await app.request("/api/public/v1/shares/sha", { method: "DELETE", headers });
     expect(del.status).toBe(404);
   });
+
+  it("owner B's /stats excludes owner A's files (totalFiles/totalFolders/totalSize)", async () => {
+    seedOwner({ email: "b@x.test", id: "B" });
+    runtime.vars.set("OWNER_EMAIL", "b@x.test");
+    await seedDriveFile({ id: "fa", path: "/a.txt", body: "x", ownerId: "A" });
+    const headers = jsonHeaders(useBearer(["read:drive", "write:drive", "share:create", "path:/"]));
+    const { default: app } = await import("../../src/index");
+    const res = await app.request("/api/public/v1/stats", { headers });
+    const body = await res.json() as { totalFiles: number; totalFolders: number; totalSize: number };
+    expect(body.totalFiles).toBe(0);
+    expect(body.totalFolders).toBe(0);
+    expect(body.totalSize).toBe(0);
+  });
 });

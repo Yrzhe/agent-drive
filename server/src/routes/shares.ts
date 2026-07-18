@@ -356,9 +356,9 @@ sharesRoutes.get(
     const { db } = await import("edgespark");
     const ownerId = c.get("ownerId") ?? null;
     const [filesCount, foldersCount, sizeSum, shareCount, downloadSum] = await Promise.all([
-      db.select({ count: sql<number>`count(*)` }).from(files).where(and(eq(files.isFolder, 0), isNull(files.deletedAt))),
-      db.select({ count: sql<number>`count(*)` }).from(files).where(and(eq(files.isFolder, 1), isNull(files.deletedAt))),
-      db.select({ total: sql<number>`coalesce(sum(${files.size}), 0)` }).from(files).where(and(eq(files.isFolder, 0), isNull(files.deletedAt))),
+      db.select({ count: sql<number>`count(*)` }).from(files).where(and(eq(files.isFolder, 0), isNull(files.deletedAt), ownerId ? eq(files.ownerId, ownerId) : undefined)),
+      db.select({ count: sql<number>`count(*)` }).from(files).where(and(eq(files.isFolder, 1), isNull(files.deletedAt), ownerId ? eq(files.ownerId, ownerId) : undefined)),
+      db.select({ total: sql<number>`coalesce(sum(${files.size}), 0)` }).from(files).where(and(eq(files.isFolder, 0), isNull(files.deletedAt), ownerId ? eq(files.ownerId, ownerId) : undefined)),
       db.select({ count: sql<number>`count(*)` }).from(shares).where(and(ownerId ? eq(shares.ownerId, ownerId) : undefined)),
       db.select({ total: sql<number>`coalesce(sum(${shares.downloadCount}), 0)` }).from(shares).where(and(ownerId ? eq(shares.ownerId, ownerId) : undefined)),
     ]);
