@@ -1,12 +1,28 @@
 import { eq } from "drizzle-orm";
-import { afterAll, beforeEach, describe, expect, it } from "vitest";
-import { activityLog, contacts, files, memories } from "../../src/defs";
+import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { activityLog, contacts, files, memories, webhooks } from "../../src/defs";
 import { listActivities } from "../../src/lib/activity";
 import { ensureFolderChain } from "../../src/lib/files";
 import { callMcpTool } from "../../src/lib/mcp-tools";
 import { getMemory, listMemories, recallMemories } from "../../src/lib/memory";
 import { getContactByName, getContactByUrl } from "../../src/lib/peering";
+import { getWebhookById, triggerWebhooks } from "../../src/lib/webhooks";
 import { jsonHeaders, resetRuntime, runtime, seedBundleRow, seedContact, seedDriveFile, seedMemory, seedOwner, seedShareRow, useBearer, useSession } from "./edge-runtime";
+
+async function seedWebhookRow(overrides: { id: string; url: string; eventTypes: string[]; ownerId: string | null }): Promise<void> {
+  await runtime.db.insert(webhooks).values({
+    id: overrides.id,
+    url: overrides.url,
+    eventTypes: JSON.stringify(overrides.eventTypes),
+    secret: "test-secret",
+    enabled: 1,
+    lastTriggeredAt: null,
+    lastStatus: null,
+    failureCount: 0,
+    createdAt: new Date().toISOString(),
+    ownerId: overrides.ownerId,
+  } as never);
+}
 
 describe("two-owner isolation harness (#30 Part ①a)", () => {
   beforeEach(() => resetRuntime());
@@ -226,5 +242,57 @@ describe("two-owner isolation harness (#30 Part ①a)", () => {
     expect(body.currentVersion).toBeNull(); // B cannot see A's bundle
     const pub = await app.request("/api/public/b/pb_a/current");
     expect(pub.status).toBe(200); // public path still resolves by publicId
+  });
+
+  it("owner B cannot list/delete/test owner A's webhook by id", async () => {
+    seedOwner({ email: "b@x.test", id: "B" });
+    runtime.vars.set("OWNER_EMAIL", "b@x.test");
+    await seedWebhookRow({ id: "wh-a", url: "https://a-hook.test/x", eventTypes: ["file.uploaded"], ownerId: "A" });
+
+    const headers = jsonHeaders(useBearer(["read:drive", "write:drive", "path:/"]));
+    const { default: app } = await import("../../src/index");
+
+    const list = await app.request("/api/public/v1/webhooks", { headers });
+    const listBody = await list.json() as { webhooks: Array<{ id: string }> };
+    expect(listBody.webhooks.find((w) => w.id === "wh-a")).toBeUndefined();
+
+    const del = await app.request("/api/public/v1/webhooks/wh-a", { method: "DELETE", headers });
+    expect(del.status).toBe(404);
+
+    const test = await app.request("/api/public/v1/webhooks/wh-a/test", { method: "POST", headers });
+    expect(test.status).toBe(404);
+
+    // A's webhook must still exist (B's delete attempt did not remove it):
+    const [row] = await runtime.db.select().from(webhooks).where(eq(webhooks.id, "wh-a"));
+    expect(row?.ownerId).toBe("A");
+
+    // getWebhookById itself is owner-scoped, independent of the route:
+    expect(await getWebhookById(runtime.db as never, "wh-a", "B")).toBeNull();
+    expect(await getWebhookById(runtime.db as never, "wh-a", "A")).not.toBeNull();
+  });
+
+  it("triggerWebhooks for an event owned by A matches only A's webhook, never B's", async () => {
+    await seedWebhookRow({ id: "wh-a", url: "https://a-hook.test/x", eventTypes: ["file.uploaded"], ownerId: "A" });
+    await seedWebhookRow({ id: "wh-b", url: "https://b-hook.test/x", eventTypes: ["file.uploaded"], ownerId: "B" });
+
+    // deliverWebhook does a real DNS-check fetch before any POST; stub global
+    // fetch so no network call ever fires, and record every URL it is asked
+    // to hit so we can assert which webhook(s) triggerWebhooks selected.
+    const requestedUrls: string[] = [];
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      requestedUrls.push(url);
+      return new Response(JSON.stringify({ Status: 0, Answer: [] }), { status: 200 });
+    }) as typeof fetch;
+
+    try {
+      await triggerWebhooks(runtime.db as never, { eventType: "file.uploaded", data: null }, "A");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+
+    expect(requestedUrls.some((u) => u.includes("a-hook.test"))).toBe(true);
+    expect(requestedUrls.some((u) => u.includes("b-hook.test"))).toBe(false);
   });
 });

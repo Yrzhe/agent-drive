@@ -1,4 +1,4 @@
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
 import { webhooks } from "@defs";
@@ -184,14 +184,23 @@ export async function deliverWebhook(
 
 export async function triggerWebhooks(
   db: AppDb,
-  event: { eventType: string; data: Record<string, unknown> | null }
+  event: { eventType: string; data: Record<string, unknown> | null },
+  ownerId: string | null
 ): Promise<void> {
-  const rows = await db.select().from(webhooks).where(eq(webhooks.enabled, 1)).orderBy(desc(webhooks.createdAt));
+  const rows = await db
+    .select()
+    .from(webhooks)
+    .where(and(eq(webhooks.enabled, 1), ownerId ? eq(webhooks.ownerId, ownerId) : undefined))
+    .orderBy(desc(webhooks.createdAt));
   const matched = rows.filter((webhook) => parseEventTypes(webhook.eventTypes).includes(event.eventType));
   await Promise.all(matched.map((webhook) => deliverWebhook(db, webhook, event)));
 }
 
-export async function getWebhookById(db: AppDb, id: string): Promise<WebhookRow | null> {
-  const [row] = await db.select().from(webhooks).where(eq(webhooks.id, id)).limit(1);
+export async function getWebhookById(db: AppDb, id: string, ownerId: string | null): Promise<WebhookRow | null> {
+  const [row] = await db
+    .select()
+    .from(webhooks)
+    .where(and(eq(webhooks.id, id), ownerId ? eq(webhooks.ownerId, ownerId) : undefined))
+    .limit(1);
   return row ?? null;
 }

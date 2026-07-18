@@ -1,4 +1,4 @@
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { nanoid } from "nanoid";
 
@@ -90,7 +90,14 @@ webhooksRoutes.get(
   withErrorHandling(async (c) => {
     const { limit, offset } = parseListPagination((name) => c.req.query(name), { defaultLimit: 100, maxLimit: 500 });
     const { db } = await import("edgespark");
-    const rows = await db.select().from(webhooks).orderBy(desc(webhooks.createdAt)).limit(limit).offset(offset);
+    const ownerId = c.get("ownerId") ?? null;
+    const rows = await db
+      .select()
+      .from(webhooks)
+      .where(ownerId ? eq(webhooks.ownerId, ownerId) : undefined)
+      .orderBy(desc(webhooks.createdAt))
+      .limit(limit)
+      .offset(offset);
     return c.json({ webhooks: rows.map(toWebhookObject), limit, offset });
   })
 );
@@ -102,7 +109,11 @@ webhooksRoutes.delete(
     if (!id) throw new ApiError(400, "validation_error", "Missing path param: id");
 
     const { db } = await import("edgespark");
-    const deleted = await db.delete(webhooks).where(eq(webhooks.id, id)).returning({ id: webhooks.id });
+    const ownerId = c.get("ownerId") ?? null;
+    const deleted = await db
+      .delete(webhooks)
+      .where(and(eq(webhooks.id, id), ownerId ? eq(webhooks.ownerId, ownerId) : undefined))
+      .returning({ id: webhooks.id });
     if (deleted.length === 0) throw new ApiError(404, "webhook_not_found", "Webhook not found");
     return c.json({ success: true });
   })
@@ -115,7 +126,7 @@ webhooksRoutes.post(
     if (!id) throw new ApiError(400, "validation_error", "Missing path param: id");
 
     const { db, ctx } = await import("edgespark");
-    const webhook = await getWebhookById(db, id);
+    const webhook = await getWebhookById(db, id, c.get("ownerId") ?? null);
     if (!webhook) throw new ApiError(404, "webhook_not_found", "Webhook not found");
 
     ctx.runInBackground(

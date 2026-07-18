@@ -65,7 +65,7 @@ export async function logEvent(db: AppDb, event: ActivityEventInput): Promise<vo
           actor: event.actor,
           metadata: event.metadata ?? null,
         },
-      }).catch((error) => {
+      }, event.ownerId ?? null).catch((error) => {
         console.error("Failed to trigger webhooks", { eventType: event.eventType, error });
       })
     );
@@ -77,7 +77,7 @@ export async function logEvent(db: AppDb, event: ActivityEventInput): Promise<vo
 export async function logEventsBatch(
   db: AppDb,
   events: ActivityEventInput[],
-  webhookEvent?: { eventType: string; data: Record<string, unknown> | null }
+  webhookEvent?: { eventType: string; data: Record<string, unknown> | null; ownerId: string | null }
 ): Promise<void> {
   if (events.length === 0) return;
 
@@ -110,7 +110,7 @@ export async function logEventsBatch(
     const { ctx } = await import("edgespark");
     const { triggerWebhooks } = await import("./webhooks");
     ctx.runInBackground(
-      triggerWebhooks(db, webhookEvent).catch((error) => {
+      triggerWebhooks(db, webhookEvent, webhookEvent.ownerId).catch((error) => {
         console.error("Failed to trigger batch webhook", { eventType: webhookEvent.eventType, error });
       })
     );

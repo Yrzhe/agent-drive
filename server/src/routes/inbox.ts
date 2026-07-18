@@ -85,7 +85,7 @@ inboxRoutes.post(
       triggerWebhooks(db, {
         eventType: "inbox.received",
         data: { from: contact.name, path: file.path, size: file.size, message: payload.message, quarantined },
-      })
+      }, contact.ownerId ?? null)
     );
 
     return c.json({
