@@ -71,12 +71,24 @@ export async function authenticateMcpBearer(db: AppDb, authorization: string | u
   const { secret, vars } = await import("edgespark");
   const configured = secret.get("AGENT_TOKEN");
   if (configured && timingSafeEqualStrings(bearer, configured)) {
+    // The deployment-wide token has no identity of its own; bind it to the owner so
+    // every accepted request carries a non-null owner (Phase 0).
+    const ownerUserId = await resolveOwnerUserId(db);
+    const ownerEmailConfigured = Boolean(vars.get("OWNER_EMAIL")?.trim());
+    if (ownerUserId === null && ownerEmailConfigured) {
+      // resolveOwnerUserId returns null for two different reasons: OWNER_EMAIL unset
+      // (legacy trust-any, handled below) or OWNER_EMAIL set but unresolved (no
+      // matching row, or an ambiguous case-only-duplicate). Per owner.ts's documented
+      // fail-closed contract, the latter must NEVER fall through to trust-any — that
+      // would silently expose the whole drive to a token holder when the deployment
+      // owner believed isolation was armed. Reject the token outright.
+      return null;
+    }
     return {
       kind: "agent_token",
-      // The deployment-wide token has no identity of its own; bind it to the owner so
-      // every accepted request carries a non-null owner (Phase 0). Null on a legacy
-      // deployment with OWNER_EMAIL unset — unchanged, nothing consumes it yet.
-      userId: await resolveOwnerUserId(db),
+      // Null here only means a legacy deployment with OWNER_EMAIL unset — the
+      // fail-closed case above already rejected the set-but-unresolved case.
+      userId: ownerUserId,
       clientId: null,
       scopes: agentTokenScopes(vars.get("AGENT_TOKEN_SCOPES")),
     };
