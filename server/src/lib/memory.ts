@@ -1,4 +1,4 @@
-import { asc, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { nanoid } from "nanoid";
 
@@ -124,6 +124,12 @@ export async function rememberMemory(db: AppDb, input: RememberInput): Promise<{
 
   const updateByKey = async (): Promise<MemoryObject | null> => {
     if (!key) return null;
+    // NOTE: deliberately NOT owner-scoped — see ownership-phase2.integration.test.ts
+    // ("remember-by-key updates content without overwriting an existing owner"),
+    // which asserts cross-owner key-based updates succeed while preserving the
+    // original row's owner. Adding an owner predicate here breaks that existing,
+    // still-in-suite test. Flagged as a concern in the task report rather than
+    // silently reconciled.
     const [existing] = await db.select({ id: memories.id }).from(memories).where(eq(memories.key, key)).limit(1);
     if (!existing) return null;
     const [updatedRows] = await db.batch([
@@ -170,7 +176,7 @@ function ftsRowValues(id: string, content: string, tags: string | null): typeof 
 }
 
 /** Full-text search via the memories_fts FTS5 index, best match first. */
-export async function recallMemories(db: AppDb, query: string, limit: number): Promise<MemoryObject[]> {
+export async function recallMemories(db: AppDb, query: string, limit: number, ownerId: string | null = null): Promise<MemoryObject[]> {
   const match = buildFtsMatchQuery(query);
   if (!match) throw new Error("invalid_params:query is required");
   const boundedLimit = Math.max(1, Math.min(MEMORY_LIST_MAX_LIMIT, Math.trunc(limit)));
@@ -178,6 +184,7 @@ export async function recallMemories(db: AppDb, query: string, limit: number): P
     SELECT m.* FROM ${memories} m
     JOIN memories_fts f ON m.id = f.id
     WHERE memories_fts MATCH ${match}
+    AND (${ownerId} IS NULL OR m.owner_id = ${ownerId})
     ORDER BY f.rank
     LIMIT ${boundedLimit}
   `);
@@ -198,10 +205,16 @@ function mapRawRow(row: Record<string, unknown>): MemoryRow {
   };
 }
 
-export async function listMemories(db: AppDb, limit: number, offset: number): Promise<MemoryObject[]> {
+export async function listMemories(db: AppDb, limit: number, offset: number, ownerId: string | null = null): Promise<MemoryObject[]> {
   const boundedLimit = Math.max(1, Math.min(MEMORY_LIST_MAX_LIMIT, Math.trunc(limit)));
   const boundedOffset = Math.max(0, Math.trunc(offset));
-  const rows = await db.select().from(memories).orderBy(desc(memories.updatedAt)).limit(boundedLimit).offset(boundedOffset);
+  const rows = await db
+    .select()
+    .from(memories)
+    .where(ownerId ? eq(memories.ownerId, ownerId) : undefined)
+    .orderBy(desc(memories.updatedAt))
+    .limit(boundedLimit)
+    .offset(boundedOffset);
   return rows.map(toMemoryObject);
 }
 
@@ -252,16 +265,24 @@ export async function rebuildMemoryIndex(db: AppDb): Promise<number> {
   return rebuilt;
 }
 
-export async function getMemory(db: AppDb, idOrKey: string): Promise<MemoryRow | null> {
+export async function getMemory(db: AppDb, idOrKey: string, ownerId: string | null = null): Promise<MemoryRow | null> {
   // id wins over key so a user-chosen key can never shadow another row's id.
-  const [byId] = await db.select().from(memories).where(eq(memories.id, idOrKey)).limit(1);
+  const [byId] = await db
+    .select()
+    .from(memories)
+    .where(and(eq(memories.id, idOrKey), ownerId ? eq(memories.ownerId, ownerId) : undefined))
+    .limit(1);
   if (byId) return byId;
-  const [byKey] = await db.select().from(memories).where(eq(memories.key, idOrKey)).limit(1);
+  const [byKey] = await db
+    .select()
+    .from(memories)
+    .where(and(eq(memories.key, idOrKey), ownerId ? eq(memories.ownerId, ownerId) : undefined))
+    .limit(1);
   return byKey ?? null;
 }
 
-export async function forgetMemory(db: AppDb, idOrKey: string): Promise<MemoryObject | null> {
-  const existing = await getMemory(db, idOrKey);
+export async function forgetMemory(db: AppDb, idOrKey: string, ownerId: string | null = null): Promise<MemoryObject | null> {
+  const existing = await getMemory(db, idOrKey, ownerId);
   if (!existing) return null;
   await db.batch([
     db.delete(memories).where(eq(memories.id, existing.id)),

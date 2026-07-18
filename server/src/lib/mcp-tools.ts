@@ -410,14 +410,14 @@ export async function callMcpTool(db: AppDb, origin: string, scopes: readonly st
   if (name === "recall") {
     const query = stringArg(input, "query") ?? "";
     const limit = numberArg(input, "limit", 10);
-    const results = await recallMemories(db, query, limit);
+    const results = await recallMemories(db, query, limit, ownerId);
     return textResult({ query, count: results.length, memories: results });
   }
 
   if (name === "list_memories") {
     const limit = numberArg(input, "limit", 20);
     const offset = Math.max(0, Math.trunc(numberArg(input, "offset", 0)));
-    const results = await listMemories(db, limit, offset);
+    const results = await listMemories(db, limit, offset, ownerId);
     return textResult({ count: results.length, offset, memories: results });
   }
 
@@ -435,7 +435,7 @@ export async function callMcpTool(db: AppDb, origin: string, scopes: readonly st
 
   if (name === "forget") {
     const idOrKey = stringArg(input, "id") ?? "";
-    const forgotten = await forgetMemory(db, idOrKey);
+    const forgotten = await forgetMemory(db, idOrKey, ownerId);
     if (!forgotten) throw new Error("memory_not_found");
     return textResult({ forgotten });
   }
