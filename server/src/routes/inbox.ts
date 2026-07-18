@@ -73,6 +73,7 @@ inboxRoutes.post(
     const { file, folder, quarantined } = await storeInboxFile(db, storage, contact, payload, bytes);
 
     await logEvent(db, {
+      ownerId: contact.ownerId ?? null,
       eventType: "inbox.received",
       targetType: "file",
       targetId: file.id,

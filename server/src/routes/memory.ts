@@ -42,6 +42,7 @@ memoryRoutes.post(
         ownerId: c.get("ownerId") ?? null,
       });
       await logEvent(db, {
+        ownerId: c.get("ownerId") ?? null,
         eventType: created ? "memory.created" : "memory.updated",
         targetType: "memory",
         targetId: memory.id,
@@ -120,6 +121,7 @@ memoryRoutes.delete(
     const forgotten = await forgetMemory(db, id);
     if (!forgotten) throw new ApiError(404, "memory_not_found", "Memory not found");
     await logEvent(db, {
+      ownerId: c.get("ownerId") ?? null,
       eventType: "memory.deleted",
       targetType: "memory",
       targetId: forgotten.id,

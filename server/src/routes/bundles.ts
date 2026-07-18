@@ -182,6 +182,7 @@ bundlesRoutes.post(
     await db.update(bundleVersions).set({ publicId }).where(eq(bundleVersions.prefix, prefix));
 
     await logEvent(db, {
+      ownerId: c.get("ownerId") ?? null,
       eventType: body.public ? "bundle.published" : "bundle.unpublished",
       targetType: "folder",
       targetId: publicId ?? bundle.publicId,
@@ -394,6 +395,7 @@ bundlesRoutes.post(
     }
 
     await logEvent(db, {
+      ownerId: c.get("ownerId") ?? null,
       eventType: "bundle.committed",
       targetType: "folder",
       targetPath: prefix,

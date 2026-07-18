@@ -1,7 +1,7 @@
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 
-import { bundleVersions, files, memories, shares, webhooks } from "../../src/defs";
+import { activityLog, bundleVersions, files, memories, shares, webhooks } from "../../src/defs";
 import {
   jsonHeaders,
   resetRuntime,
@@ -111,7 +111,7 @@ describe("multi-tenancy Phase 2 — owner-on-insert (#30)", () => {
       expect(row?.ownerId).toBe(OWNER_ID);
     });
 
-    it("remembering a memory stamps owner_id", async () => {
+    it("remembering a memory stamps owner_id and logs an owned activity row", async () => {
       useSession({ id: OWNER_ID, email: OWNER_EMAIL });
       const res = await app.request("/api/public/v1/memory", {
         method: "POST",
@@ -121,6 +121,12 @@ describe("multi-tenancy Phase 2 — owner-on-insert (#30)", () => {
       expect(res.status).toBe(201);
       const [mem] = await runtime.db.select().from(memories).where(eq(memories.key, "greeting")).limit(1);
       expect(mem?.ownerId).toBe(OWNER_ID);
+      const [act] = await runtime.db
+        .select()
+        .from(activityLog)
+        .where(eq(activityLog.eventType, "memory.created"))
+        .limit(1);
+      expect(act?.ownerId).toBe(OWNER_ID);
     });
   });
 
@@ -238,6 +244,38 @@ describe("multi-tenancy Phase 2 — owner-on-insert (#30)", () => {
       expect(res.status).toBe(201);
       const { path } = (await res.json()) as { path: string };
       expect(await ownerOfFile(path)).toBe("contact-owner");
+      const [act] = await runtime.db
+        .select()
+        .from(activityLog)
+        .where(eq(activityLog.eventType, "inbox.received"))
+        .limit(1);
+      expect(act?.ownerId).toBe("contact-owner");
+    });
+  });
+
+  describe("activity_log owner-on-insert", () => {
+    it("attributes a public-share access-log row to the share's owner (not NULL)", async () => {
+      await seedDriveFile({ id: "shared-file", path: "/pub.txt", body: "p" });
+      const [file] = await runtime.db.select().from(files).where(eq(files.path, "/pub.txt")).limit(1);
+      await runtime.db.insert(shares).values({
+        id: "share-pub",
+        fileId: file!.id,
+        folderPath: null,
+        maxDownloads: null,
+        downloadCount: 0,
+        expiresAt: "2000-01-01T00:00:00.000Z", // expired → the GET logs share.accessed
+        createdAt: new Date().toISOString(),
+        ownerId: "share-owner",
+      } as never);
+
+      const res = await app.request("/api/public/s/share-pub");
+      expect(res.status).toBe(200);
+      const [act] = await runtime.db
+        .select()
+        .from(activityLog)
+        .where(eq(activityLog.eventType, "share.accessed"))
+        .limit(1);
+      expect(act?.ownerId).toBe("share-owner");
     });
   });
 

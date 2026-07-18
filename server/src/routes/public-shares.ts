@@ -113,6 +113,7 @@ publicSharesRoutes.get(
 
     if (expired || exhausted) {
       await logEvent(db, {
+        ownerId: share.ownerId ?? null,
         eventType: "share.accessed",
         targetType: "share",
         targetId: share.id,
@@ -146,6 +147,7 @@ publicSharesRoutes.get(
         : false;
       if (!hasValidToken) {
         await logEvent(db, {
+          ownerId: share.ownerId ?? null,
           eventType: "share.accessed",
           targetType: "share",
           targetId: share.id,
@@ -170,6 +172,7 @@ publicSharesRoutes.get(
       const [file] = await db.select().from(files).where(and(eq(files.id, share.fileId), isNull(files.deletedAt))).limit(1);
       if (!file) throw new ApiError(404, "file_not_found", "Shared file not found");
       await logEvent(db, {
+        ownerId: share.ownerId ?? null,
         eventType: "share.accessed",
         targetType: "share",
         targetId: share.id,
@@ -214,6 +217,7 @@ publicSharesRoutes.get(
     const fileCount = Number(stats?.fileCount ?? 0);
 
     await logEvent(db, {
+      ownerId: share.ownerId ?? null,
       eventType: "share.accessed",
       targetType: "share",
       targetId: share.id,
@@ -270,6 +274,7 @@ publicSharesRoutes.post(
       if (!valid) {
         await recordFailure(db, rateLimitKey, RATE_LIMIT_WINDOW_MS);
         await logEvent(db, {
+          ownerId: share.ownerId ?? null,
           eventType: "share.password_failed",
           targetType: "share",
           targetId: share.id,
@@ -371,6 +376,7 @@ publicSharesRoutes.get(
     const presigned = await storage.from(buckets.drive).createPresignedGetUrl(presignPath(parsed.path), SHARE_DOWNLOAD_URL_TTL_SECS);
     await incrementDownloadCountOrThrow(db, share.id);
     await logEvent(db, {
+      ownerId: share.ownerId ?? null,
       eventType: "share.downloaded",
       targetType: "share",
       targetId: share.id,
@@ -503,6 +509,7 @@ publicSharesRoutes.get(
     await incrementDownloadCountOrThrow(db, share.id);
     const activityContext = requestActivityContext(c);
     await logEvent(db, {
+      ownerId: share.ownerId ?? null,
       eventType: "share.downloaded",
       targetType: "share",
       targetId: share.id,
