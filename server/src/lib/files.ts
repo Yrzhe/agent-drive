@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNotNull, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNotNull } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
 import { files } from "@defs";

@@ -1,7 +1,21 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { files, memories, contacts, bundleVersions } from "../../src/defs";
-import { jsonHeaders, resetRuntime, runtime, seedDriveFile, seedFolder, seedMemory, seedContact, seedBundleRow, useSession } from "./edge-runtime";
+import {
+  jsonHeaders,
+  putViaPresignedUrl,
+  resetRuntime,
+  runtime,
+  seedBundleRow,
+  seedContact,
+  seedDriveFile,
+  seedFolder,
+  seedMemory,
+  useSession,
+} from "./edge-runtime";
+
+type FileRow = typeof files.$inferSelect;
+type BundleVersionRow = typeof bundleVersions.$inferSelect;
 
 describe("Part ①b — per-owner uniqueness (#30)", () => {
   beforeEach(() => resetRuntime());
@@ -11,7 +25,7 @@ describe("Part ①b — per-owner uniqueness (#30)", () => {
     await seedDriveFile({ id: "fa", path: "/report.txt", body: "a", ownerId: "A" });
     await seedDriveFile({ id: "fb", path: "/report.txt", body: "b", ownerId: "B" }); // must NOT throw
     const rows = await runtime.db.select().from(files).where(eq(files.path, "/report.txt"));
-    expect(rows.map((r) => r.ownerId).sort()).toEqual(["A", "B"]);
+    expect(rows.map((r: FileRow) => r.ownerId).sort()).toEqual(["A", "B"]);
   });
 
   it("same owner cannot hold /report.txt twice", async () => {
@@ -33,7 +47,7 @@ describe("Part ①b — per-owner uniqueness (#30)", () => {
     await seedBundleRow({ id: "bv-a", prefix: "/proj", publicId: "pb_a", ownerId: "A" });
     await seedBundleRow({ id: "bv-b", prefix: "/proj", publicId: "pb_b", ownerId: "B" }); // must NOT throw (was PK collision)
     const rows = await runtime.db.select().from(bundleVersions).where(eq(bundleVersions.prefix, "/proj"));
-    expect(rows.map((r) => r.ownerId).sort()).toEqual(["A", "B"]);
+    expect(rows.map((r: BundleVersionRow) => r.ownerId).sort()).toEqual(["A", "B"]);
   });
 
   it("publicId stays globally unique", async () => {
@@ -97,7 +111,9 @@ describe("Part ①b — per-owner uniqueness (#30)", () => {
     await ensureFolderChain(runtime.db as never, "/shared", "A"); // creates A's /shared
     await ensureFolderChain(runtime.db as never, "/shared", "B"); // must NOT throw now (was global-unique 500)
     const rows = await runtime.db.select().from(files).where(eq(files.path, "/shared"));
-    expect(rows.filter((r) => r.isFolder === 1).map((r) => r.ownerId).sort()).toEqual(["A", "B"]);
+    expect(
+      rows.filter((r: FileRow) => r.isFolder === 1).map((r: FileRow) => r.ownerId).sort()
+    ).toEqual(["A", "B"]);
   });
 
   it("same-owner repeat ensureFolderChain is idempotent, no raw unique error", async () => {
@@ -123,5 +139,154 @@ describe("Part ①b — per-owner uniqueness (#30)", () => {
       .from(files)
       .where(and(eq(files.path, "/race/dir"), eq(files.ownerId, "A")));
     expect(rows.length).toBe(1);
+  });
+
+  it("same owner cannot hold memory key 'dup' twice", async () => {
+    await seedMemory({ id: "m-dup-1", key: "dup", content: "a", ownerId: "A" });
+    await expect(seedMemory({ id: "m-dup-2", key: "dup", content: "b", ownerId: "A" }))
+      .rejects.toThrow(/unique/i);
+  });
+
+  it("same owner cannot hold contact name 'dup' twice", async () => {
+    await seedContact({ id: "c-dup-name-1", name: "dup", url: "https://a.dup.example", publicKeyJwk: {}, ownerId: "A" });
+    await expect(
+      seedContact({ id: "c-dup-name-2", name: "dup", url: "https://b.dup.example", publicKeyJwk: {}, ownerId: "A" })
+    ).rejects.toThrow(/unique/i);
+  });
+
+  it("same owner cannot hold contact url twice, even under a different name", async () => {
+    await seedContact({ id: "c-dup-url-1", name: "dup-a", url: "https://shared.dup.example", publicKeyJwk: {}, ownerId: "A" });
+    await expect(
+      seedContact({ id: "c-dup-url-2", name: "dup-b", url: "https://shared.dup.example", publicKeyJwk: {}, ownerId: "A" })
+    ).rejects.toThrow(/unique/i);
+  });
+
+  it("two keyless memories for the SAME owner both insert fine — NULL keys are distinct under the composite unique", async () => {
+    await seedMemory({ id: "mk1", key: null, content: "first note", ownerId: "A" });
+    await seedMemory({ id: "mk2", key: null, content: "second note", ownerId: "A" }); // must NOT throw
+    const rows = await runtime.db.select().from(memories).where(and(isNull(memories.key), eq(memories.ownerId, "A")));
+    expect(rows.length).toBe(2);
+  });
+
+  it("REST: creating a folder at a path the SAME owner already has returns a clean 409 path_conflict, not 500", async () => {
+    const { default: app } = await import("../../src/index");
+    useSession({ id: "A" });
+
+    const first = await app.request("/api/public/v1/folders", {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ name: "docs", path: "/" }),
+    });
+    expect(first.status).toBe(200);
+
+    const second = await app.request("/api/public/v1/folders", {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ name: "docs", path: "/" }),
+    });
+    expect(second.status).toBe(409); // must NOT be a raw 500
+    const body = (await second.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("path_conflict");
+  });
+
+  it("two owners can each create folder /shared-rest via REST and each reads back only their own", async () => {
+    const { default: app } = await import("../../src/index");
+
+    useSession({ id: "A" });
+    const createA = await app.request("/api/public/v1/folders", {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ name: "shared-rest", path: "/" }),
+    });
+    expect(createA.status).toBe(200);
+    const listA = await app.request("/api/public/v1/files?path=/", { headers: jsonHeaders() });
+    const { files: filesAfterA } = (await listA.json()) as { files: Array<{ path: string }> };
+    expect(filesAfterA.map((f) => f.path)).toEqual(["/shared-rest"]);
+
+    useSession({ id: "B" });
+    const createB = await app.request("/api/public/v1/folders", {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ name: "shared-rest", path: "/" }),
+    });
+    expect(createB.status).toBe(200); // must NOT throw even though A already holds this path
+    const listB = await app.request("/api/public/v1/files?path=/", { headers: jsonHeaders() });
+    const { files: filesB } = (await listB.json()) as { files: Array<{ path: string }> };
+    expect(filesB.map((f) => f.path)).toEqual(["/shared-rest"]); // only B's own row, not A's
+
+    const rows = await runtime.db.select().from(files).where(eq(files.path, "/shared-rest"));
+    expect(rows.map((r: FileRow) => r.ownerId).sort()).toEqual(["A", "B"]);
+  });
+
+  it("two owners can each upload /twin.txt via the REST upload flow and each reads back only their own", async () => {
+    const { default: app } = await import("../../src/index");
+
+    async function uploadAsOwner(ownerId: string, content: string): Promise<void> {
+      useSession({ id: ownerId });
+      const uploadRes = await app.request("/api/public/v1/files/upload", {
+        method: "POST",
+        headers: jsonHeaders(),
+        body: JSON.stringify({ filename: "twin.txt", path: "/", contentType: "text/plain", size: content.length }),
+      });
+      expect(uploadRes.status).toBe(200); // must NOT throw — same path, different owner
+      const { fileId, uploadUrl } = (await uploadRes.json()) as { fileId: string; uploadUrl: string };
+      await putViaPresignedUrl(uploadUrl, content, "text/plain");
+      const completeRes = await app.request("/api/public/v1/files/upload/complete", {
+        method: "POST",
+        headers: jsonHeaders(),
+        body: JSON.stringify({ fileId, filename: "twin.txt", path: "/" }),
+      });
+      expect(completeRes.status).toBe(200);
+    }
+
+    await uploadAsOwner("A", "owner A's content");
+    await uploadAsOwner("B", "owner B's content");
+
+    useSession({ id: "A" });
+    const listA = await app.request("/api/public/v1/files?path=/", { headers: jsonHeaders() });
+    const { files: filesA } = (await listA.json()) as { files: Array<{ path: string }> };
+    expect(filesA).toHaveLength(1);
+    expect(filesA[0]?.path).toBe("/twin.txt");
+
+    useSession({ id: "B" });
+    const listB = await app.request("/api/public/v1/files?path=/", { headers: jsonHeaders() });
+    const { files: filesB } = (await listB.json()) as { files: Array<{ path: string }> };
+    expect(filesB).toHaveLength(1);
+    expect(filesB[0]?.path).toBe("/twin.txt");
+
+    const rows = await runtime.db.select().from(files).where(eq(files.path, "/twin.txt"));
+    expect(rows.map((r: FileRow) => r.ownerId).sort()).toEqual(["A", "B"]);
+  });
+
+  it("two owners can each remember memory key 'profile-rest' via REST and each reads back only their own", async () => {
+    const { default: app } = await import("../../src/index");
+
+    async function rememberAsOwner(ownerId: string, content: string): Promise<{ created: boolean }> {
+      useSession({ id: ownerId });
+      const res = await app.request("/api/public/v1/memory", {
+        method: "POST",
+        headers: jsonHeaders(),
+        body: JSON.stringify({ content, key: "profile-rest" }),
+      });
+      expect(res.status).toBe(201); // fresh create for THIS owner, never a cross-owner update
+      return (await res.json()) as { created: boolean };
+    }
+
+    const a = await rememberAsOwner("A", "A's profile");
+    expect(a.created).toBe(true);
+    const b = await rememberAsOwner("B", "B's profile"); // must NOT throw / must NOT update A's row
+    expect(b.created).toBe(true);
+
+    useSession({ id: "A" });
+    const listA = await app.request("/api/public/v1/memory", { headers: jsonHeaders() });
+    const { memories: memoriesA } = (await listA.json()) as { memories: Array<{ content: string }> };
+    expect(memoriesA).toHaveLength(1);
+    expect(memoriesA[0]?.content).toBe("A's profile");
+
+    useSession({ id: "B" });
+    const listB = await app.request("/api/public/v1/memory", { headers: jsonHeaders() });
+    const { memories: memoriesB } = (await listB.json()) as { memories: Array<{ content: string }> };
+    expect(memoriesB).toHaveLength(1);
+    expect(memoriesB[0]?.content).toBe("B's profile");
   });
 });

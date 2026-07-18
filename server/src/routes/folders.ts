@@ -29,7 +29,11 @@ foldersRoutes.post(
     await ensureFolderChain(db, parentPath, ownerId);
 
     await purgeConflictingTrashAtPath(db, storage, folderPath);
-    const [conflict] = await db.select().from(files).where(and(eq(files.path, folderPath), isNull(files.deletedAt))).limit(1);
+    const [conflict] = await db
+      .select()
+      .from(files)
+      .where(and(eq(files.path, folderPath), isNull(files.deletedAt), ownerId ? eq(files.ownerId, ownerId) : undefined))
+      .limit(1);
     if (conflict) throw new ApiError(409, "path_conflict", "Path already exists");
 
     let folder: typeof files.$inferSelect | undefined;
