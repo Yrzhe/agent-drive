@@ -4,24 +4,22 @@ import { parseBearerToken } from "../lib/crypto";
 import { ApiError, handleApiError } from "../lib/errors";
 import { authenticateMcpBearer } from "../lib/mcp-auth";
 import { hasScope } from "../lib/mcp-scopes";
-import { assertRequestOwner } from "../lib/owner";
 import { requiredRestScope } from "../lib/rest-scopes";
 import type { AppEnv } from "../types";
 
-// Account status/waitlist-apply must be reachable by every signed-in session — including
-// `pending` and `suspended` users who are, by definition, not the owner — so the
-// single-owner boundary below is deliberately not enforced for these paths. This is the
-// one exemption to `assertRequestOwner()`; the forthcoming access-gate (Part ② Task 3)
-// must apply the same exemption for its own pending/suspended check.
-const ACCOUNT_ROUTE_PATTERN = /^\/api\/public\/v1\/account(\/|$)/u;
-
+/**
+ * Authenticates the request (session or bearer) and sets `restAuth`/`ownerId`.
+ *
+ * Does NOT enforce single-owner or access-status here — that was the Part ①a
+ * `assertRequestOwner()` boundary, which is REPLACED (not extended) by the Part ②
+ * access-gate (`requireActiveAccess`, applied after this middleware in `index.ts`).
+ * A second `active` user is not the owner but must still get through auth; the gate,
+ * not auth, is what confines pending/suspended sessions.
+ */
 export const requireDualAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
   try {
     const { auth } = await import("edgespark/http");
     if (auth.isAuthenticated()) {
-      if (!ACCOUNT_ROUTE_PATTERN.test(c.req.path)) {
-        await assertRequestOwner();
-      }
       c.set("restAuth", { kind: "session", ownerId: auth.user.id });
       c.set("ownerId", auth.user.id);
       await next();

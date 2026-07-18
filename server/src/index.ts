@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 
+import { requireActiveAccess } from "./middleware/access-gate";
 import { requireDualAuth } from "./middleware/auth";
 import { accountRoutes } from "./routes/account";
 import { adminRoutes } from "./routes/admin";
@@ -30,6 +31,7 @@ app.route("/api/public/.well-known", agentCardRoutes);
 app.route("/api/public/mcp", mcpRoutes);
 app.route("/api/public/oauth", oauthRoutes);
 app.use("/api/public/v1/*", requireDualAuth);
+app.use("/api/public/v1/*", requireActiveAccess);
 app.route("/api/public/v1/account", accountRoutes);
 app.route("/api/public/v1/admin", adminRoutes);
 app.route("/api/public/v1/activity", activityRoutes);

@@ -6,7 +6,7 @@ import { allowlist, userAccess } from "@defs";
 import app from "../../src/index";
 import { resolveAccessStatus } from "../../src/lib/access";
 import { nowIso } from "../../src/lib/files";
-import { jsonHeaders, resetRuntime, runtime, seedOwner, useSession } from "./edge-runtime";
+import { jsonHeaders, resetRuntime, runtime, seedOwner, useBearer, useSession } from "./edge-runtime";
 
 describe("resolveAccessStatus", () => {
   beforeEach(() => {
@@ -198,5 +198,71 @@ describe("account routes", () => {
 
     const res = await app.request("/api/public/v1/account/status");
     expect(await res.json()).toEqual({ status: "active", email: "owner@x.test", isAdmin: true });
+  });
+});
+
+describe("access-gate middleware", () => {
+  beforeEach(() => {
+    resetRuntime();
+  });
+
+  afterAll(() => {
+    runtime.sqlite?.close();
+  });
+
+  it("a pending session gets 403 access_pending on /files but 200 on /account/status", async () => {
+    runtime.vars.set("OWNER_EMAIL", "owner@x.test");
+    useSession({ id: "pending-gate-1", email: "rando@x.test" });
+
+    const filesRes = await app.request("/api/public/v1/files?path=/");
+    expect(filesRes.status).toBe(403);
+    const body = (await filesRes.json()) as { error?: { code?: string } };
+    expect(body.error?.code).toBe("access_pending");
+
+    const statusRes = await app.request("/api/public/v1/account/status");
+    expect(statusRes.status).toBe(200);
+  });
+
+  it("a suspended session gets 403 access_suspended on /files", async () => {
+    seedOwner({ email: "owner@x.test", id: "OWNER" });
+    runtime.vars.set("OWNER_EMAIL", "owner@x.test");
+    useSession({ id: "suspended-gate-1", email: "suspended@x.test" });
+    // Materialize the row, then have the admin flip it to suspended out-of-band.
+    await resolveAccessStatus(runtime.db as never, { id: "suspended-gate-1", email: "suspended@x.test" });
+    await runtime.db.update(userAccess).set({ status: "suspended", decidedBy: "OWNER", decidedAt: nowIso() }).where(
+      eq(userAccess.userId, "suspended-gate-1")
+    );
+
+    const filesRes = await app.request("/api/public/v1/files?path=/");
+    expect(filesRes.status).toBe(403);
+    const body = (await filesRes.json()) as { error?: { code?: string } };
+    expect(body.error?.code).toBe("access_suspended");
+  });
+
+  it("an active (allowlisted) session gets 200 on /files", async () => {
+    seedOwner({ email: "owner@x.test", id: "OWNER" });
+    runtime.vars.set("OWNER_EMAIL", "owner@x.test");
+    await runtime.db.insert(allowlist).values({ email: "vip@x.test", addedBy: "OWNER", addedAt: nowIso() } as never);
+    useSession({ id: "active-gate-1", email: "vip@x.test" });
+
+    const res = await app.request("/api/public/v1/files?path=/");
+    expect(res.status).toBe(200);
+  });
+
+  it("the owner session always gets 200 on /files", async () => {
+    runtime.vars.set("OWNER_EMAIL", "owner@x.test");
+    useSession({ id: "OWNER", email: "owner@x.test" });
+
+    const res = await app.request("/api/public/v1/files?path=/");
+    expect(res.status).toBe(200);
+  });
+
+  it("a bearer token still gets 200 on /files (unaffected)", async () => {
+    seedOwner({ email: "owner@x.test", id: "OWNER" });
+    runtime.vars.set("OWNER_EMAIL", "owner@x.test");
+    const headers = useBearer(["read:drive"]);
+
+    const res = await app.request("/api/public/v1/files?path=/", { headers });
+    expect(res.status).toBe(200);
   });
 });
