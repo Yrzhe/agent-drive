@@ -27,7 +27,7 @@ export default function WaitlistPage() {
         body: JSON.stringify(trimmed ? { message: trimmed } : {}),
       });
       setSubmitted(true);
-      await refetch();
+      refetch();
     } catch (error) {
       setSubmitError(getErrorMessage(error));
     } finally {

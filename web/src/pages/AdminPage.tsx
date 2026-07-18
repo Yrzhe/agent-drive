@@ -8,7 +8,7 @@ import { useAuth } from "@/hooks/useAuth";
 
 export default function AdminPage() {
   const { user, loading: authLoading, isAuthenticated, signOut } = useAuth();
-  const { status, isAdmin, loading: accessLoading, error: accessError } = useAccessStatus();
+  const { status, isAdmin, loading: accessLoading, error: accessError, refetch: accessRefetch } = useAccessStatus();
 
   if (authLoading) {
     return (
@@ -34,8 +34,21 @@ export default function AdminPage() {
   if (!status) {
     return (
       <main className="min-h-screen bg-slate-50 px-6 py-12">
-        <div className="mx-auto max-w-5xl rounded-2xl border border-slate-200 bg-white p-6 text-slate-600">
-          {accessError ?? "Checking access status..."}
+        <div className="mx-auto max-w-5xl space-y-3 rounded-2xl border border-slate-200 bg-white p-6 text-slate-600">
+          {accessError ? (
+            <>
+              <p>{accessError}</p>
+              <button
+                className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50"
+                onClick={accessRefetch}
+                type="button"
+              >
+                Retry
+              </button>
+            </>
+          ) : (
+            "Checking access status..."
+          )}
         </div>
       </main>
     );
