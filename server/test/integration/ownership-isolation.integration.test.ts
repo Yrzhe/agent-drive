@@ -230,7 +230,7 @@ describe("two-owner isolation harness (#30 Part ①a)", () => {
   it("owner B's bundle reads exclude owner A's bundles; public-by-publicId stays global", async () => {
     seedOwner({ email: "b@x.test", id: "B" });
     runtime.vars.set("OWNER_EMAIL", "b@x.test");
-    await seedBundleRow({ prefix: "/proj-a", publicId: "pb_a", ownerId: "A" });
+    await seedBundleRow({ id: "bv-proj-a", prefix: "/proj-a", publicId: "pb_a", ownerId: "A" });
     // The public /current route resolves the manifest.json object off the
     // files table (owner-agnostic, by publicId) — seed it so the public
     // path can actually resolve, matching how a real committed bundle works.
@@ -375,7 +375,7 @@ describe("adversarial: a principal bound to owner B is fully isolated from owner
     await seedMemory({ id: "adv-ma", key: "adv-a-key", content: "A's private memory", ownerId: "A" });
     await seedContact({ id: "adv-ca", name: A_CONTACT_NAME, url: "https://adv-a.peer", publicKeyJwk: {}, ownerId: "A" });
     await seedShareRow({ id: A_SHARE_ID, fileId: A_FILE_ID, ownerId: "A" });
-    await seedBundleRow({ prefix: A_BUNDLE_PREFIX, publicId: A_BUNDLE_PUBLIC_ID, ownerId: "A" });
+    await seedBundleRow({ id: "bv-adv-a", prefix: A_BUNDLE_PREFIX, publicId: A_BUNDLE_PUBLIC_ID, ownerId: "A" });
     // The public /current route resolves the manifest.json object off the
     // files table (owner-agnostic, by publicId) — seed it so the public
     // path can actually resolve, matching how a real committed bundle works.

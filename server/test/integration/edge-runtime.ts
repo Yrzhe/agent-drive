@@ -425,10 +425,10 @@ export async function seedShareRow(options: { id: string; fileId?: string | null
   } as never);
 }
 
-export async function seedBundleRow(options: { prefix: string; publicId?: string | null; ownerId?: string | null }): Promise<void> {
+export async function seedBundleRow(options: { id: string; prefix: string; publicId?: string | null; ownerId?: string | null }): Promise<void> {
   const ts = new Date().toISOString();
   await runtime.db.insert(bundleVersions).values({
-    prefix: options.prefix, publicId: options.publicId ?? null, currentVersionId: "dv_seed",
+    id: options.id, prefix: options.prefix, publicId: options.publicId ?? null, currentVersionId: "dv_seed",
     machineId: "m", hash: "h", fileCount: 0, totalSize: 0, pushedAt: ts, updatedAt: ts,
     ownerId: options.ownerId ?? null,
   } as never);
@@ -474,6 +474,7 @@ export async function seedPublishedBundle(ownerId: string | null = null): Promis
   await seedDriveFile({ id: "ok-file", path: `${prefix}/ok.txt`, body: "ok", contentType: "text/plain", ownerId });
   await seedDriveFile({ id: "secret-file", path: `${prefix}/secret.txt`, body: "no", contentType: "text/plain", ownerId });
   await runtime.db.insert(bundleVersions).values({
+    id: `bv-${prefix.replace(/\W+/gu, "-")}`,
     prefix,
     publicId,
     currentVersionId: "dv_current",

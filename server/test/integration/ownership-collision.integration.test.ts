@@ -1,7 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
-import { files, memories, contacts } from "../../src/defs";
-import { resetRuntime, runtime, seedDriveFile, seedMemory, seedContact } from "./edge-runtime";
+import { files, memories, contacts, bundleVersions } from "../../src/defs";
+import { resetRuntime, runtime, seedDriveFile, seedMemory, seedContact, seedBundleRow } from "./edge-runtime";
 
 describe("Part ①b — per-owner uniqueness (#30)", () => {
   beforeEach(() => resetRuntime());
@@ -27,5 +27,17 @@ describe("Part ①b — per-owner uniqueness (#30)", () => {
     await seedContact({ id: "c2", name: "peer", url: "https://b.peer", publicKeyJwk: {}, ownerId: "B" }); // must NOT throw
     expect((await runtime.db.select().from(memories).where(eq(memories.key, "profile"))).length).toBe(2);
     expect((await runtime.db.select().from(contacts).where(eq(contacts.name, "peer"))).length).toBe(2);
+  });
+
+  it("two owners can each publish a bundle at prefix /proj", async () => {
+    await seedBundleRow({ id: "bv-a", prefix: "/proj", publicId: "pb_a", ownerId: "A" });
+    await seedBundleRow({ id: "bv-b", prefix: "/proj", publicId: "pb_b", ownerId: "B" }); // must NOT throw (was PK collision)
+    const rows = await runtime.db.select().from(bundleVersions).where(eq(bundleVersions.prefix, "/proj"));
+    expect(rows.map((r) => r.ownerId).sort()).toEqual(["A", "B"]);
+  });
+
+  it("publicId stays globally unique", async () => {
+    await seedBundleRow({ id: "bv1", prefix: "/x", publicId: "pb_dup", ownerId: "A" });
+    await expect(seedBundleRow({ id: "bv2", prefix: "/y", publicId: "pb_dup", ownerId: "B" })).rejects.toThrow(/unique/i);
   });
 });

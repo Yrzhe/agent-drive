@@ -179,7 +179,8 @@ export const oauthAuthorizationCodes = sqliteTable(
 export const bundleVersions = sqliteTable(
   "bundle_versions",
   {
-    prefix: text("prefix").primaryKey(),
+    id: text("id").primaryKey(),
+    prefix: text("prefix").notNull(),
     publicId: text("public_id").unique(),
     currentVersionId: text("current_version_id").notNull(),
     previousVersionId: text("previous_version_id"),
@@ -195,6 +196,7 @@ export const bundleVersions = sqliteTable(
     index("idx_bundle_versions_current").on(table.currentVersionId),
     index("idx_bundle_versions_pushed_at").on(table.pushedAt),
     index("idx_bundle_versions_owner").on(table.ownerId),
+    unique("bundle_versions_owner_prefix_unq").on(table.ownerId, table.prefix),
   ]
 );
 
