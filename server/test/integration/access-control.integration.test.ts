@@ -56,4 +56,41 @@ describe("resolveAccessStatus", () => {
 
     expect(await resolveAccessStatus(runtime.db as never, { id: "OWNER2", email: "Owner@X.test" })).toBe("active");
   });
+
+  it("unset OWNER_EMAIL short-circuits everyone to active (legacy trust-any) without materializing a pending row", async () => {
+    // No runtime.vars.set("OWNER_EMAIL", ...) — deliberately unset.
+    expect(await resolveAccessStatus(runtime.db as never, { id: "u5", email: "whoever@x.test" })).toBe("active");
+
+    const rows = await runtime.db.select().from(userAccess).where(eq(userAccess.userId, "u5"));
+    expect(rows).toHaveLength(0);
+  });
+
+  it("returns the existing row's status without throwing when a user_access row already exists for a first-seen user", async () => {
+    seedOwner({ email: "owner@x.test", id: "OWNER" });
+    runtime.vars.set("OWNER_EMAIL", "owner@x.test");
+
+    // Simulate a concurrent request that already materialized this user's row.
+    await runtime.db.insert(userAccess).values({ userId: "u6", status: "active", appliedAt: nowIso() } as never);
+
+    await expect(resolveAccessStatus(runtime.db as never, { id: "u6", email: "rando@x.test" })).resolves.toBe("active");
+
+    const rows = await runtime.db.select().from(userAccess).where(eq(userAccess.userId, "u6"));
+    expect(rows).toHaveLength(1);
+  });
+
+  it("resolves concurrent first-resolutions for the same new user without throwing, to the same status", async () => {
+    seedOwner({ email: "owner@x.test", id: "OWNER" });
+    runtime.vars.set("OWNER_EMAIL", "owner@x.test");
+
+    const [statusA, statusB] = await Promise.all([
+      resolveAccessStatus(runtime.db as never, { id: "u7", email: "rando2@x.test" }),
+      resolveAccessStatus(runtime.db as never, { id: "u7", email: "rando2@x.test" }),
+    ]);
+
+    expect(statusA).toBe("pending");
+    expect(statusB).toBe("pending");
+
+    const rows = await runtime.db.select().from(userAccess).where(eq(userAccess.userId, "u7"));
+    expect(rows).toHaveLength(1);
+  });
 });
