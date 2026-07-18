@@ -10,6 +10,7 @@ import { presignPath } from "../lib/object-keys";
 import { ApiError, withErrorHandling } from "../lib/errors";
 import { escapedDescendantPattern, normalizePath } from "../lib/paths";
 import { checkRateLimit, clearRateLimit, recordFailure } from "../lib/rate-limit";
+import { setRequestOwner } from "../lib/request-owner";
 import { SHARE_DOWNLOAD_URL_TTL_SECS, type AppDb } from "../types";
 
 export const publicSharesRoutes = new Hono();
@@ -91,6 +92,9 @@ async function resolveShareAndToken(
   const { db, secret } = await import("edgespark");
   const [share] = await db.select().from(shares).where(eq(shares.id, getShareId(c))).limit(1);
   if (!share) throw new ApiError(404, "share_not_found", "Share link not found");
+  // Public-share requests are unauthenticated, but the activity they log belongs to the
+  // share's owner — attribute it so these audit rows are not left owner-NULL (Phase 2).
+  setRequestOwner(share.ownerId ?? null);
   assertShareAccessible(share);
 
   const tokenSecret = secret.get("AGENT_TOKEN");
@@ -107,6 +111,7 @@ publicSharesRoutes.get(
     const { db } = await import("edgespark");
     const [share] = await db.select().from(shares).where(eq(shares.id, getShareId(c))).limit(1);
     if (!share) throw new ApiError(404, "share_not_found", "Share link not found");
+    setRequestOwner(share.ownerId ?? null);
     const expired = isExpired(share.expiresAt);
     const exhausted = isExhausted(share.maxDownloads, share.downloadCount);
     const shareType = share.fileId ? "file" : "folder";
@@ -263,6 +268,7 @@ publicSharesRoutes.post(
 
     const [share] = await db.select().from(shares).where(eq(shares.id, shareId)).limit(1);
     if (!share) throw new ApiError(404, "share_not_found", "Share link not found");
+    setRequestOwner(share.ownerId ?? null);
     assertShareAccessible(share);
 
     if (share.passwordHash) {

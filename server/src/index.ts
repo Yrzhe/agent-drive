@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { contextStorage } from "hono/context-storage";
 
 import { requireDualAuth } from "./middleware/auth";
 import { adminRoutes } from "./routes/admin";
@@ -23,6 +24,10 @@ import { webhooksRoutes } from "./routes/webhooks";
 import type { AppEnv } from "./types";
 
 const app = new Hono<AppEnv>();
+
+// Request-scoped storage so insert helpers can read the current owner (Phase 2 owner-on-insert)
+// without threading it through every call site. Must wrap every route, so mount it first.
+app.use("*", contextStorage());
 
 app.route("/api/public/.well-known", oauthDiscoveryRoutes);
 app.route("/api/public/.well-known", agentCardRoutes);

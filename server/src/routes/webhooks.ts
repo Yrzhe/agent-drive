@@ -5,6 +5,7 @@ import { nanoid } from "nanoid";
 import { webhooks } from "@defs";
 
 import { getWebhookById, createWebhookSecret, deliverWebhook, validateWebhookUrlForDelivery } from "../lib/webhooks";
+import { currentOwnerId } from "../lib/request-owner";
 import { ApiError, withErrorHandling } from "../lib/errors";
 import { nowIso } from "../lib/files";
 import { parseListPagination } from "../lib/pagination";
@@ -77,6 +78,7 @@ webhooksRoutes.post(
         lastStatus: null,
         failureCount: 0,
         createdAt: nowIso(),
+        ownerId: currentOwnerId(),
       })
       .returning();
 

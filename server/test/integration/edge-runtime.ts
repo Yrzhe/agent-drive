@@ -407,6 +407,7 @@ export async function seedContact(options: {
   url: string;
   publicKeyJwk: JsonWebKey;
   autoRelease?: boolean;
+  ownerId?: string | null;
 }): Promise<void> {
   await runtime.db.insert(contacts).values({
     id: options.id ?? `contact-${options.name}`,
@@ -416,7 +417,8 @@ export async function seedContact(options: {
     algorithm: "Ed25519",
     autoRelease: options.autoRelease ? 1 : 0,
     addedAt: new Date().toISOString(),
-  });
+    ownerId: options.ownerId ?? null,
+  } as never);
 }
 
 export async function seedPublishedBundle(): Promise<{ publicId: string; prefix: string }> {

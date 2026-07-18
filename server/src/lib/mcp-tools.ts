@@ -9,6 +9,7 @@ import { ensureFolderChain, nowIso, toFileObject } from "./files";
 import { forgetMemory, listMemories, recallMemories, rememberMemory } from "./memory";
 import { getContactByName, sendFileToContact } from "./peering";
 import { escapedDescendantPattern, joinPath, normalizeName, normalizePath, parentOfPath } from "./paths";
+import { currentOwnerId } from "./request-owner";
 import { extractPathPrefixes, hasScope, pathAllowed, requirePathAllowed, type McpScope } from "./mcp-scopes";
 import { checkTotalQuota, MCP_READ_FILE_MAX_BYTES, MCP_WRITE_FILE_MAX_BYTES } from "./quota";
 import { purgeConflictingTrashAtPath } from "./trash";
@@ -324,7 +325,7 @@ export async function callMcpTool(db: AppDb, origin: string, scopes: readonly st
     };
     const [saved] = existing
       ? await db.update(files).set(values).where(eq(files.id, existing.id)).returning()
-      : await db.insert(files).values(values).returning();
+      : await db.insert(files).values({ ...values, ownerId: currentOwnerId() }).returning();
     return textResult({ file: saved ? toFileObject(saved) : values });
   }
 
@@ -391,6 +392,7 @@ export async function callMcpTool(db: AppDb, origin: string, scopes: readonly st
       downloadCount: 0,
       expiresAt: expiresIn ? new Date(Date.now() + expiresIn * 1000).toISOString() : null,
       createdAt: nowIso(),
+      ownerId: currentOwnerId(),
     }).returning();
     return textResult({ shareId: share.id, shareUrl: `${origin}/s/${share.id}`, guideUrl: `${origin}/api/public/guide`, hasPassword: Boolean(password), maxDownloads, expiresAt: share.expiresAt });
   }
