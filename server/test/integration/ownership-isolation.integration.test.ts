@@ -4,7 +4,7 @@ import { files, memories } from "../../src/defs";
 import { ensureFolderChain } from "../../src/lib/files";
 import { callMcpTool } from "../../src/lib/mcp-tools";
 import { getMemory, listMemories, recallMemories } from "../../src/lib/memory";
-import { jsonHeaders, resetRuntime, runtime, seedDriveFile, seedMemory, seedOwner, useBearer } from "./edge-runtime";
+import { jsonHeaders, resetRuntime, runtime, seedDriveFile, seedMemory, seedOwner, seedShareRow, useBearer } from "./edge-runtime";
 
 describe("two-owner isolation harness (#30 Part ①a)", () => {
   beforeEach(() => resetRuntime());
@@ -137,5 +137,19 @@ describe("two-owner isolation harness (#30 Part ①a)", () => {
     // B's owner-scoped lookup must not see A's soft-deleted row, so it must not restore it:
     expect(a?.deletedAt).not.toBeNull();
     expect(a?.ownerId).toBe("A");
+  });
+
+  it("owner B's share list + stats exclude owner A's shares; B cannot delete A's share", async () => {
+    seedOwner({ email: "b@x.test", id: "B" });
+    runtime.vars.set("OWNER_EMAIL", "b@x.test");
+    await seedDriveFile({ id: "fa", path: "/a.txt", body: "x", ownerId: "A" });
+    await seedShareRow({ id: "sha", fileId: "fa", ownerId: "A" });
+    const headers = jsonHeaders(useBearer(["read:drive", "write:drive", "share:create", "path:/"]));
+    const { default: app } = await import("../../src/index");
+    const list = await app.request("/api/public/v1/shares", { headers });
+    const body = await list.json() as { shares: Array<{ id: string }> };
+    expect(body.shares.find((s) => s.id === "sha")).toBeUndefined();
+    const del = await app.request("/api/public/v1/shares/sha", { method: "DELETE", headers });
+    expect(del.status).toBe(404);
   });
 });
