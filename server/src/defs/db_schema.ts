@@ -220,6 +220,20 @@ export const allowlist = sqliteTable("allowlist", {
   addedAt: text("added_at"),
 });
 
+export const registrationIntents = sqliteTable(
+  "registration_intents",
+  {
+    token: text("token").primaryKey(),
+    email: text("email").notNull(),
+    name: text("name"),
+    ref: text("ref"),
+    createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
+    expiresAt: text("expires_at").notNull(),
+    consumedAt: text("consumed_at"),
+  },
+  (table) => [index("idx_registration_intents_email").on(table.email)]
+);
+
 export const oauthTokens = sqliteTable(
   "oauth_tokens",
   {

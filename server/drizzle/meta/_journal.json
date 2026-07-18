@@ -134,6 +134,13 @@
       "when": 1784396564923,
       "tag": "0018_user_access_allowlist",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "6",
+      "when": 1784406118874,
+      "tag": "0019_registration_intents",
+      "breakpoints": true
     }
   ]
 }

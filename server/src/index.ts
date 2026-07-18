@@ -18,6 +18,7 @@ import { oauthRoutes } from "./routes/oauth";
 import { oauthDiscoveryRoutes } from "./routes/oauth-discovery";
 import { publicBundlesRoutes } from "./routes/public-bundles";
 import { publicSharesRoutes } from "./routes/public-shares";
+import { registerRoutes } from "./routes/register";
 import { sharesRoutes } from "./routes/shares";
 import { skillRoutes } from "./routes/skill";
 import { tokensRoutes } from "./routes/tokens";
@@ -46,6 +47,7 @@ app.route("/api/public/v1/webhooks", webhooksRoutes);
 app.route("/api/public/b", publicBundlesRoutes);
 app.route("/api/public/inbox", inboxRoutes);
 app.route("/api/public/s", publicSharesRoutes);
+app.route("/api/public/register", registerRoutes);
 app.route("/api/public/skill", skillRoutes);
 app.route("/api/public", guideRoutes);
 
