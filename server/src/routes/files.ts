@@ -476,7 +476,7 @@ filesRoutes.patch(
             return [db.update(shares).set({ folderPath: updatedFolderPath }).where(eq(shares.id, linkedShare.id))];
           });
 
-          const bundleUpdates = [rewriteBundlePrefixesForMove(db, existing.path, nextPath, updatedAt)];
+          const bundleUpdates = [rewriteBundlePrefixesForMove(db, existing.path, nextPath, updatedAt, ownerId)];
           // Rewrite root + every descendant + share + bundle path in ONE atomic batch,
           // so a mid-move failure can't leave children pointing at the old prefix.
           const updates = [rootUpdate, ...descendantUpdates, ...shareUpdates, ...bundleUpdates];
@@ -658,7 +658,7 @@ filesRoutes.patch(
         return [db.update(shares).set({ folderPath: updatedFolderPath }).where(eq(shares.id, linkedShare.id))];
       });
 
-      const bundleUpdates = [rewriteBundlePrefixesForMove(db, existing.path, nextPath, updatedAt)];
+      const bundleUpdates = [rewriteBundlePrefixesForMove(db, existing.path, nextPath, updatedAt, ownerId)];
       // Root + descendants + shares + bundles rewritten in ONE atomic batch.
       const updates = [rootUpdate, ...descendantUpdates, ...shareUpdates, ...bundleUpdates];
       try {
@@ -819,7 +819,7 @@ filesRoutes.delete(
     if (!target) throw new ApiError(404, "file_not_found", "Trashed item not found");
     assertRestPathAllowed(c, originalTrashPath(target));
 
-    const { rowCount, objectCount } = await hardPurgeSubtree(db, storage, target);
+    const { rowCount, objectCount } = await hardPurgeSubtree(db, storage, target, ownerId);
     await logEvent(db, {
       ownerId: c.get("ownerId") ?? null,
       eventType: "file.purged",

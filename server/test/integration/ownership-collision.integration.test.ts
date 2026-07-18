@@ -1,7 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { files, memories, contacts, bundleVersions } from "../../src/defs";
-import { resetRuntime, runtime, seedDriveFile, seedMemory, seedContact, seedBundleRow } from "./edge-runtime";
+import { jsonHeaders, resetRuntime, runtime, seedDriveFile, seedFolder, seedMemory, seedContact, seedBundleRow, useSession } from "./edge-runtime";
 
 describe("Part ①b — per-owner uniqueness (#30)", () => {
   beforeEach(() => resetRuntime());
@@ -39,5 +39,45 @@ describe("Part ①b — per-owner uniqueness (#30)", () => {
   it("publicId stays globally unique", async () => {
     await seedBundleRow({ id: "bv1", prefix: "/x", publicId: "pb_dup", ownerId: "A" });
     await expect(seedBundleRow({ id: "bv2", prefix: "/y", publicId: "pb_dup", ownerId: "B" })).rejects.toThrow(/unique/i);
+  });
+
+  it("owner B moving/trashing/purging their own /shared folder leaves owner A's bundle at /shared/x untouched (#30 Part ①b review)", async () => {
+    const { default: app } = await import("../../src/index");
+
+    // A owns a published bundle whose prefix sits inside a subtree B controls.
+    await seedBundleRow({ id: "bv-shared-x", prefix: "/shared/x", publicId: "pb_shared_a", ownerId: "A" });
+    // B owns the folder /shared itself.
+    await seedFolder("/shared", "B");
+    const [folder] = await runtime.db.select().from(files).where(eq(files.path, "/shared")).limit(1);
+
+    const assertABundleUntouched = async () => {
+      const [row] = await runtime.db.select().from(bundleVersions).where(eq(bundleVersions.id, "bv-shared-x")).limit(1);
+      expect(row).toBeDefined();
+      expect(row?.prefix).toBe("/shared/x");
+      expect(row?.publicId).toBe("pb_shared_a");
+      expect(row?.ownerId).toBe("A");
+    };
+
+    useSession({ id: "B" });
+
+    // B moves /shared -> /archive/shared.
+    const moveRes = await app.request(`/api/public/v1/files/${folder.id}`, {
+      method: "PATCH",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ parentPath: "/archive" }),
+    });
+    expect(moveRes.status).toBe(200);
+    await assertABundleUntouched();
+
+    // B trashes the (now-moved) folder.
+    const [movedFolder] = await runtime.db.select().from(files).where(eq(files.path, "/archive/shared")).limit(1);
+    const trashRes = await app.request(`/api/public/v1/files/${movedFolder.id}`, { method: "DELETE", headers: jsonHeaders() });
+    expect(trashRes.status).toBe(200);
+    await assertABundleUntouched();
+
+    // B purges the trashed folder.
+    const purgeRes = await app.request(`/api/public/v1/files/${movedFolder.id}/purge`, { method: "DELETE", headers: jsonHeaders() });
+    expect(purgeRes.status).toBe(200);
+    await assertABundleUntouched();
   });
 });
