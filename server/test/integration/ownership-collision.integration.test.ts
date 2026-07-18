@@ -91,4 +91,37 @@ describe("Part ①b — per-owner uniqueness (#30)", () => {
     expect(purgeRes.status).toBe(200);
     await assertABundleUntouched();
   });
+
+  it("two owners can each auto-create folder /shared via ensureFolderChain", async () => {
+    const { ensureFolderChain } = await import("../../src/lib/files");
+    await ensureFolderChain(runtime.db as never, "/shared", "A"); // creates A's /shared
+    await ensureFolderChain(runtime.db as never, "/shared", "B"); // must NOT throw now (was global-unique 500)
+    const rows = await runtime.db.select().from(files).where(eq(files.path, "/shared"));
+    expect(rows.filter((r) => r.isFolder === 1).map((r) => r.ownerId).sort()).toEqual(["A", "B"]);
+  });
+
+  it("same-owner repeat ensureFolderChain is idempotent, no raw unique error", async () => {
+    const { ensureFolderChain } = await import("../../src/lib/files");
+    await ensureFolderChain(runtime.db as never, "/x/y", "A");
+    await ensureFolderChain(runtime.db as never, "/x/y", "A"); // idempotent
+    expect((await runtime.db.select().from(files).where(and(eq(files.path, "/x/y"), eq(files.ownerId, "A")))).length).toBe(1);
+  });
+
+  it("concurrent same-owner ensureFolderChain calls for the same path do not throw a raw unique error", async () => {
+    // Sequential repeats no-op via the pre-insert existence check (see previous test) — that
+    // does NOT exercise the insert's catch. To exercise it, race two calls so both complete
+    // their SELECT (finding nothing) before either commits its INSERT: both then attempt to
+    // insert the same owner_id+path row, and the loser must hit the unique-conflict catch
+    // instead of throwing a raw error.
+    const { ensureFolderChain } = await import("../../src/lib/files");
+    await Promise.all([
+      ensureFolderChain(runtime.db as never, "/race/dir", "A"),
+      ensureFolderChain(runtime.db as never, "/race/dir", "A"),
+    ]); // must NOT throw — Promise.all rejects (and this await throws) if either call surfaces a raw unique error
+    const rows = await runtime.db
+      .select()
+      .from(files)
+      .where(and(eq(files.path, "/race/dir"), eq(files.ownerId, "A")));
+    expect(rows.length).toBe(1);
+  });
 });

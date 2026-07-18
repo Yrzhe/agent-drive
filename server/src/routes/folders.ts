@@ -5,7 +5,7 @@ import { nanoid } from "nanoid";
 import { files } from "@defs";
 
 import { getRequestActor, logEvent } from "../lib/activity";
-import { ensureFolderChain, nowIso, toFileObject } from "../lib/files";
+import { ensureFolderChain, isPathUniqueConflict, nowIso, toFileObject } from "../lib/files";
 import { ApiError, withErrorHandling } from "../lib/errors";
 import { joinPath, normalizeName, normalizePath } from "../lib/paths";
 import { assertRestPathAllowed } from "../lib/rest-scopes";
@@ -13,11 +13,6 @@ import { purgeConflictingTrashAtPath } from "../lib/trash";
 import type { AppEnv } from "../types";
 
 export const foldersRoutes = new Hono<AppEnv>();
-
-function isPathUniqueConflict(error: unknown): boolean {
-  const message = (error as { message?: string } | null)?.message?.toLowerCase() ?? "";
-  return message.includes("unique constraint failed: files.path") || (message.includes("duplicate key") && message.includes("files.path"));
-}
 
 foldersRoutes.post(
   "/",
