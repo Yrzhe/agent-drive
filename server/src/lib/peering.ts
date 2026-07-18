@@ -106,7 +106,11 @@ export async function storeInboxFile(
   await ensureFolderChain(db, folder, ownerId);
 
   let targetPath = joinPath(folder, payload.filename);
-  const [occupied] = await db.select({ id: files.id }).from(files).where(and(eq(files.path, targetPath), isNull(files.deletedAt))).limit(1);
+  const [occupied] = await db
+    .select({ id: files.id })
+    .from(files)
+    .where(and(eq(files.path, targetPath), isNull(files.deletedAt), ownerId ? eq(files.ownerId, ownerId) : undefined))
+    .limit(1);
   if (occupied) {
     const stamp = new Date().toISOString().replace(/[:.]/gu, "-");
     const dot = payload.filename.lastIndexOf(".");
@@ -160,7 +164,14 @@ export async function sendFileToContact(
   const [row] = await db
     .select()
     .from(files)
-    .where(and(eq(files.path, filePath), eq(files.isFolder, 0), isNull(files.deletedAt)))
+    .where(
+      and(
+        eq(files.path, filePath),
+        eq(files.isFolder, 0),
+        isNull(files.deletedAt),
+        contact.ownerId ? eq(files.ownerId, contact.ownerId) : undefined
+      )
+    )
     .limit(1);
   if (!row) throw new Error("file_not_found");
   if (!row.s3Uri) throw new Error("upload_pending");
