@@ -23,8 +23,10 @@ export type RestAuth =
 export type AppEnv = {
   Variables: {
     restAuth?: RestAuth;
-    // Owner id stamped on rows inserted during this request (multi-tenancy Phase 2).
-    // Set by requireDualAuth / the MCP handler / the inbox handler; read by currentOwnerId().
+    // Resolved owner for this request (multi-tenancy Phase 2 owner-on-insert). Set by
+    // requireDualAuth (session user id / bearer token user id); REST route handlers read it
+    // via c.get("ownerId") to stamp owner_id on inserts. MCP and inbox thread the owner
+    // explicitly (callMcpTool arg / contact.ownerId) rather than through this slot.
     ownerId?: string | null;
   };
 };

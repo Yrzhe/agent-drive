@@ -5,7 +5,6 @@ import { nanoid } from "nanoid";
 import { files } from "@defs";
 
 import { getRequestActor, logEvent } from "../lib/activity";
-import { currentOwnerId } from "../lib/request-owner";
 import { ensureFolderChain, nowIso, toFileObject } from "../lib/files";
 import { ApiError, withErrorHandling } from "../lib/errors";
 import { joinPath, normalizeName, normalizePath } from "../lib/paths";
@@ -31,7 +30,8 @@ foldersRoutes.post(
     assertRestPathAllowed(c, folderPath);
 
     const { db, storage } = await import("edgespark");
-    await ensureFolderChain(db, parentPath);
+    const ownerId = c.get("ownerId") ?? null;
+    await ensureFolderChain(db, parentPath, ownerId);
 
     await purgeConflictingTrashAtPath(db, storage, folderPath);
     const [conflict] = await db.select().from(files).where(and(eq(files.path, folderPath), isNull(files.deletedAt))).limit(1);
@@ -52,7 +52,7 @@ foldersRoutes.post(
           s3Uri: null,
           createdAt: nowIso(),
           updatedAt: nowIso(),
-          ownerId: currentOwnerId(),
+          ownerId,
         })
         .returning();
     } catch (error) {

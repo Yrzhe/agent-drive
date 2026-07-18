@@ -9,7 +9,6 @@ import { ensureFolderChain, nowIso, toFileObject } from "./files";
 import { forgetMemory, listMemories, recallMemories, rememberMemory } from "./memory";
 import { getContactByName, sendFileToContact } from "./peering";
 import { escapedDescendantPattern, joinPath, normalizeName, normalizePath, parentOfPath } from "./paths";
-import { currentOwnerId } from "./request-owner";
 import { extractPathPrefixes, hasScope, pathAllowed, requirePathAllowed, type McpScope } from "./mcp-scopes";
 import { checkTotalQuota, MCP_READ_FILE_MAX_BYTES, MCP_WRITE_FILE_MAX_BYTES } from "./quota";
 import { purgeConflictingTrashAtPath } from "./trash";
@@ -201,7 +200,7 @@ export function listMcpTools(scopes: readonly string[]) {
     }));
 }
 
-export async function callMcpTool(db: AppDb, origin: string, scopes: readonly string[], name: string, input: Record<string, unknown>): Promise<ToolResult> {
+export async function callMcpTool(db: AppDb, origin: string, scopes: readonly string[], name: string, input: Record<string, unknown>, ownerId: string | null = null): Promise<ToolResult> {
   const tool = MCP_TOOLS.find((candidate) => candidate.name === name);
   if (!tool) throw new Error(`unknown_tool:${name}`);
   if (!hasScope(scopes, tool.requiredScope)) throw new Error(`invalid_scope:${tool.requiredScope}`);
@@ -285,7 +284,7 @@ export async function callMcpTool(db: AppDb, origin: string, scopes: readonly st
     const filename = normalizeName(path.split("/").pop());
     const bytes = new TextEncoder().encode(content);
     const { storage } = await import("edgespark");
-    await ensureFolderChain(db, parentPath);
+    await ensureFolderChain(db, parentPath, ownerId);
     await purgeConflictingTrashAtPath(db, storage, path);
 
     const [existing] = await db
@@ -325,7 +324,7 @@ export async function callMcpTool(db: AppDb, origin: string, scopes: readonly st
     };
     const [saved] = existing
       ? await db.update(files).set(values).where(eq(files.id, existing.id)).returning()
-      : await db.insert(files).values({ ...values, ownerId: currentOwnerId() }).returning();
+      : await db.insert(files).values({ ...values, ownerId }).returning();
     return textResult({ file: saved ? toFileObject(saved) : values });
   }
 
@@ -392,7 +391,7 @@ export async function callMcpTool(db: AppDb, origin: string, scopes: readonly st
       downloadCount: 0,
       expiresAt: expiresIn ? new Date(Date.now() + expiresIn * 1000).toISOString() : null,
       createdAt: nowIso(),
-      ownerId: currentOwnerId(),
+      ownerId,
     }).returning();
     return textResult({ shareId: share.id, shareUrl: `${origin}/s/${share.id}`, guideUrl: `${origin}/api/public/guide`, hasPassword: Boolean(password), maxDownloads, expiresAt: share.expiresAt });
   }
@@ -403,6 +402,7 @@ export async function callMcpTool(db: AppDb, origin: string, scopes: readonly st
       key: stringArg(input, "key", false),
       tags: input.tags,
       source: stringArg(input, "source", false),
+      ownerId,
     });
     return textResult({ memory, created });
   }

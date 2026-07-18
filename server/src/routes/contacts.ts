@@ -5,7 +5,6 @@ import { nanoid } from "nanoid";
 import { contacts } from "@defs";
 
 import { getRequestActor, logEvent } from "../lib/activity";
-import { currentOwnerId } from "../lib/request-owner";
 import { ApiError, withErrorHandling } from "../lib/errors";
 import { nowIso } from "../lib/files";
 import { normalizePath } from "../lib/paths";
@@ -73,7 +72,7 @@ contactsRoutes.post(
           algorithm: "Ed25519",
           autoRelease,
           addedAt: nowIso(),
-          ownerId: currentOwnerId(),
+          ownerId: c.get("ownerId") ?? null,
         })
         .returning();
     } catch (error) {

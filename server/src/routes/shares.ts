@@ -5,7 +5,6 @@ import { nanoid } from "nanoid";
 import { activityLog, files, shares } from "@defs";
 
 import { getRequestActor, logEvent } from "../lib/activity";
-import { currentOwnerId } from "../lib/request-owner";
 import { hashPassword } from "../lib/crypto";
 import { nowIso } from "../lib/files";
 import { ApiError, withErrorHandling } from "../lib/errors";
@@ -187,7 +186,7 @@ sharesRoutes.post(
         downloadCount: 0,
         expiresAt: body.expiresIn ? new Date(Date.now() + body.expiresIn * 1000).toISOString() : null,
         createdAt: nowIso(),
-        ownerId: currentOwnerId(),
+        ownerId: c.get("ownerId") ?? null,
       })
       .returning();
 
