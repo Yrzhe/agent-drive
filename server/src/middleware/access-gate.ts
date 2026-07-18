@@ -29,16 +29,22 @@ function isExemptPath(path: string): boolean {
 /**
  * Access-gate middleware (Part ② multi-user).
  *
- * Confines SESSION requests by the caller's app-level access status
+ * Confines BOTH session and bearer requests by the caller's app-level access status
  * (`resolveAccessStatus`): `active` — including the deployment owner, who always
- * resolves to `active` — passes through; `pending`/`suspended` sessions are
+ * resolves to `active` by id — passes through; `pending`/`suspended` principals are
  * rejected with `403 access_pending` / `403 access_suspended` on every route except
  * the exempt prefixes above.
  *
- * Bearer requests always pass through untouched: a bearer token only exists for the
- * already-active owner (agent tokens are bound to the deployment owner), so there is
- * no status to gate. Must run AFTER `requireDualAuth` — it reads `restAuth`, which
- * `requireDualAuth` sets.
+ * Bearers are gated too, not just sessions. A user-bound token (drive/OAuth) is minted
+ * against `auth.user.id` with no owner check, so an active non-owner can mint one bound
+ * to themselves; without a bearer status check that token would retain full access after
+ * the admin suspends them (the suspension writes a `suspended` `user_access` row, which
+ * this gate now consults for the token's principal). The one bearer that still passes
+ * without a status lookup is the legacy global AGENT_TOKEN on an OWNER_EMAIL-unset
+ * deployment (`restAuth.ownerId === null`, trust-any) — there is no principal to gate.
+ * The owner-bound AGENT_TOKEN resolves `active` by owner id like any owner request.
+ *
+ * Must run AFTER `requireDualAuth` — it reads `restAuth`, which `requireDualAuth` sets.
  */
 export const requireActiveAccess: MiddlewareHandler<AppEnv> = async (c, next) => {
   try {
@@ -48,19 +54,29 @@ export const requireActiveAccess: MiddlewareHandler<AppEnv> = async (c, next) =>
     }
 
     const restAuth = getRestAuth(c);
-    if (restAuth.kind !== "session") {
-      await next();
-      return;
+
+    let principal: { id: string; email: string | null };
+    if (restAuth.kind === "session") {
+      const { auth } = await import("edgespark/http");
+      if (!auth.isAuthenticated()) {
+        // Unreachable in practice: requireDualAuth only sets restAuth.kind === "session"
+        // for an authenticated session. Guarded for type-narrowing, fail closed.
+        throw new ApiError(401, "unauthorized", "Authentication required");
+      }
+      principal = { id: auth.user.id, email: auth.user.email };
+    } else {
+      // Bearer. A null ownerId is the legacy global AGENT_TOKEN on an OWNER_EMAIL-unset
+      // deployment (trust-any) — no principal to gate, so pass through. Never call the
+      // resolver with a null id.
+      if (restAuth.ownerId === null) {
+        await next();
+        return;
+      }
+      principal = { id: restAuth.ownerId, email: null };
     }
 
-    const { auth } = await import("edgespark/http");
-    if (!auth.isAuthenticated()) {
-      // Unreachable in practice: requireDualAuth only sets restAuth.kind === "session"
-      // for an authenticated session. Guarded for type-narrowing, fail closed.
-      throw new ApiError(401, "unauthorized", "Authentication required");
-    }
     const { db } = await import("edgespark");
-    const status = await resolveAccessStatus(db, { id: auth.user.id, email: auth.user.email });
+    const status = await resolveAccessStatus(db, principal);
 
     if (status === "active") {
       await next();

@@ -1,7 +1,7 @@
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { Hono } from "hono";
 
-import { allowlist, esSystemAuthUser, userAccess } from "@defs";
+import { allowlist, esSystemAuthUser, oauthTokens, userAccess } from "@defs";
 
 import { assertAdmin } from "../lib/admin";
 import { ApiError, withErrorHandling } from "../lib/errors";
@@ -53,6 +53,11 @@ async function requireAuthenticatedAdmin(): Promise<{ id: string }> {
  * invariant that the owner never gets a `user_access` row (they short-circuit inside
  * `resolveAccessStatus`), so `approve`/`reject`/`suspend`/`unsuspend` all share this guard
  * instead of only the route that happened to check for it explicitly.
+ *
+ * On a transition to `suspended` (reject/suspend), also revokes the user's outstanding
+ * tokens — defense-in-depth so a lingering OAuth refresh token cannot mint fresh access
+ * tokens after suspension. The request-time access gate (`requireActiveAccess`) is the
+ * correctness guarantee; this revocation is cleanup.
  */
 async function setDecidedStatus(
   db: AppDb,
@@ -70,6 +75,13 @@ async function setDecidedStatus(
     .where(eq(userAccess.userId, userId))
     .returning({ userId: userAccess.userId, status: userAccess.status });
   if (!row) throw new ApiError(404, "user_not_found", "No user_access row exists for that user");
+
+  if (status === "suspended") {
+    await db
+      .update(oauthTokens)
+      .set({ revokedAt: nowIso() })
+      .where(and(eq(oauthTokens.userId, userId), isNull(oauthTokens.revokedAt)));
+  }
   return row;
 }
 

@@ -1,12 +1,12 @@
 import { eq } from "drizzle-orm";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 
-import { allowlist, userAccess } from "@defs";
+import { allowlist, oauthTokens, userAccess } from "@defs";
 
 import app from "../../src/index";
 import { resolveAccessStatus } from "../../src/lib/access";
 import { nowIso } from "../../src/lib/files";
-import { jsonHeaders, resetRuntime, runtime, seedOwner, useBearer, useSession } from "./edge-runtime";
+import { clearSession, jsonHeaders, resetRuntime, runtime, seedOwner, useBearer, useSession } from "./edge-runtime";
 
 describe("resolveAccessStatus", () => {
   beforeEach(() => {
@@ -93,6 +93,26 @@ describe("resolveAccessStatus", () => {
 
     const rows = await runtime.db.select().from(userAccess).where(eq(userAccess.userId, "u7"));
     expect(rows).toHaveLength(1);
+  });
+
+  // Finding 2 — owner identity by uniquely-resolved id, not email compare.
+  it("a case-only duplicate of OWNER_EMAIL does not self-activate over a stored suspended row", async () => {
+    // Auth-user uniqueness is on the RAW email, so `owner@x.test` and `Owner@x.test`
+    // coexist. resolveOwnerUserId returns null on that ambiguity, so neither can
+    // short-circuit to active by an email compare — the duplicate stays suspended.
+    seedOwner({ email: "owner@x.test", id: "OWNER" });
+    seedOwner({ email: "Owner@x.test", id: "DUP" });
+    runtime.vars.set("OWNER_EMAIL", "owner@x.test");
+    await runtime.db.insert(userAccess).values({ userId: "DUP", status: "suspended", appliedAt: nowIso() } as never);
+
+    expect(await resolveAccessStatus(runtime.db as never, { id: "DUP", email: "Owner@x.test" })).toBe("suspended");
+  });
+
+  it("resolves the unique owner to active by id (happy path)", async () => {
+    seedOwner({ email: "owner@x.test", id: "OWNER" });
+    runtime.vars.set("OWNER_EMAIL", "owner@x.test");
+
+    expect(await resolveAccessStatus(runtime.db as never, { id: "OWNER", email: "owner@x.test" })).toBe("active");
   });
 });
 
@@ -193,11 +213,33 @@ describe("account routes", () => {
   });
 
   it("the owner's /status is active and isAdmin", async () => {
+    seedOwner({ id: "OWNER", email: "owner@x.test" });
     runtime.vars.set("OWNER_EMAIL", "owner@x.test");
     useSession({ id: "OWNER", email: "owner@x.test" });
 
     const res = await app.request("/api/public/v1/account/status");
     expect(await res.json()).toEqual({ status: "active", email: "owner@x.test", isAdmin: true });
+  });
+
+  // Finding 3 — /status isAdmin must mirror the fail-closed assertAdmin enforcement.
+  it("reports isAdmin:false for a non-owner session (OWNER_EMAIL set)", async () => {
+    seedOwner({ id: "OWNER", email: "owner@x.test" });
+    runtime.vars.set("OWNER_EMAIL", "owner@x.test");
+    await runtime.db.insert(allowlist).values({ email: "vip@x.test", addedBy: "OWNER", addedAt: nowIso() } as never);
+    useSession({ id: "vip-x", email: "vip@x.test" });
+
+    const res = await app.request("/api/public/v1/account/status");
+    expect((await res.json() as { isAdmin: boolean }).isAdmin).toBe(false);
+  });
+
+  it("reports isAdmin:false when OWNER_EMAIL is unset (matches fail-closed assertAdmin, not trust-any)", async () => {
+    // OWNER_EMAIL unset → isRequestOwner() is trust-any true, but assertAdmin fails
+    // closed, so /status must report isAdmin:false to match real enforcement.
+    useSession({ id: "anyone", email: "anyone@x.test" });
+
+    const res = await app.request("/api/public/v1/account/status");
+    expect(res.status).toBe(200);
+    expect((await res.json() as { isAdmin: boolean }).isAdmin).toBe(false);
   });
 });
 
@@ -250,6 +292,7 @@ describe("access-gate middleware", () => {
   });
 
   it("the owner session always gets 200 on /files", async () => {
+    seedOwner({ id: "OWNER", email: "owner@x.test" });
     runtime.vars.set("OWNER_EMAIL", "owner@x.test");
     useSession({ id: "OWNER", email: "owner@x.test" });
 
@@ -264,6 +307,87 @@ describe("access-gate middleware", () => {
 
     const res = await app.request("/api/public/v1/files?path=/", { headers });
     expect(res.status).toBe(200);
+  });
+});
+
+describe("bearer access is gated by principal status (#30 Part ② final review)", () => {
+  const OWNER_EMAIL = "owner@x.test";
+
+  beforeEach(() => {
+    resetRuntime();
+  });
+
+  afterAll(() => {
+    runtime.sqlite?.close();
+  });
+
+  // Finding 1 (CRITICAL) — the gate must confine a bearer by its principal's status.
+  // Suspension is applied out-of-band here (not via the admin route) so the token stays
+  // VALID: this isolates the gate's status check from the separate token-revocation fix.
+  it("a suspended user's still-valid pre-minted drive token is rejected 403 access_suspended by the gate", async () => {
+    seedOwner({ email: OWNER_EMAIL, id: "OWNER" });
+    runtime.vars.set("OWNER_EMAIL", OWNER_EMAIL);
+    await runtime.db.insert(allowlist).values({ email: "member@x.test", addedBy: "OWNER", addedAt: nowIso() } as never);
+
+    // An active non-owner mints a drive token bound to themselves (materializes their
+    // user_access row as active via the gate).
+    useSession({ id: "member-1", email: "member@x.test" });
+    const mintRes = await app.request("/api/public/v1/tokens", {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ scopes: ["read:drive"], label: "member token" }),
+    });
+    expect(mintRes.status).toBe(201);
+    const token = ((await mintRes.json()) as { token: string }).token;
+
+    // The token works while the user is active (bearer path — session cleared).
+    clearSession();
+    const okRes = await app.request("/api/public/v1/files?path=/", { headers: { authorization: `Bearer ${token}` } });
+    expect(okRes.status).toBe(200);
+
+    // Suspend the user out-of-band — leaves the token row intact/unrevoked.
+    await runtime.db
+      .update(userAccess)
+      .set({ status: "suspended", decidedBy: "OWNER", decidedAt: nowIso() })
+      .where(eq(userAccess.userId, "member-1"));
+
+    // The still-valid bearer no longer reaches gated content — the gate blocks it.
+    clearSession();
+    const blockedRes = await app.request("/api/public/v1/files?path=/", { headers: { authorization: `Bearer ${token}` } });
+    expect(blockedRes.status).toBe(403);
+    const body = (await blockedRes.json()) as { error?: { code?: string } };
+    expect(body.error?.code).toBe("access_suspended");
+  });
+
+  it("the global AGENT_TOKEN (owner-bound) still reaches gated content — no regression", async () => {
+    seedOwner({ email: OWNER_EMAIL, id: "OWNER" });
+    runtime.vars.set("OWNER_EMAIL", OWNER_EMAIL);
+    const headers = useBearer(["read:drive"]);
+
+    const res = await app.request("/api/public/v1/files?path=/", { headers });
+    expect(res.status).toBe(200);
+  });
+
+  it("suspending a user revokes their outstanding oauth_tokens rows (defense-in-depth)", async () => {
+    seedOwner({ email: OWNER_EMAIL, id: "OWNER" });
+    runtime.vars.set("OWNER_EMAIL", OWNER_EMAIL);
+    await runtime.db.insert(allowlist).values({ email: "member2@x.test", addedBy: "OWNER", addedAt: nowIso() } as never);
+
+    useSession({ id: "member-2", email: "member2@x.test" });
+    const mintRes = await app.request("/api/public/v1/tokens", {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ scopes: ["read:drive"], label: "member token" }),
+    });
+    expect(mintRes.status).toBe(201);
+
+    useSession({ id: "OWNER", email: OWNER_EMAIL });
+    const suspendRes = await app.request("/api/public/v1/admin/users/member-2/suspend", { method: "POST" });
+    expect(suspendRes.status).toBe(200);
+
+    const rows = await runtime.db.select().from(oauthTokens).where(eq(oauthTokens.userId, "member-2"));
+    expect(rows.length).toBeGreaterThan(0);
+    for (const row of rows) expect(row.revokedAt).not.toBeNull();
   });
 });
 

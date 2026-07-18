@@ -5,7 +5,7 @@ import { userAccess } from "@defs";
 
 import { resolveAccessStatus } from "../lib/access";
 import { ApiError, withErrorHandling } from "../lib/errors";
-import { isRequestOwner } from "../lib/owner";
+import { resolveOwnerUserId } from "../lib/owner";
 import { requireSessionAuth } from "../lib/rest-scopes";
 import type { AppEnv } from "../types";
 
@@ -46,10 +46,15 @@ accountRoutes.get(
     const user = await requireAuthenticatedUser();
 
     const { db } = await import("edgespark");
-    const [status, isAdmin] = await Promise.all([
+    // isAdmin mirrors the fail-closed `assertAdmin` enforcement: derive it from the
+    // uniquely-resolved owner id, never `isRequestOwner()` (trust-any true for everyone
+    // when OWNER_EMAIL is unset), so the web AdminPage never renders for a caller whose
+    // every admin API would 403.
+    const [status, ownerId] = await Promise.all([
       resolveAccessStatus(db, user),
-      isRequestOwner(),
+      resolveOwnerUserId(db),
     ]);
+    const isAdmin = ownerId !== null && user.id === ownerId;
 
     return c.json({ status, email: user.email, isAdmin });
   })
@@ -77,7 +82,8 @@ accountRoutes.post(
       await db.update(userAccess).set(patch).where(eq(userAccess.userId, user.id));
     }
 
-    const isAdmin = await isRequestOwner();
+    const ownerId = await resolveOwnerUserId(db);
+    const isAdmin = ownerId !== null && user.id === ownerId;
     return c.json({ status, email: user.email, isAdmin });
   })
 );

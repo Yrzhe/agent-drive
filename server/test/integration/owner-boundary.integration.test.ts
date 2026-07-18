@@ -1,7 +1,7 @@
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 
 import app from "../../src/index";
-import { resetRuntime, runtime, useSession } from "./edge-runtime";
+import { resetRuntime, runtime, seedOwner, useSession } from "./edge-runtime";
 
 async function errorCode(response: Response): Promise<string | undefined> {
   const body = await response.json() as { error?: { code?: string } };
@@ -28,6 +28,7 @@ describe("single-owner boundary", () => {
   });
 
   it("allows the configured owner session", async () => {
+    seedOwner({ email: "owner@example.test" });
     runtime.vars.set("OWNER_EMAIL", "owner@example.test");
     useSession({ email: "owner@example.test" });
 
@@ -45,6 +46,9 @@ describe("single-owner boundary", () => {
   });
 
   it("matches the owner email case-insensitively", async () => {
+    // The auth-user row and the session share an id; resolveOwnerUserId matches the row
+    // to OWNER_EMAIL case-insensitively, then the gate matches the owner by that id.
+    seedOwner({ email: "owner@example.test" });
     runtime.vars.set("OWNER_EMAIL", "Owner@Example.test");
     useSession({ email: "owner@example.TEST" });
 
