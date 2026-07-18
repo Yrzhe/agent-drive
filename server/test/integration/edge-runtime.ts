@@ -5,8 +5,9 @@ import { fileURLToPath } from "node:url";
 import Database from "better-sqlite3";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/better-sqlite3";
+import { sqliteTable, text } from "drizzle-orm/sqlite-core";
 
-import { buckets, bundleVersions, contacts, drizzleSchema, files } from "@defs";
+import { buckets, bundleVersions, contacts, drizzleSchema, files, memories, shares } from "@defs";
 
 import { driveObjectKey } from "../../src/lib/object-keys";
 
@@ -342,7 +343,7 @@ function basename(pathname: string): string {
   return pathname.split("/").filter(Boolean).pop() ?? pathname;
 }
 
-export async function seedFolder(folderPath: string): Promise<void> {
+export async function seedFolder(folderPath: string, ownerId: string | null = null): Promise<void> {
   if (folderPath === "/") return;
   const segments = folderPath.slice(1).split("/").filter(Boolean);
   let cursor = "";
@@ -363,7 +364,8 @@ export async function seedFolder(folderPath: string): Promise<void> {
       deletedAt: null,
       createdAt: timestamp,
       updatedAt: timestamp,
-    });
+      ownerId,
+    } as never);
   }
 }
 
@@ -372,6 +374,7 @@ export async function seedDriveFile(options: {
   path: string;
   body?: string | Uint8Array;
   contentType?: string;
+  ownerId?: string | null;
 }): Promise<string> {
   const id = options.id ?? `file-${Math.random().toString(36).slice(2)}`;
   const bytes = typeof options.body === "string"
@@ -379,7 +382,8 @@ export async function seedDriveFile(options: {
     : options.body ?? new Uint8Array([1, 2, 3]);
   const parentPath = parentOf(options.path);
   const name = basename(options.path);
-  await seedFolder(parentPath);
+  const ownerId = options.ownerId ?? null;
+  await seedFolder(parentPath, ownerId);
   const objectPath = driveObjectKey(id, name);
   await runtime.storage.from(buckets.drive).put(objectPath, bytes, {
     contentType: options.contentType ?? "text/plain",
@@ -397,8 +401,37 @@ export async function seedDriveFile(options: {
     deletedAt: null,
     createdAt: timestamp,
     updatedAt: timestamp,
-  });
+    ownerId,
+  } as never);
   return id;
+}
+
+export async function seedMemory(options: { id?: string; key?: string | null; content: string; tags?: string | null; ownerId?: string | null }): Promise<string> {
+  const id = options.id ?? `mem-${Math.random().toString(36).slice(2)}`;
+  const ts = new Date().toISOString();
+  await runtime.db.insert(memories).values({
+    id, key: options.key ?? null, content: options.content, tags: options.tags ?? null,
+    source: null, createdAt: ts, updatedAt: ts, ownerId: options.ownerId ?? null,
+  } as never);
+  await runtime.db.insert(sqliteTable("memories_fts", { id: text("id").notNull(), content: text("content").notNull(), tags: text("tags").notNull() }))
+    .values({ id, content: options.content, tags: options.tags ?? "" } as never).catch(() => {});
+  return id;
+}
+
+export async function seedShareRow(options: { id: string; fileId?: string | null; folderPath?: string | null; ownerId?: string | null }): Promise<void> {
+  await runtime.db.insert(shares).values({
+    id: options.id, fileId: options.fileId ?? null, folderPath: options.folderPath ?? null,
+    downloadCount: 0, createdAt: new Date().toISOString(), ownerId: options.ownerId ?? null,
+  } as never);
+}
+
+export async function seedBundleRow(options: { prefix: string; publicId?: string | null; ownerId?: string | null }): Promise<void> {
+  const ts = new Date().toISOString();
+  await runtime.db.insert(bundleVersions).values({
+    prefix: options.prefix, publicId: options.publicId ?? null, currentVersionId: "dv_seed",
+    machineId: "m", hash: "h", fileCount: 0, totalSize: 0, pushedAt: ts, updatedAt: ts,
+    ownerId: options.ownerId ?? null,
+  } as never);
 }
 
 export async function seedContact(options: {
