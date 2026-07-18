@@ -33,6 +33,14 @@ guideRoutes.get(
         gate: "A session request to any /api/public/v1/* route other than /account/* and /admin/* is rejected unless status is \"active\": pending -> 403 access_pending, suspended -> 403 access_suspended. The two exempt prefixes let a pending/suspended session always check its status and apply to the waitlist.",
         onboarding: "A new signup starts pending (or active immediately if its email is on the owner's allowlist) and needs the owner to approve it before other endpoints become reachable for that session.",
       },
+      registration: {
+        description: "Public, unauthenticated hand-off so an agent can help a human who has no account yet get signed up. SECURITY BOUNDARY: the agent only ever supplies email/name/ref and passes a link -- it NEVER handles the password, the browser session, or email verification. Those are the human's, in their own browser.",
+        start: `POST ${origin}/api/public/register/start { email, name?, ref? } — no auth, rate-limited by IP (10/hour, else 429 too_many_attempts). Mints a 24h single-use registration intent and returns { handoffUrl: "/signup?token=...", expiresAt }. A "password" field in the body is silently ignored -- there is no way to smuggle one through this endpoint.`,
+        intent: `GET ${origin}/api/public/register/intent/{token} — no auth, read-only, never consumes the intent. Returns { email, name, ref }; 404 intent_not_found if the token is unknown, expired, or already consumed by a completed sign-up. This is what the /signup page calls to pre-fill the form.`,
+        handoff: "Give the handoffUrl to the human to open in their browser. They set their own password on /signup (goes straight to Better Auth's signUp.email, never through this API) and click the verification link emailed to them. Neither the password nor the verification state is ever visible to the agent.",
+        referral: "ref is an optional free-text label (max 128 chars) copied once into the new account's user_access.referredBy for the owner's waitlist review. It NEVER grants access and is never checked against anything -- the allowlist decision is by email match alone.",
+        afterVerification: "Once verified, the accountAccess model above takes over: an allowlisted email activates immediately, otherwise the account is pending on the waitlist awaiting owner approval.",
+      },
       quickStart: {
         step1: `GET ${origin}/api/public/s/{shareId} → Get share info (type, hasPassword, fileCount, expired). Password-protected shares withhold name/size/fileCount until you present a valid accessToken`,
         step2: `POST ${origin}/api/public/s/{shareId}/access with body {"password":"xxx"} (or {} if no password) → Get accessToken (15 min TTL)`,

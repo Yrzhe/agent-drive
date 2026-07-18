@@ -58,6 +58,29 @@
 - A new signup starts pending (or active immediately if its email is
   allowlisted) and needs owner approval.
 
+## Agent-native registration hand-off
+
+- POST /api/public/register/start { email, name?, ref? } -> { handoffUrl,
+  expiresAt }. Public, no auth, rate-limited by caller IP (10/hour). Mints a
+  24h single-use registration intent and returns a pre-filled
+  "/signup?token=..." link for a human who doesn't have an account yet.
+- GET /api/public/register/intent/{token} -> { email, name, ref }. Public,
+  read-only, never consumes the intent. 404 intent_not_found if the token
+  is unknown, expired, or already consumed. This is what the /signup page
+  calls to pre-fill the form.
+- SECURITY BOUNDARY: the agent supplies only email/name/ref and passes the
+  handoffUrl along -- it NEVER handles the password, the browser session,
+  or email verification. The human sets their password on /signup and
+  clicks the verification link Better Auth emails them; neither ever
+  touches this API. A `password` field sent to /start is silently ignored.
+- ref is an optional free-text label (max 128 chars) copied once into the
+  new account's user_access.referredBy for the owner's waitlist review. It
+  NEVER grants access and is never checked against anything -- the
+  allowlist decision is by email match alone.
+- After verification, the "Account status & access gate" model above takes
+  over: allowlisted email -> active immediately, otherwise -> pending
+  (waitlist) awaiting owner approval.
+
 ## Installable skill (self-describing, honest status)
 
 - GET /api/public/skill/manifest — { version, files: [{ path, sha256, bytes }] }

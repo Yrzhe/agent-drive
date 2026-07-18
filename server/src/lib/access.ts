@@ -5,6 +5,7 @@ import { allowlist, esSystemAuthUser, userAccess } from "@defs";
 import type { AppDb } from "../types";
 import { nowIso } from "./files";
 import { resolveOwnerUserId } from "./owner";
+import { consumeIntentForEmail } from "./registration";
 
 /**
  * App-level access state for a signed-up user.
@@ -80,6 +81,7 @@ export async function resolveAccessStatus(
   }
 
   let initialStatus: AccessStatus = "pending";
+  let referredBy: string | null = null;
   if (userEmail) {
     const [allowlisted] = await db
       .select({ email: allowlist.email })
@@ -87,6 +89,15 @@ export async function resolveAccessStatus(
       .where(sql`lower(${allowlist.email}) = lower(${userEmail})`)
       .limit(1);
     if (allowlisted) initialStatus = "active";
+
+    // Part ③: an unconsumed `register/start` intent for this email donates its `ref`
+    // into `referredBy` on first materialization ONLY — this annotates the waitlist for
+    // the admin and never grants access or flips `status`. Uses the SAME resolved
+    // `userEmail` as the allowlist check above (so the bearer-by-id resolution above
+    // applies here too), and only runs once per user since this whole block is gated by
+    // the "row missing" branch — an existing row is never re-stamped.
+    const intent = await consumeIntentForEmail(db, userEmail);
+    if (intent) referredBy = intent.ref;
   }
 
   await db
@@ -94,6 +105,7 @@ export async function resolveAccessStatus(
     .values({
       userId: user.id,
       status: initialStatus,
+      referredBy,
       appliedAt: nowIso(),
     } as never)
     .onConflictDoNothing();

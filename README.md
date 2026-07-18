@@ -215,6 +215,8 @@ Use `/api/public/mcp` as the remote MCP URL. OAuth/MCP discovery is served from 
 |--------|----------|-------------|
 | GET | `/api/public/guide` | API guide for receiving agents (also lists all agent surfaces) |
 | GET | `/llms.txt` | Plain-text agent index of this deployment |
+| POST | `/api/public/register/start` | Mint a 24h registration intent + hand-off link for a human with no account (rate-limited by IP) |
+| GET | `/api/public/register/intent/:token` | Read-only intent lookup the `/signup` page uses to pre-fill the form |
 | GET | `/api/public/skill/manifest` | Versioned manifest of the installable skill (per-file sha256) |
 | GET | `/api/public/skill/file?path=…` | One skill file's raw content (honest 404 on a miss) |
 | GET | `/api/public/.well-known/agent.json` | A2A-compatible Agent Card (identity + capabilities) |
