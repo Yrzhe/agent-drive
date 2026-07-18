@@ -74,6 +74,29 @@ describe("multi-tenancy Phase 0 — ownership resolution (#30)", () => {
       expect(ctx?.userId).toBeNull();
     });
 
+    it("fails closed (rejects the token) when OWNER_EMAIL is set but unresolved — never falls through to trust-any", async () => {
+      // OWNER_EMAIL is set but no user row matches it (misconfigured deployment).
+      // Per owner.ts's fail-closed contract, this must NOT behave like the legacy
+      // trust-any (unset) case — the agent token must be rejected outright.
+      runtime.vars.set("OWNER_EMAIL", "ghost@x.test");
+      useBearer(["read:drive"], OWNER_TOKEN);
+
+      const ctx = await authenticateMcpBearer(runtime.db as never, `Bearer ${OWNER_TOKEN}`);
+      expect(ctx).toBeNull();
+    });
+
+    it("REST: a request bearing the agent token 401s when OWNER_EMAIL is set but unresolved", async () => {
+      runtime.vars.set("OWNER_EMAIL", "ghost@x.test");
+      const { default: app } = await import("../../src/index");
+
+      const res = await app.request("/api/public/v1/files?path=/", {
+        headers: useBearer(["read:drive", "path:/"], OWNER_TOKEN),
+      });
+      expect(res.status).toBe(401);
+      const body = (await res.json()) as { error?: { code?: string } };
+      expect(body.error?.code).toBe("invalid_token");
+    });
+
     it("an owner-minted (oauth) token carries the minting user's id, threaded to ownerId", async () => {
       // Mint a real scoped token as the owner session, then present it as a bearer.
       seedOwner({ email: "owner@example.test", id: "owner-123" });

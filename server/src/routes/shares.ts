@@ -30,8 +30,12 @@ async function shareTargetPath(db: AppDb, share: ShareRow): Promise<string> {
   return normalizePath(share.folderPath ?? "/");
 }
 
-async function getShareById(db: AppDb, id: string): Promise<ShareRow> {
-  const [share] = await db.select().from(shares).where(eq(shares.id, id)).limit(1);
+async function getShareById(db: AppDb, id: string, ownerId: string | null): Promise<ShareRow> {
+  const [share] = await db
+    .select()
+    .from(shares)
+    .where(and(eq(shares.id, id), ownerId ? eq(shares.ownerId, ownerId) : undefined))
+    .limit(1);
   if (!share) throw new ApiError(404, "share_not_found", "Share link not found");
   return share;
 }
@@ -221,12 +225,14 @@ sharesRoutes.get(
     const { db } = await import("edgespark");
     const { limit, offset } = parseListPagination((name) => c.req.query(name), { defaultLimit: 100, maxLimit: 500 });
     const nowIsoString = new Date().toISOString();
+    const ownerId = c.get("ownerId") ?? null;
     const activeRows = await db
       .select()
       .from(shares)
       .where(and(
         or(isNull(shares.expiresAt), gt(shares.expiresAt, nowIsoString)),
-        or(isNull(shares.maxDownloads), sql`${shares.downloadCount} < ${shares.maxDownloads}`)
+        or(isNull(shares.maxDownloads), sql`${shares.downloadCount} < ${shares.maxDownloads}`),
+        ownerId ? eq(shares.ownerId, ownerId) : undefined
       ))
       .orderBy(desc(shares.createdAt))
       .limit(limit)
@@ -250,7 +256,7 @@ sharesRoutes.get(
   "/shares/:id",
   withErrorHandling(async (c) => {
     const { db } = await import("edgespark");
-    const share = await getShareById(db, getShareId(c));
+    const share = await getShareById(db, getShareId(c), c.get("ownerId") ?? null);
     assertRestPathAllowed(c, await shareTargetPath(db, share));
     return c.json({ share: await toShareObject(db, share, new URL(c.req.url).origin) });
   })
@@ -260,7 +266,7 @@ sharesRoutes.get(
   "/shares/:id/stats",
   withErrorHandling(async (c) => {
     const { db } = await import("edgespark");
-    const share = await getShareById(db, getShareId(c));
+    const share = await getShareById(db, getShareId(c), c.get("ownerId") ?? null);
     assertRestPathAllowed(c, await shareTargetPath(db, share));
     const shareObject = await toShareObject(db, share, new URL(c.req.url).origin);
     const [summary] = await db
@@ -321,7 +327,7 @@ sharesRoutes.delete(
   "/shares/:id",
   withErrorHandling(async (c) => {
     const { db } = await import("edgespark");
-    const share = await getShareById(db, getShareId(c));
+    const share = await getShareById(db, getShareId(c), c.get("ownerId") ?? null);
     assertRestPathAllowed(c, await shareTargetPath(db, share));
     const deleted = await db.delete(shares).where(eq(shares.id, share.id)).returning();
     const deletedShare = deleted[0];
@@ -348,12 +354,13 @@ sharesRoutes.get(
     // Stats aggregate the whole drive; require an unrestricted token.
     assertRestPathAllowed(c, "/");
     const { db } = await import("edgespark");
+    const ownerId = c.get("ownerId") ?? null;
     const [filesCount, foldersCount, sizeSum, shareCount, downloadSum] = await Promise.all([
-      db.select({ count: sql<number>`count(*)` }).from(files).where(and(eq(files.isFolder, 0), isNull(files.deletedAt))),
-      db.select({ count: sql<number>`count(*)` }).from(files).where(and(eq(files.isFolder, 1), isNull(files.deletedAt))),
-      db.select({ total: sql<number>`coalesce(sum(${files.size}), 0)` }).from(files).where(and(eq(files.isFolder, 0), isNull(files.deletedAt))),
-      db.select({ count: sql<number>`count(*)` }).from(shares),
-      db.select({ total: sql<number>`coalesce(sum(${shares.downloadCount}), 0)` }).from(shares),
+      db.select({ count: sql<number>`count(*)` }).from(files).where(and(eq(files.isFolder, 0), isNull(files.deletedAt), ownerId ? eq(files.ownerId, ownerId) : undefined)),
+      db.select({ count: sql<number>`count(*)` }).from(files).where(and(eq(files.isFolder, 1), isNull(files.deletedAt), ownerId ? eq(files.ownerId, ownerId) : undefined)),
+      db.select({ total: sql<number>`coalesce(sum(${files.size}), 0)` }).from(files).where(and(eq(files.isFolder, 0), isNull(files.deletedAt), ownerId ? eq(files.ownerId, ownerId) : undefined)),
+      db.select({ count: sql<number>`count(*)` }).from(shares).where(and(ownerId ? eq(shares.ownerId, ownerId) : undefined)),
+      db.select({ total: sql<number>`coalesce(sum(${shares.downloadCount}), 0)` }).from(shares).where(and(ownerId ? eq(shares.ownerId, ownerId) : undefined)),
     ]);
 
     return c.json({

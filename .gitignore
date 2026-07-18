@@ -104,3 +104,6 @@ docs/implementation/
 
 # Design reference clones (local only, third-party sites — never commit to public repo)
 experiments/
+
+# Superpowers SDD scratch (ledger, briefs, review packages) — never commit
+.superpowers/

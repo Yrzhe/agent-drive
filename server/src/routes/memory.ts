@@ -65,7 +65,8 @@ memoryRoutes.get(
     const memories = await listMemories(
       db,
       Number.isFinite(limitRaw) ? limitRaw : 20,
-      Number.isFinite(offsetRaw) ? offsetRaw : 0
+      Number.isFinite(offsetRaw) ? offsetRaw : 0,
+      c.get("ownerId") ?? null
     );
     return c.json({ memories, count: memories.length });
   })
@@ -78,7 +79,7 @@ memoryRoutes.get(
     if (!query) throw new ApiError(400, "validation_error", "q query param is required");
     const limitRaw = Number(c.req.query("limit") ?? "10");
     const { db } = await import("edgespark");
-    const memories = await recallMemories(db, query, Number.isFinite(limitRaw) ? limitRaw : 10);
+    const memories = await recallMemories(db, query, Number.isFinite(limitRaw) ? limitRaw : 10, c.get("ownerId") ?? null);
     return c.json({ query, memories, count: memories.length });
   })
 );
@@ -106,7 +107,7 @@ memoryRoutes.get(
     const id = c.req.param("id");
     if (!id) throw new ApiError(400, "validation_error", "Missing path param: id");
     const { db } = await import("edgespark");
-    const memory = await getMemory(db, id);
+    const memory = await getMemory(db, id, c.get("ownerId") ?? null);
     if (!memory) throw new ApiError(404, "memory_not_found", "Memory not found");
     return c.json({ memory: toMemoryObject(memory) });
   })
@@ -118,7 +119,7 @@ memoryRoutes.delete(
     const id = c.req.param("id");
     if (!id) throw new ApiError(400, "validation_error", "Missing path param: id");
     const { db } = await import("edgespark");
-    const forgotten = await forgetMemory(db, id);
+    const forgotten = await forgetMemory(db, id, c.get("ownerId") ?? null);
     if (!forgotten) throw new ApiError(404, "memory_not_found", "Memory not found");
     await logEvent(db, {
       ownerId: c.get("ownerId") ?? null,

@@ -1,4 +1,4 @@
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { nanoid } from "nanoid";
 
@@ -100,8 +100,15 @@ contactsRoutes.get(
   withErrorHandling(async (c) => {
     requireSessionAuth(c);
     const { limit, offset } = parseListPagination((name) => c.req.query(name), { defaultLimit: 100, maxLimit: 500 });
+    const ownerId = c.get("ownerId") ?? null;
     const { db } = await import("edgespark");
-    const rows = await db.select().from(contacts).orderBy(desc(contacts.addedAt)).limit(limit).offset(offset);
+    const rows = await db
+      .select()
+      .from(contacts)
+      .where(ownerId ? eq(contacts.ownerId, ownerId) : undefined)
+      .orderBy(desc(contacts.addedAt))
+      .limit(limit)
+      .offset(offset);
     return c.json({ contacts: rows.map(toContactObject), limit, offset });
   })
 );
@@ -110,13 +117,14 @@ contactsRoutes.patch(
   "/:name",
   withErrorHandling(async (c) => {
     requireSessionAuth(c);
+    const ownerId = c.get("ownerId") ?? null;
     const body = (await c.req.json().catch(() => ({}))) as { autoRelease?: unknown };
     if (typeof body.autoRelease !== "boolean") throw new ApiError(400, "validation_error", "autoRelease boolean required");
     const { db } = await import("edgespark");
     const [updated] = await db
       .update(contacts)
       .set({ autoRelease: body.autoRelease ? 1 : 0 })
-      .where(eq(contacts.name, c.req.param("name") ?? ""))
+      .where(and(eq(contacts.name, c.req.param("name") ?? ""), ownerId ? eq(contacts.ownerId, ownerId) : undefined))
       .returning();
     if (!updated) throw new ApiError(404, "contact_not_found", "Contact not found");
     return c.json({ contact: toContactObject(updated) });
@@ -127,8 +135,12 @@ contactsRoutes.delete(
   "/:name",
   withErrorHandling(async (c) => {
     requireSessionAuth(c);
+    const ownerId = c.get("ownerId") ?? null;
     const { db } = await import("edgespark");
-    const deleted = await db.delete(contacts).where(eq(contacts.name, c.req.param("name") ?? "")).returning();
+    const deleted = await db
+      .delete(contacts)
+      .where(and(eq(contacts.name, c.req.param("name") ?? ""), ownerId ? eq(contacts.ownerId, ownerId) : undefined))
+      .returning();
     if (deleted.length === 0) throw new ApiError(404, "contact_not_found", "Contact not found");
     await logEvent(db, {
       ownerId: c.get("ownerId") ?? null,
@@ -159,7 +171,7 @@ contactsRoutes.post(
     const message = typeof body.message === "string" && body.message.trim() ? body.message.trim() : null;
 
     const { db, storage } = await import("edgespark");
-    const contact = await getContactByName(db, c.req.param("name") ?? "");
+    const contact = await getContactByName(db, c.req.param("name") ?? "", c.get("ownerId") ?? null);
     if (!contact) throw new ApiError(404, "contact_not_found", "Contact not found");
 
     const origin = new URL(c.req.url).origin;

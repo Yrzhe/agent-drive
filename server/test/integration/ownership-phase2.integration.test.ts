@@ -153,7 +153,10 @@ describe("multi-tenancy Phase 2 — owner-on-insert (#30)", () => {
     });
 
     it("MCP create_share stamps owner_id on the share", async () => {
-      await seedDriveFile({ id: "sf", path: "/report.txt", body: "r" });
+      // create_share's file lookup is owner-scoped (#30 Part ①a Task 4): seed the
+      // file under OWNER_ID so the bearer-bound owner can find it, matching the
+      // post-backfill single-owner state this suite otherwise assumes.
+      await seedDriveFile({ id: "sf", path: "/report.txt", body: "r", ownerId: OWNER_ID });
       const headers = jsonHeaders(useBearer(SCOPES));
       const res = await rpc(headers, "tools/call", {
         name: "create_share",

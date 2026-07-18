@@ -83,8 +83,12 @@ export async function getContactByUrl(db: AppDb, url: string): Promise<ContactRo
   return row ?? null;
 }
 
-export async function getContactByName(db: AppDb, name: string): Promise<ContactRow | null> {
-  const [row] = await db.select().from(contacts).where(eq(contacts.name, name)).limit(1);
+export async function getContactByName(db: AppDb, name: string, ownerId: string | null): Promise<ContactRow | null> {
+  const [row] = await db
+    .select()
+    .from(contacts)
+    .where(and(eq(contacts.name, name), ownerId ? eq(contacts.ownerId, ownerId) : undefined))
+    .limit(1);
   return row ?? null;
 }
 

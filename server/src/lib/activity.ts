@@ -65,7 +65,7 @@ export async function logEvent(db: AppDb, event: ActivityEventInput): Promise<vo
           actor: event.actor,
           metadata: event.metadata ?? null,
         },
-      }).catch((error) => {
+      }, event.ownerId ?? null).catch((error) => {
         console.error("Failed to trigger webhooks", { eventType: event.eventType, error });
       })
     );
@@ -77,7 +77,7 @@ export async function logEvent(db: AppDb, event: ActivityEventInput): Promise<vo
 export async function logEventsBatch(
   db: AppDb,
   events: ActivityEventInput[],
-  webhookEvent?: { eventType: string; data: Record<string, unknown> | null }
+  webhookEvent?: { eventType: string; data: Record<string, unknown> | null; ownerId: string | null }
 ): Promise<void> {
   if (events.length === 0) return;
 
@@ -110,7 +110,7 @@ export async function logEventsBatch(
     const { ctx } = await import("edgespark");
     const { triggerWebhooks } = await import("./webhooks");
     ctx.runInBackground(
-      triggerWebhooks(db, webhookEvent).catch((error) => {
+      triggerWebhooks(db, webhookEvent, webhookEvent.ownerId).catch((error) => {
         console.error("Failed to trigger batch webhook", { eventType: webhookEvent.eventType, error });
       })
     );
@@ -121,11 +121,14 @@ export async function logEventsBatch(
 
 export async function listActivities(
   db: AppDb,
-  filters: { type?: string | null; limit: number; since?: string | null }
+  filters: { type?: string | null; limit: number; since?: string | null },
+  ownerId: string | null = null
 ): Promise<ActivityLogRow[]> {
-  const clauses: ReturnType<typeof eq>[] = [];
-  if (filters.type) clauses.push(eq(activityLog.eventType, filters.type));
-  if (filters.since) clauses.push(gte(activityLog.createdAt, filters.since));
+  const clauses = [
+    filters.type ? eq(activityLog.eventType, filters.type) : undefined,
+    filters.since ? gte(activityLog.createdAt, filters.since) : undefined,
+    ownerId ? eq(activityLog.ownerId, ownerId) : undefined,
+  ].filter((clause): clause is ReturnType<typeof eq> => clause !== undefined);
 
   if (clauses.length === 0) {
     return db.select().from(activityLog).orderBy(desc(activityLog.createdAt)).limit(filters.limit);

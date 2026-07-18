@@ -163,6 +163,7 @@ bundlesRoutes.post(
   "/publish",
   withErrorHandling(async (c) => {
     const { db } = await import("edgespark");
+    const ownerId = c.get("ownerId") ?? null;
     const body = (await c.req.json().catch(() => ({}))) as { prefix?: unknown; public?: unknown };
     if (typeof body.prefix !== "string") throw new ApiError(400, "validation_error", "prefix required");
     if (typeof body.public !== "boolean") throw new ApiError(400, "validation_error", "public must be a boolean");
@@ -175,14 +176,15 @@ bundlesRoutes.post(
       throw new ApiError(403, "invalid_scope", "invalid_scope:share:create");
     }
 
-    const [bundle] = await db.select().from(bundleVersions).where(eq(bundleVersions.prefix, prefix)).limit(1);
+    const ownerFilter = ownerId ? eq(bundleVersions.ownerId, ownerId) : undefined;
+    const [bundle] = await db.select().from(bundleVersions).where(and(eq(bundleVersions.prefix, prefix), ownerFilter)).limit(1);
     if (!bundle) throw new ApiError(404, "bundle_not_found", "No bundle committed at this prefix yet");
 
     const publicId = body.public ? bundle.publicId ?? `pb_${nanoid(16)}` : null;
-    await db.update(bundleVersions).set({ publicId }).where(eq(bundleVersions.prefix, prefix));
+    await db.update(bundleVersions).set({ publicId }).where(and(eq(bundleVersions.prefix, prefix), ownerFilter));
 
     await logEvent(db, {
-      ownerId: c.get("ownerId") ?? null,
+      ownerId,
       eventType: body.public ? "bundle.published" : "bundle.unpublished",
       targetType: "folder",
       targetId: publicId ?? bundle.publicId,
@@ -223,10 +225,11 @@ bundlesRoutes.post(
     const ifMatch = parseIfMatch(body.ifMatch);
     const manifest = validateManifest(body.manifest);
 
+    const ownerFilter = ownerId ? eq(bundleVersions.ownerId, ownerId) : undefined;
     const [current] = await db
       .select()
       .from(bundleVersions)
-      .where(eq(bundleVersions.prefix, prefix))
+      .where(and(eq(bundleVersions.prefix, prefix), ownerFilter))
       .limit(1);
     const currentVersionId = current?.currentVersionId ?? null;
 
@@ -347,8 +350,8 @@ bundlesRoutes.post(
     let versionStmtResult: typeof bundleVersions.$inferSelect[] = [];
     if (current) {
       const versionWhere = ifMatch.mode === "force"
-        ? eq(bundleVersions.prefix, prefix)
-        : and(eq(bundleVersions.prefix, prefix), eq(bundleVersions.currentVersionId, current.currentVersionId));
+        ? and(eq(bundleVersions.prefix, prefix), ownerFilter)
+        : and(eq(bundleVersions.prefix, prefix), eq(bundleVersions.currentVersionId, current.currentVersionId), ownerFilter);
 
       const batchStatements = historyStmt
         ? [manifestStmt, historyStmt, db.update(bundleVersions).set(newVersionRow).where(versionWhere).returning()]
@@ -360,7 +363,7 @@ bundlesRoutes.post(
         const [racedCurrent] = await db
           .select()
           .from(bundleVersions)
-          .where(eq(bundleVersions.prefix, prefix))
+          .where(and(eq(bundleVersions.prefix, prefix), ownerFilter))
           .limit(1);
         return c.json(
           versionConflictResponse(
@@ -380,7 +383,7 @@ bundlesRoutes.post(
           const [racedCurrent] = await db
             .select()
             .from(bundleVersions)
-            .where(eq(bundleVersions.prefix, prefix))
+            .where(and(eq(bundleVersions.prefix, prefix), ownerFilter))
             .limit(1);
           return c.json(
             versionConflictResponse(
@@ -436,13 +439,14 @@ bundlesRoutes.get(
   "/current",
   withErrorHandling(async (c) => {
     const { db } = await import("edgespark");
+    const ownerId = c.get("ownerId") ?? null;
     const prefix = requirePrefixQuery(c.req.query("prefix"));
     assertRestPathAllowed(c, prefix);
 
     const [row] = await db
       .select()
       .from(bundleVersions)
-      .where(eq(bundleVersions.prefix, prefix))
+      .where(and(eq(bundleVersions.prefix, prefix), ownerId ? eq(bundleVersions.ownerId, ownerId) : undefined))
       .limit(1);
 
     if (!row) return c.json({ prefix, currentVersion: null });
@@ -491,6 +495,7 @@ bundlesRoutes.get(
   "/history",
   withErrorHandling(async (c) => {
     const { db, storage } = await import("edgespark");
+    const ownerId = c.get("ownerId") ?? null;
     const prefix = requirePrefixQuery(c.req.query("prefix"));
     assertRestPathAllowed(c, prefix);
     const limitRaw = Number(c.req.query("limit") ?? "50");
@@ -500,7 +505,14 @@ bundlesRoutes.get(
     const historyRows = await db
       .select()
       .from(files)
-      .where(and(eq(files.parentPath, historyDir), eq(files.isFolder, 0), isNull(files.deletedAt)))
+      .where(
+        and(
+          eq(files.parentPath, historyDir),
+          eq(files.isFolder, 0),
+          isNull(files.deletedAt),
+          ownerId ? eq(files.ownerId, ownerId) : undefined
+        )
+      )
       .orderBy(desc(files.updatedAt))
       .limit(limit);
 
@@ -529,7 +541,7 @@ bundlesRoutes.get(
     const [currentRow] = await db
       .select()
       .from(bundleVersions)
-      .where(eq(bundleVersions.prefix, prefix))
+      .where(and(eq(bundleVersions.prefix, prefix), ownerId ? eq(bundleVersions.ownerId, ownerId) : undefined))
       .limit(1);
 
     return c.json({
@@ -550,6 +562,7 @@ bundlesRoutes.get(
   "/manifest",
   withErrorHandling(async (c) => {
     const { db, storage } = await import("edgespark");
+    const ownerId = c.get("ownerId") ?? null;
     const prefix = requirePrefixQuery(c.req.query("prefix"));
     assertRestPathAllowed(c, prefix);
     const versionId = c.req.query("versionId");
@@ -560,7 +573,7 @@ bundlesRoutes.get(
     const [currentRow] = await db
       .select()
       .from(bundleVersions)
-      .where(eq(bundleVersions.prefix, prefix))
+      .where(and(eq(bundleVersions.prefix, prefix), ownerId ? eq(bundleVersions.ownerId, ownerId) : undefined))
       .limit(1);
 
     const isCurrent = currentRow?.currentVersionId === versionId;
@@ -568,7 +581,11 @@ bundlesRoutes.get(
       ? joinPath(prefix, "manifest.json")
       : joinPath(prefix, `.history/${versionId}.json`);
 
-    const [row] = await db.select().from(files).where(and(eq(files.path, manifestFsPath), isNull(files.deletedAt))).limit(1);
+    const [row] = await db
+      .select()
+      .from(files)
+      .where(and(eq(files.path, manifestFsPath), isNull(files.deletedAt), ownerId ? eq(files.ownerId, ownerId) : undefined))
+      .limit(1);
     if (!row?.s3Uri) {
       throw new ApiError(404, "not_found", `Manifest for ${versionId} not found at ${manifestFsPath}`);
     }

@@ -87,11 +87,12 @@ filesRoutes.post(
 
     await ensureFolderChain(db, parentPath, c.get("ownerId") ?? null);
 
+    const ownerId = c.get("ownerId") ?? null;
     await purgeConflictingTrashAtPath(db, storage, targetPath);
     const [conflict] = await db
       .select()
       .from(files)
-      .where(and(eq(files.path, targetPath), isNull(files.deletedAt)))
+      .where(and(eq(files.path, targetPath), isNull(files.deletedAt), ownerId ? eq(files.ownerId, ownerId) : undefined))
       .limit(1);
     if (conflict) {
       // An abandoned pending upload can squat the path; reclaim it once its PUT URL
@@ -152,7 +153,12 @@ filesRoutes.post(
     assertRestPathAllowed(c, targetPath);
 
     const { db, storage } = await import("edgespark");
-    const [pending] = await db.select().from(files).where(eq(files.id, fileId)).limit(1);
+    const ownerId = c.get("ownerId") ?? null;
+    const [pending] = await db
+      .select()
+      .from(files)
+      .where(and(eq(files.id, fileId), ownerId ? eq(files.ownerId, ownerId) : undefined))
+      .limit(1);
     if (!pending || pending.isFolder !== 0 || pending.size !== 0) {
       throw new ApiError(400, "invalid_upload_ticket", "Upload ticket is invalid or already completed");
     }
@@ -231,12 +237,13 @@ filesRoutes.get(
     assertRestListPathAllowed(c, path);
     const pathVisible = restPathFilter(c);
     const { db } = await import("edgespark");
+    const ownerId = c.get("ownerId") ?? null;
 
     const result = recursive
       ? path === "/"
-        ? await db.select().from(files).where(isNull(files.deletedAt)).orderBy(asc(files.path)).limit(limit).offset(offset)
-        : await db.select().from(files).where(and(sql`${files.path} LIKE ${escapedDescendantPattern(path)} ESCAPE '\\'`, isNull(files.deletedAt))).orderBy(asc(files.path)).limit(limit).offset(offset)
-      : await db.select().from(files).where(and(eq(files.parentPath, path), isNull(files.deletedAt))).orderBy(desc(files.isFolder), asc(files.name)).limit(limit).offset(offset);
+        ? await db.select().from(files).where(and(isNull(files.deletedAt), ownerId ? eq(files.ownerId, ownerId) : undefined)).orderBy(asc(files.path)).limit(limit).offset(offset)
+        : await db.select().from(files).where(and(sql`${files.path} LIKE ${escapedDescendantPattern(path)} ESCAPE '\\'`, isNull(files.deletedAt), ownerId ? eq(files.ownerId, ownerId) : undefined)).orderBy(asc(files.path)).limit(limit).offset(offset)
+      : await db.select().from(files).where(and(eq(files.parentPath, path), isNull(files.deletedAt), ownerId ? eq(files.ownerId, ownerId) : undefined)).orderBy(desc(files.isFolder), asc(files.name)).limit(limit).offset(offset);
 
     return c.json({ files: result.filter((row) => pathVisible(row.path)).map(toFileObject), path, limit, offset });
   })
@@ -254,6 +261,7 @@ filesRoutes.get(
 
     const pattern = `%${escapeLikeQuery(query)}%`;
     const { db } = await import("edgespark");
+    const ownerId = c.get("ownerId") ?? null;
     const result = await db
       .select()
       .from(files)
@@ -263,7 +271,8 @@ filesRoutes.get(
             sql`${files.name} LIKE ${pattern} ESCAPE '\\'`,
             sql`${files.path} LIKE ${pattern} ESCAPE '\\'`
           ),
-          isNull(files.deletedAt)
+          isNull(files.deletedAt),
+          ownerId ? eq(files.ownerId, ownerId) : undefined
         )
       )
       .orderBy(desc(files.isFolder), asc(files.name))
@@ -315,10 +324,11 @@ filesRoutes.delete(
     const ids = normalizeBatchIds(body.ids);
 
     const { db, storage } = await import("edgespark");
+    const ownerId = c.get("ownerId") ?? null;
     const targets = await db
       .select()
       .from(files)
-      .where(and(inArray(files.id, ids), isNull(files.deletedAt)));
+      .where(and(inArray(files.id, ids), isNull(files.deletedAt), ownerId ? eq(files.ownerId, ownerId) : undefined));
     const byId = new Map(targets.map((t) => [t.id, t]));
     const failures: BatchFailure[] = [];
     const trashedFileIds: string[] = [];
@@ -398,12 +408,13 @@ filesRoutes.patch(
     assertRestPathAllowed(c, nextParentPath);
 
     const { db, storage } = await import("edgespark");
+    const ownerId = c.get("ownerId") ?? null;
     await ensureFolderChain(db, nextParentPath, c.get("ownerId") ?? null);
 
     const targets = await db
       .select()
       .from(files)
-      .where(and(inArray(files.id, ids), isNull(files.deletedAt)));
+      .where(and(inArray(files.id, ids), isNull(files.deletedAt), ownerId ? eq(files.ownerId, ownerId) : undefined));
     const byId = new Map(targets.map((t) => [t.id, t]));
     const failures: BatchFailure[] = [];
     const movedIds: string[] = [];
@@ -436,7 +447,7 @@ filesRoutes.patch(
         const [conflict] = await db
           .select()
           .from(files)
-          .where(and(eq(files.path, nextPath), ne(files.id, existing.id), isNull(files.deletedAt)))
+          .where(and(eq(files.path, nextPath), ne(files.id, existing.id), isNull(files.deletedAt), ownerId ? eq(files.ownerId, ownerId) : undefined))
           .limit(1);
         if (conflict) {
           failures.push({ id, error: "path_conflict", message: `Path already exists: ${nextPath}` });
@@ -446,7 +457,7 @@ filesRoutes.patch(
         const rootUpdate = db.update(files).set({ parentPath: nextParentPath, path: nextPath, updatedAt }).where(eq(files.id, existing.id));
 
         if (existing.isFolder === 1) {
-          const descendants = await db.select().from(files).where(sql`${files.path} LIKE ${escapedDescendantPattern(existing.path)} ESCAPE '\\'`).orderBy(asc(files.path));
+          const descendants = await db.select().from(files).where(and(sql`${files.path} LIKE ${escapedDescendantPattern(existing.path)} ESCAPE '\\'`, ownerId ? eq(files.ownerId, ownerId) : undefined)).orderBy(asc(files.path));
           const descendantUpdates = descendants.map((item) => {
             const path = `${nextPath}${item.path.slice(existing.path.length)}`;
             return db.update(files).set({ path, parentPath: parentOfPath(path), updatedAt }).where(eq(files.id, item.id));
@@ -494,7 +505,7 @@ filesRoutes.patch(
         failures.push({
           id,
           error: "move_failed",
-          message: error instanceof Error ? error.message : String(error),
+          message: isPathUniqueConflict(error) ? "Path already exists" : error instanceof Error ? error.message : String(error),
         });
       }
     }
@@ -513,11 +524,12 @@ filesRoutes.get(
   "/trash",
   withErrorHandling(async (c) => {
     const { db } = await import("edgespark");
+    const ownerId = c.get("ownerId") ?? null;
     const { limit, offset } = parseListPagination((name) => c.req.query(name), { defaultLimit: 100, maxLimit: 500 });
     const rows = await db
       .select()
       .from(files)
-      .where(isNotNull(files.deletedAt))
+      .where(and(isNotNull(files.deletedAt), ownerId ? eq(files.ownerId, ownerId) : undefined))
       .orderBy(desc(files.deletedAt))
       .limit(limit)
       .offset(offset);
@@ -545,10 +557,11 @@ filesRoutes.get(
   "/:id",
   withErrorHandling(async (c) => {
     const { db } = await import("edgespark");
+    const ownerId = c.get("ownerId") ?? null;
     const [file] = await db
       .select()
       .from(files)
-      .where(and(eq(files.id, getIdParam(c)), isNull(files.deletedAt)))
+      .where(and(eq(files.id, getIdParam(c)), isNull(files.deletedAt), ownerId ? eq(files.ownerId, ownerId) : undefined))
       .limit(1);
     if (!file) throw new ApiError(404, "file_not_found", "File not found");
     assertRestPathAllowed(c, file.path);
@@ -560,10 +573,11 @@ filesRoutes.get(
   "/:id/preview",
   withErrorHandling(async (c) => {
     const { db, storage } = await import("edgespark");
+    const ownerId = c.get("ownerId") ?? null;
     const [file] = await db
       .select()
       .from(files)
-      .where(and(eq(files.id, getIdParam(c)), isNull(files.deletedAt)))
+      .where(and(eq(files.id, getIdParam(c)), isNull(files.deletedAt), ownerId ? eq(files.ownerId, ownerId) : undefined))
       .limit(1);
     if (!file) throw new ApiError(404, "file_not_found", "File not found");
     assertRestPathAllowed(c, file.path);
@@ -592,10 +606,11 @@ filesRoutes.patch(
     }
 
     const { db, storage } = await import("edgespark");
+    const ownerId = c.get("ownerId") ?? null;
     const [existing] = await db
       .select()
       .from(files)
-      .where(and(eq(files.id, getIdParam(c)), isNull(files.deletedAt)))
+      .where(and(eq(files.id, getIdParam(c)), isNull(files.deletedAt), ownerId ? eq(files.ownerId, ownerId) : undefined))
       .limit(1);
     if (!existing) throw new ApiError(404, "file_not_found", "File not found");
     assertRestPathAllowed(c, existing.path);
@@ -615,7 +630,7 @@ filesRoutes.patch(
       const [conflict] = await db
         .select()
         .from(files)
-        .where(and(eq(files.path, nextPath), ne(files.id, existing.id), isNull(files.deletedAt)))
+        .where(and(eq(files.path, nextPath), ne(files.id, existing.id), isNull(files.deletedAt), ownerId ? eq(files.ownerId, ownerId) : undefined))
         .limit(1);
       if (conflict) throw new ApiError(409, "path_conflict", "Path already exists");
     }
@@ -624,7 +639,7 @@ filesRoutes.patch(
     const rootUpdate = db.update(files).set({ name: nextName, parentPath: nextParentPath, path: nextPath, updatedAt }).where(eq(files.id, existing.id));
 
     if (existing.isFolder === 1 && nextPath !== existing.path) {
-      const descendants = await db.select().from(files).where(sql`${files.path} LIKE ${escapedDescendantPattern(existing.path)} ESCAPE '\\'`).orderBy(asc(files.path));
+      const descendants = await db.select().from(files).where(and(sql`${files.path} LIKE ${escapedDescendantPattern(existing.path)} ESCAPE '\\'`, ownerId ? eq(files.ownerId, ownerId) : undefined)).orderBy(asc(files.path));
       const descendantUpdates = descendants.map((item) => {
         const path = `${nextPath}${item.path.slice(existing.path.length)}`;
         return db.update(files).set({ path, parentPath: parentOfPath(path), updatedAt }).where(eq(files.id, item.id));
@@ -646,12 +661,26 @@ filesRoutes.patch(
       const bundleUpdates = [rewriteBundlePrefixesForMove(db, existing.path, nextPath, updatedAt)];
       // Root + descendants + shares + bundles rewritten in ONE atomic batch.
       const updates = [rootUpdate, ...descendantUpdates, ...shareUpdates, ...bundleUpdates];
-      await db.batch(updates as [typeof updates[number], ...Array<typeof updates[number]>]);
+      try {
+        await db.batch(updates as [typeof updates[number], ...Array<typeof updates[number]>]);
+      } catch (error) {
+        if (isPathUniqueConflict(error)) throw new ApiError(409, "path_conflict", "Path already exists");
+        throw error;
+      }
     } else {
-      await rootUpdate;
+      try {
+        await rootUpdate;
+      } catch (error) {
+        if (isPathUniqueConflict(error)) throw new ApiError(409, "path_conflict", "Path already exists");
+        throw error;
+      }
     }
 
-    const [updated] = await db.select().from(files).where(eq(files.id, existing.id)).limit(1);
+    const [updated] = await db
+      .select()
+      .from(files)
+      .where(and(eq(files.id, existing.id), ownerId ? eq(files.ownerId, ownerId) : undefined))
+      .limit(1);
     if (!updated) throw new ApiError(404, "file_not_found", "File not found");
 
     const actor = await getRequestActor();
@@ -697,10 +726,11 @@ filesRoutes.delete(
   "/:id",
   withErrorHandling(async (c) => {
     const { db, storage } = await import("edgespark");
+    const ownerId = c.get("ownerId") ?? null;
     const [target] = await db
       .select()
       .from(files)
-      .where(and(eq(files.id, getIdParam(c)), isNull(files.deletedAt)))
+      .where(and(eq(files.id, getIdParam(c)), isNull(files.deletedAt), ownerId ? eq(files.ownerId, ownerId) : undefined))
       .limit(1);
     if (!target) throw new ApiError(404, "file_not_found", "File not found");
     assertRestPathAllowed(c, target.path);
@@ -732,10 +762,11 @@ filesRoutes.post(
   "/:id/restore",
   withErrorHandling(async (c) => {
     const { db, storage } = await import("edgespark");
+    const ownerId = c.get("ownerId") ?? null;
     const [target] = await db
       .select()
       .from(files)
-      .where(and(eq(files.id, getIdParam(c)), isNotNull(files.deletedAt)))
+      .where(and(eq(files.id, getIdParam(c)), isNotNull(files.deletedAt), ownerId ? eq(files.ownerId, ownerId) : undefined))
       .limit(1);
     if (!target) throw new ApiError(404, "file_not_found", "Trashed item not found");
 
@@ -744,14 +775,20 @@ filesRoutes.post(
     const [conflict] = await db
       .select()
       .from(files)
-      .where(and(eq(files.path, originalPath), ne(files.id, target.id), isNull(files.deletedAt)))
+      .where(and(eq(files.path, originalPath), ne(files.id, target.id), isNull(files.deletedAt), ownerId ? eq(files.ownerId, ownerId) : undefined))
       .limit(1);
     if (conflict) {
       throw new ApiError(409, "path_conflict", `An item already exists at ${originalPath}. Rename or move it before restoring.`);
     }
 
     await ensureFolderChain(db, target.parentPath, c.get("ownerId") ?? null);
-    const restored = await restoreSubtree(db, target);
+    let restored: number;
+    try {
+      restored = await restoreSubtree(db, target);
+    } catch (error) {
+      if (isPathUniqueConflict(error)) throw new ApiError(409, "path_conflict", "Path already exists");
+      throw error;
+    }
     await maybePurgeStaleTrash(db, storage);
     await maybePurgeStalePendingUploads(db, storage);
     await maybeReconcileOrphanObjects(db, storage);
@@ -773,10 +810,11 @@ filesRoutes.delete(
   "/:id/purge",
   withErrorHandling(async (c) => {
     const { db, storage } = await import("edgespark");
+    const ownerId = c.get("ownerId") ?? null;
     const [target] = await db
       .select()
       .from(files)
-      .where(and(eq(files.id, getIdParam(c)), isNotNull(files.deletedAt)))
+      .where(and(eq(files.id, getIdParam(c)), isNotNull(files.deletedAt), ownerId ? eq(files.ownerId, ownerId) : undefined))
       .limit(1);
     if (!target) throw new ApiError(404, "file_not_found", "Trashed item not found");
     assertRestPathAllowed(c, originalTrashPath(target));

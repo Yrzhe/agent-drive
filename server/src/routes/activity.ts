@@ -21,7 +21,7 @@ activityRoutes.get(
     }
 
     const { db } = await import("edgespark");
-    const activities = await listActivities(db, { type, since, limit });
+    const activities = await listActivities(db, { type, since, limit }, c.get("ownerId") ?? null);
 
     // Events without a target path (share/webhook admin events) are only
     // visible to tokens without path restrictions.

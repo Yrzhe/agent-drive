@@ -40,7 +40,7 @@ export async function ensureFolderChain(db: AppDb, targetPath: string, ownerId: 
   const existingRows = await db
     .select({ id: files.id, path: files.path, isFolder: files.isFolder, deletedAt: files.deletedAt })
     .from(files)
-    .where(inArray(files.path, folderPaths));
+    .where(and(inArray(files.path, folderPaths), ownerId ? eq(files.ownerId, ownerId) : undefined));
   const existingByPath = new Map(existingRows.map((row) => [row.path, row]));
 
   for (const [index, folderPath] of folderPaths.entries()) {
