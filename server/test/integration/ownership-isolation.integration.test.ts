@@ -114,16 +114,28 @@ describe("two-owner isolation harness (#30 Part ①a)", () => {
     await expect(callMcpTool(runtime.db as never, "https://x", ["read:drive", "path:/"], "read_file", { path: "/a.txt" }, "B")).rejects.toThrow(/file_not_found/);
   });
 
-  it("ensureFolderChain for owner B does not adopt owner A's folder at the same path", async () => {
-    await seedDriveFile({ id: "fa", path: "/shared/a.txt", body: "x", ownerId: "A" }); // creates /shared owned by A
-    // pre-1b files.path is still a global unique column: B's owner-scoped lookup no longer sees A's
-    // /shared row as existing, so B's ensureFolderChain attempts its own insert, which the unique
-    // constraint rejects. That insert-collision handling is Part ①b's concern (composite unique) and
-    // out of scope here — this test only asserts B's call never adopted/mutated A's existing row.
+  it("ensureFolderChain for owner B does not restore/adopt owner A's soft-deleted folder at the same path", async () => {
+    const timestamp = new Date(Date.now() - 60_000).toISOString();
+    await runtime.db.insert(files).values({
+      id: "fa-del",
+      name: "shared",
+      path: "/shared",
+      parentPath: "/",
+      isFolder: 1,
+      size: 0,
+      contentType: null,
+      s3Uri: null,
+      deletedAt: timestamp,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      ownerId: "A",
+    } as never); // A's soft-deleted folder at /shared
+
     await ensureFolderChain(runtime.db as never, "/shared", "B").catch(() => undefined);
-    const rows = await runtime.db.select().from(files).where(eq(files.path, "/shared"));
-    const a = rows.find((r) => r.ownerId === "A");
-    expect(a).toBeDefined();
-    expect(rows.every((r) => r.ownerId === "A")).toBe(true); // no B-owned duplicate created (blocked by unique) and A's untouched
+
+    const [a] = await runtime.db.select().from(files).where(eq(files.id, "fa-del"));
+    // B's owner-scoped lookup must not see A's soft-deleted row, so it must not restore it:
+    expect(a?.deletedAt).not.toBeNull();
+    expect(a?.ownerId).toBe("A");
   });
 });
