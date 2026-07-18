@@ -4,7 +4,13 @@ disableSignUp: true
 providerEmailPassword:
   config:
     minPasswordLength: 8
-    requireEmailVerification: false
+    # Required before signup opens (#30 Part ②): the allowlist auto-activates a new
+    # account by matching email, so an unverified signer could claim an allowlisted
+    # address they do not own. Email verification makes the allowlist match trustworthy.
+    # Prod email transport is platform-delivered (Resend/Postmark) and can only be
+    # confirmed on a deployed cloud environment — a go-live checklist item, see the
+    # deploy runbook. disableSignUp stays true until Task 8 / go-live.
+    requireEmailVerification: true
     requirePasswordResetEmailVerification: false
     revokeSessionsOnPasswordReset: false
   enabled: true

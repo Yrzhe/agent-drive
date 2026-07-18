@@ -4,15 +4,22 @@ import { parseBearerToken } from "../lib/crypto";
 import { ApiError, handleApiError } from "../lib/errors";
 import { authenticateMcpBearer } from "../lib/mcp-auth";
 import { hasScope } from "../lib/mcp-scopes";
-import { assertRequestOwner } from "../lib/owner";
 import { requiredRestScope } from "../lib/rest-scopes";
 import type { AppEnv } from "../types";
 
+/**
+ * Authenticates the request (session or bearer) and sets `restAuth`/`ownerId`.
+ *
+ * Does NOT enforce single-owner or access-status here — that was the Part ①a
+ * `assertRequestOwner()` boundary, which is REPLACED (not extended) by the Part ②
+ * access-gate (`requireActiveAccess`, applied after this middleware in `index.ts`).
+ * A second `active` user is not the owner but must still get through auth; the gate,
+ * not auth, is what confines pending/suspended sessions.
+ */
 export const requireDualAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
   try {
     const { auth } = await import("edgespark/http");
     if (auth.isAuthenticated()) {
-      await assertRequestOwner();
       c.set("restAuth", { kind: "session", ownerId: auth.user.id });
       c.set("ownerId", auth.user.id);
       await next();

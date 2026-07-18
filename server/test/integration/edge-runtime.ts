@@ -323,6 +323,16 @@ export function seedOwner(options: { email?: string; id?: string; name?: string 
   return id;
 }
 
+/**
+ * Clear any authenticated session so a following `app.request` with an `Authorization`
+ * header is handled on the bearer path. `requireDualAuth` prefers an authenticated
+ * session over a bearer header, so a manually-attached token is otherwise ignored while
+ * a session (e.g. the admin who just ran a suspend) is still active.
+ */
+export function clearSession(): void {
+  runtime.auth = { authenticated: false, user: null };
+}
+
 export function useBearer(scopes: readonly string[], token = "integration-agent-token"): HeadersInit {
   runtime.auth = { authenticated: false, user: null };
   runtime.secrets.set("AGENT_TOKEN", token);

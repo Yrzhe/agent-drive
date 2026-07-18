@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, Navigate, useSearchParams } from "react-router-dom";
 import { AuthLoginPanel } from "@/components/AuthLoginPanel";
 import { Breadcrumbs } from "@/components/Breadcrumbs";
 import { FileTable } from "@/components/FileTable";
 import { PreviewModal } from "@/components/PreviewModal";
 import { ShareModal, type ShareModalInput } from "@/components/ShareModal";
 import { UploadZone, type UploadProgress } from "@/components/UploadZone";
+import { useAccessStatus } from "@/hooks/useAccessStatus";
 import { useAuth } from "@/hooks/useAuth";
 import { DriveApiError } from "@/lib/api-client";
 import { driveApi } from "@/lib/drive-api";
@@ -18,6 +19,7 @@ const shareTargetLabel = (share: ShareLink) => `${share.type === "folder" ? "Fol
 
 export default function DashboardPage() {
   const { user, loading: authLoading, isAuthenticated, signOut } = useAuth();
+  const { status: accessStatus, loading: accessLoading, error: accessError, refetch: accessRefetch } = useAccessStatus();
   const [searchParams, setSearchParams] = useSearchParams();
   const currentPath = useMemo(() => normalizePath(searchParams.get("path") ?? "/"), [searchParams]);
   const setCurrentPath = useCallback((path: string) => {
@@ -374,6 +376,9 @@ export default function DashboardPage() {
 
   if (authLoading) return <main className="min-h-screen bg-slate-50 px-6 py-12"><div className="mx-auto max-w-5xl rounded-2xl border border-slate-200 bg-white p-6 text-slate-600">Checking auth status...</div></main>;
   if (!isAuthenticated) return <main className="min-h-screen bg-gradient-to-b from-slate-100 via-white to-slate-100 px-6 py-16"><AuthLoginPanel redirectTo="/drive" /></main>;
+  if (accessLoading) return <main className="min-h-screen bg-slate-50 px-6 py-12"><div className="mx-auto max-w-5xl rounded-2xl border border-slate-200 bg-white p-6 text-slate-600">Checking access status...</div></main>;
+  if (!accessStatus) return <main className="min-h-screen bg-slate-50 px-6 py-12"><div className="mx-auto max-w-5xl space-y-3 rounded-2xl border border-slate-200 bg-white p-6 text-slate-600">{accessError ? (<><p>{accessError}</p><button className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50" onClick={accessRefetch} type="button">Retry</button></>) : "Checking access status..."}</div></main>;
+  if (accessStatus === "pending" || accessStatus === "suspended") return <Navigate replace to="/waitlist" />;
 
   return (
     <main className="min-h-screen bg-slate-50 px-6 py-8">

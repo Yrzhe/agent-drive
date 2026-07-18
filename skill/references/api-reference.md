@@ -168,6 +168,26 @@ DELETE /api/public/v1/tokens/:id  Revoke immediately
 
 Mintable scopes: `read:drive write:drive share:create read:memory write:memory` (+ optional path prefix). Minted tokens authenticate exactly like OAuth bearers on MCP and REST.
 
+### Account & Access (session-only)
+
+Session callers are gated by access status on every `/api/public/v1/*` route except
+`/account/*` and `/admin/*`: `active` passes, `pending` → 403 `access_pending`,
+`suspended` → 403 `access_suspended`. Bearer/agent tokens are never gated. Full guide:
+`access.md`.
+
+```
+GET  /api/public/v1/account/status   (session-only)
+Returns: { status: "active"|"pending"|"suspended", email, isAdmin }
+
+POST /api/public/v1/account/apply    (session-only)
+Body: { message?, ref? }             max 500 / 128 chars
+Returns: { status, email, isAdmin }
+```
+
+- `/apply` attaches an optional waitlist message/referral to a `pending` row; it never
+  grants access — only owner approval does. A no-op when already `active`.
+- Both reject bearer callers with `403 session_required`.
+
 ### Contacts & Inbox (Drive-to-Drive)
 
 Contact management is owner/session-only; sending is an agent action. Full guide: `peering.md`.

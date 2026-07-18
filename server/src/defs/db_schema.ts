@@ -200,6 +200,26 @@ export const bundleVersions = sqliteTable(
   ]
 );
 
+export const userAccess = sqliteTable(
+  "user_access",
+  {
+    userId: text("user_id").primaryKey(),
+    status: text("status").notNull().default("pending"),
+    message: text("message"),
+    referredBy: text("referred_by"),
+    appliedAt: text("applied_at"),
+    decidedBy: text("decided_by"),
+    decidedAt: text("decided_at"),
+  },
+  (table) => [index("idx_user_access_status").on(table.status)]
+);
+
+export const allowlist = sqliteTable("allowlist", {
+  email: text("email").primaryKey(),
+  addedBy: text("added_by"),
+  addedAt: text("added_at"),
+});
+
 export const oauthTokens = sqliteTable(
   "oauth_tokens",
   {

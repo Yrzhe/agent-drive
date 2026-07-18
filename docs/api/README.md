@@ -8,6 +8,7 @@ This directory documents the public HTTP surface of an Agent Drive deployment.
 | [`oauth.md`](./oauth.md) | OAuth client implementers, security reviewers |
 | [`drive-bundles.md`](./drive-bundles.md) | `adrive sync` users + anyone building versioned bundle workflows |
 | [`memory.md`](./memory.md) | Agents persisting/recalling cross-session context (remember/recall) |
+| [`access.md`](./access.md) | Session callers hitting `403 access_pending`/`access_suspended` — status, waitlist apply, the access gate |
 | [`agent-card.md`](./agent-card.md) | Peers discovering this deployment's identity, key, and capabilities |
 | [`tokens.md`](./tokens.md) | Owners minting/revoking scoped bearer tokens for third-party agents |
 | [`peering.md`](./peering.md) | Drive-to-Drive contacts, signed inbox delivery, published bundle subscriptions |
@@ -47,7 +48,7 @@ Two paths into the same scope-checked surface (scopes are enforced on MCP tools 
 
 In both cases, the token is sent as `Authorization: Bearer <token>` on every MCP request.
 
-> **Single-owner deployment.** Agent Drive is a single-owner self-hosted drive — content is not partitioned per user. Set the `OWNER_EMAIL` var to the owner's login email so a browser session only counts as the owner when its email matches (non-owner sessions get `403 not_owner`). Leaving `OWNER_EMAIL` unset keeps the legacy single-user behavior (any authenticated session is trusted); set it after deploy to arm the boundary. Keep sign-up disabled (`configs/auth-config.yaml → disableSignUp: true`).
+> **Single-owner by default, multi-user access model underneath.** Set the `OWNER_EMAIL` var to the owner's login email to arm ownership resolution; leaving it unset keeps the legacy single-user behavior (any authenticated session is trusted, no access gate). Once armed, non-owner **browser sessions** are confined by access status rather than rejected outright — see [`access.md`](./access.md) for the `active`/`pending`/`suspended` states, the `403 access_pending` / `403 access_suspended` gate, and the two session-only `/account/*` endpoints. Bearer/agent tokens are never gated by access status. Sign-up stays disabled (`configs/auth-config.yaml → disableSignUp: true`) until go-live.
 
 ## Versioning
 
