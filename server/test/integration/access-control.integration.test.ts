@@ -266,3 +266,57 @@ describe("access-gate middleware", () => {
     expect(res.status).toBe(200);
   });
 });
+
+describe("drive tokens are owner-scoped (list + delete)", () => {
+  beforeEach(() => {
+    resetRuntime();
+  });
+
+  afterAll(() => {
+    runtime.sqlite?.close();
+  });
+
+  it("user B cannot see or revoke user A's drive token via GET / and DELETE /:id", async () => {
+    seedOwner({ email: "owner@x.test", id: "OWNER" });
+    runtime.vars.set("OWNER_EMAIL", "owner@x.test");
+    await runtime.db.insert(allowlist).values({ email: "userA@x.test", addedBy: "OWNER", addedAt: nowIso() } as never);
+    await runtime.db.insert(allowlist).values({ email: "userB@x.test", addedBy: "OWNER", addedAt: nowIso() } as never);
+
+    useSession({ id: "userA", email: "userA@x.test" });
+    const mintA = await app.request("/api/public/v1/tokens", {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ scopes: ["read:drive"], label: "A token" }),
+    });
+    expect(mintA.status).toBe(201);
+    const tokenAId = ((await mintA.json()) as { tokenInfo: { id: string } }).tokenInfo.id;
+
+    useSession({ id: "userB", email: "userB@x.test" });
+    const mintB = await app.request("/api/public/v1/tokens", {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ scopes: ["read:drive"], label: "B token" }),
+    });
+    expect(mintB.status).toBe(201);
+    const tokenBId = ((await mintB.json()) as { tokenInfo: { id: string } }).tokenInfo.id;
+
+    // B's list must only contain B's own token.
+    const listB = await app.request("/api/public/v1/tokens");
+    const listBBody = (await listB.json()) as { tokens: { id: string }[] };
+    expect(listBBody.tokens.map((t) => t.id)).toEqual([tokenBId]);
+
+    // B cannot revoke A's token by id — 404, same as any other not-found token.
+    const deleteRes = await app.request(`/api/public/v1/tokens/${tokenAId}`, { method: "DELETE" });
+    expect(deleteRes.status).toBe(404);
+    const deleteBody = (await deleteRes.json()) as { error?: { code?: string } };
+    expect(deleteBody.error?.code).toBe("token_not_found");
+
+    // A's token must be provably untouched (still present, not revoked).
+    useSession({ id: "userA", email: "userA@x.test" });
+    const listA = await app.request("/api/public/v1/tokens");
+    const listABody = (await listA.json()) as { tokens: { id: string; revokedAt: string | null }[] };
+    const aToken = listABody.tokens.find((t) => t.id === tokenAId);
+    expect(aToken).toBeDefined();
+    expect(aToken?.revokedAt).toBeNull();
+  });
+});

@@ -139,7 +139,7 @@ tokensRoutes.get(
     const rows = await db
       .select()
       .from(oauthTokens)
-      .where(eq(oauthTokens.clientId, DRIVE_TOKEN_CLIENT_ID))
+      .where(and(eq(oauthTokens.clientId, DRIVE_TOKEN_CLIENT_ID), eq(oauthTokens.userId, c.get("ownerId") ?? "")))
       .orderBy(desc(oauthTokens.createdAt))
       .limit(limit)
       .offset(offset);
@@ -158,7 +158,13 @@ tokensRoutes.delete(
     const revoked = await db
       .update(oauthTokens)
       .set({ revokedAt: nowIso() })
-      .where(and(eq(oauthTokens.id, id), eq(oauthTokens.clientId, DRIVE_TOKEN_CLIENT_ID)))
+      .where(
+        and(
+          eq(oauthTokens.id, id),
+          eq(oauthTokens.clientId, DRIVE_TOKEN_CLIENT_ID),
+          eq(oauthTokens.userId, c.get("ownerId") ?? "")
+        )
+      )
       .returning();
     if (revoked.length === 0) throw new ApiError(404, "token_not_found", "Token not found");
 
