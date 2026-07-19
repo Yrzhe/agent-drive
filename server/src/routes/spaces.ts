@@ -1,4 +1,4 @@
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import type { Context } from "hono";
 import { Hono } from "hono";
 import { nanoid } from "nanoid";
@@ -7,7 +7,17 @@ import { esSystemAuthUser, spaceItems, spaceMembers, spaces } from "@defs";
 
 import { ApiError, withErrorHandling } from "../lib/errors";
 import { nowIso } from "../lib/files";
-import { assertSpaceRole, resolveSpaceRole, userSpaceIds, type SpaceRole } from "../lib/spaces";
+import { parseListPagination } from "../lib/pagination";
+import {
+  assertSpaceRole,
+  resolveOwnedContributionRef,
+  resolveSpaceRole,
+  toDisplayItems,
+  userSpaceIds,
+  type SpaceItemRow,
+  type SpaceItemType,
+  type SpaceRole,
+} from "../lib/spaces";
 import type { AppDb, AppEnv } from "../types";
 
 /**
@@ -29,6 +39,7 @@ type MemberRole = Exclude<SpaceRole, "creator">;
 
 const MAX_NAME_CHARS = 200;
 const MEMBER_ROLES: readonly MemberRole[] = ["viewer", "contributor", "editor"];
+const ITEM_TYPES: readonly SpaceItemType[] = ["file", "folder", "memory"];
 
 /**
  * The caller's resolved user id, set by `requireDualAuth` for both session and
@@ -71,6 +82,20 @@ function validateMemberRole(input: unknown): MemberRole {
     throw new ApiError(400, "validation_error", `role must be one of: ${MEMBER_ROLES.join(", ")}`);
   }
   return input as MemberRole;
+}
+
+function validateItemType(input: unknown): SpaceItemType {
+  if (typeof input !== "string" || !(ITEM_TYPES as readonly string[]).includes(input)) {
+    throw new ApiError(400, "validation_error", `itemType must be one of: ${ITEM_TYPES.join(", ")}`);
+  }
+  return input as SpaceItemType;
+}
+
+function validateItemRef(input: unknown): string {
+  if (typeof input !== "string" || input.trim().length === 0) {
+    throw new ApiError(400, "validation_error", "ref is required");
+  }
+  return input.trim();
 }
 
 /**
@@ -323,5 +348,113 @@ spacesRoutes.patch(
     if (updated.length === 0) throw new ApiError(404, "member_not_found", "That user is not a member of this space");
 
     return c.json({ member: updated[0] });
+  })
+);
+
+/**
+ * Shared Spaces P1 Task 3 — `space_items` contribute/remove/list.
+ * (brief: .superpowers/sdd/task-3-brief.md)
+ *
+ * NO read-path changes here: this only manages the reference rows in `space_items` and
+ * lists them flat + attributed. The read-path union (files/memory list/recall seeing
+ * space-contributed resources) is Task 4/5.
+ */
+
+spacesRoutes.post(
+  "/:id/items",
+  withErrorHandling(async (c) => {
+    const callerId = requireCaller(c);
+    const spaceId = requireParam(c, "id");
+    const { db } = await import("edgespark");
+
+    // contributor+ required to add anything; a non-member/viewer never reaches the
+    // ownership check below.
+    await assertSpaceRole(db, spaceId, callerId, "contributor");
+
+    const body = (await c.req.json().catch(() => ({}))) as { itemType?: unknown; ref?: unknown };
+    const itemType = validateItemType(body.itemType);
+    const ref = validateItemRef(body.ref);
+
+    // Security spine (design §Security #2): only the resource's owner may contribute it.
+    // Throws ApiError(403, 'not_your_resource') if `ref` isn't a live resource callerId owns.
+    const itemRef = await resolveOwnedContributionRef(db, itemType, ref, callerId);
+
+    await db
+      .insert(spaceItems)
+      .values({ id: nanoid(), spaceId, itemType, itemRef, contributedBy: callerId, addedAt: nowIso() })
+      .onConflictDoNothing({ target: [spaceItems.spaceId, spaceItems.itemType, spaceItems.itemRef] });
+
+    // Idempotent contribute (unique spaceId+itemType+itemRef): re-select rather than trust
+    // .returning() after onConflictDoNothing, which yields [] on the no-op branch.
+    const [item] = await db
+      .select()
+      .from(spaceItems)
+      .where(and(eq(spaceItems.spaceId, spaceId), eq(spaceItems.itemType, itemType), eq(spaceItems.itemRef, itemRef)))
+      .limit(1);
+    if (!item) throw new ApiError(500, "internal_error", "Space item was not created");
+
+    const [display] = await toDisplayItems(db, [item]);
+    return c.json({ item: display }, 201);
+  })
+);
+
+spacesRoutes.get(
+  "/:id/items",
+  withErrorHandling(async (c) => {
+    const callerId = requireCaller(c);
+    const spaceId = requireParam(c, "id");
+    const { db } = await import("edgespark");
+
+    await assertSpaceRole(db, spaceId, callerId, "viewer");
+
+    const typeQuery = c.req.query("type");
+    const itemType = typeQuery ? validateItemType(typeQuery) : undefined;
+    const { limit, offset } = parseListPagination((name) => c.req.query(name), { defaultLimit: 50, maxLimit: 200 });
+
+    const rows: SpaceItemRow[] = await db
+      .select()
+      .from(spaceItems)
+      .where(and(eq(spaceItems.spaceId, spaceId), itemType ? eq(spaceItems.itemType, itemType) : undefined))
+      .orderBy(desc(spaceItems.addedAt))
+      .limit(limit)
+      .offset(offset);
+
+    // Flat, attributed list (design: "NOT merged into a path tree" — avoids cross-
+    // contributor path collisions). A folder item is one entry; drill-in is Task 4.
+    const items = await toDisplayItems(db, rows);
+    return c.json({ items, limit, offset });
+  })
+);
+
+spacesRoutes.delete(
+  "/:id/items/:itemId",
+  withErrorHandling(async (c) => {
+    const callerId = requireCaller(c);
+    const spaceId = requireParam(c, "id");
+    const itemId = requireParam(c, "itemId");
+    const { db } = await import("edgespark");
+
+    // contributor+ required to remove anything; a viewer/non-member is rejected here
+    // before the item lookup even runs.
+    await assertSpaceRole(db, spaceId, callerId, "contributor");
+
+    const [item] = await db
+      .select()
+      .from(spaceItems)
+      .where(and(eq(spaceItems.id, itemId), eq(spaceItems.spaceId, spaceId)))
+      .limit(1);
+    if (!item) throw new ApiError(404, "item_not_found", "Space item not found");
+
+    // A contributor may remove only their OWN items; removing anyone else's requires
+    // editor+ (design: "contributor edits only own items; editor edits any").
+    if (item.contributedBy !== callerId) {
+      await assertSpaceRole(db, spaceId, callerId, "editor");
+    }
+
+    // Reference row only — the underlying file/memory is never touched (design §Security
+    // #5: "Removing an item from a space never deletes the underlying resource").
+    await db.delete(spaceItems).where(eq(spaceItems.id, itemId));
+
+    return c.json({ removed: true, id: itemId });
   })
 );

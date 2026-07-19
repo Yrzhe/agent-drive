@@ -1,10 +1,11 @@
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 
-import { files, spaceItems, spaceMembers, spaces } from "@defs";
+import { files, memories, spaceItems, spaceMembers, spaces } from "@defs";
 
 import type { AppDb } from "../types";
 import { ApiError } from "./errors";
-import { escapedDescendantPattern } from "./paths";
+import { getMemory } from "./memory";
+import { escapedDescendantPattern, normalizePath } from "./paths";
 
 /**
  * Shared Spaces P1 (design: docs/implementation/2026-07-19-shared-spaces-design.md).
@@ -24,7 +25,7 @@ const ROLE_RANK: Record<SpaceRole, number> = {
   creator: 3,
 };
 
-type SpaceItemRow = typeof spaceItems.$inferSelect;
+export type SpaceItemRow = typeof spaceItems.$inferSelect;
 
 /**
  * Resolve a user's role in a space. The creator always resolves 'creator' — no
@@ -157,4 +158,89 @@ export async function assertSpaceRole(db: AppDb, spaceId: string, userId: string
   if (role === null || ROLE_RANK[role] < ROLE_RANK[min]) {
     throw new ApiError(403, "space_forbidden", "You do not have the required role in this space.");
   }
+}
+
+export type SpaceItemType = "file" | "folder" | "memory";
+
+/**
+ * Resolve a `POST /spaces/:id/items` `ref` (a file/folder path, or a memory id/key) to the
+ * underlying `files.id` / `memories.id` — but ONLY when `callerId` owns that resource.
+ * This is the P1 Task 3 security spine (design §Security #2): contributing an item is the
+ * item owner's explicit action only, so a caller can never expose someone else's resource
+ * into a space. Throws `ApiError(403, 'not_your_resource')` when `ref` doesn't resolve to a
+ * live resource owned by `callerId` — deliberately the SAME error for "no such resource"
+ * and "exists but belongs to someone else", so this endpoint never leaks whether a given
+ * path/id exists under another owner.
+ */
+export async function resolveOwnedContributionRef(
+  db: AppDb,
+  itemType: SpaceItemType,
+  ref: string,
+  callerId: string
+): Promise<string> {
+  if (itemType === "memory") {
+    const memory = await getMemory(db, ref, callerId);
+    if (!memory) throw new ApiError(403, "not_your_resource", "You do not own a memory matching that ref");
+    return memory.id;
+  }
+
+  const path = normalizePath(ref);
+  const [row] = await db
+    .select({ id: files.id, isFolder: files.isFolder })
+    .from(files)
+    .where(and(eq(files.path, path), eq(files.ownerId, callerId), isNull(files.deletedAt)))
+    .limit(1);
+  const wantsFolder = itemType === "folder";
+  if (!row || (row.isFolder === 1) !== wantsFolder) {
+    throw new ApiError(403, "not_your_resource", `You do not own a ${itemType} matching that ref`);
+  }
+  return row.id;
+}
+
+export interface SpaceItemDisplay {
+  id: string;
+  itemType: SpaceItemType;
+  itemRef: string;
+  name: string | null;
+  contributedBy: string;
+  addedAt: string;
+}
+
+const MEMORY_NAME_SNIPPET_CHARS = 80;
+
+/**
+ * Resolve the flat, attributed list shape for `GET /spaces/:id/items` (design: "Listing a
+ * space is a FLAT, attributed list"). `name` comes from the underlying resource: a file/
+ * folder's `files.name`, or a memory's `key` (falling back to a content snippet when the
+ * memory has no key). A `name` of `null` means the underlying resource is gone (hard-
+ * deleted) — the item row itself is untouched; a stale reference is not this function's
+ * concern to clean up.
+ */
+export async function toDisplayItems(db: AppDb, items: readonly SpaceItemRow[]): Promise<SpaceItemDisplay[]> {
+  const fileRefs = items.filter((item) => item.itemType === "file" || item.itemType === "folder").map((item) => item.itemRef);
+  const memoryRefs = items.filter((item) => item.itemType === "memory").map((item) => item.itemRef);
+
+  const fileNameById = new Map<string, string>();
+  if (fileRefs.length > 0) {
+    const rows = await db.select({ id: files.id, name: files.name }).from(files).where(inArray(files.id, fileRefs));
+    for (const row of rows) fileNameById.set(row.id, row.name);
+  }
+
+  const memoryNameById = new Map<string, string>();
+  if (memoryRefs.length > 0) {
+    const rows = await db
+      .select({ id: memories.id, key: memories.key, content: memories.content })
+      .from(memories)
+      .where(inArray(memories.id, memoryRefs));
+    for (const row of rows) memoryNameById.set(row.id, row.key ?? row.content.slice(0, MEMORY_NAME_SNIPPET_CHARS));
+  }
+
+  return items.map((item) => ({
+    id: item.id,
+    itemType: item.itemType as SpaceItemType,
+    itemRef: item.itemRef,
+    name: (item.itemType === "memory" ? memoryNameById.get(item.itemRef) : fileNameById.get(item.itemRef)) ?? null,
+    contributedBy: item.contributedBy,
+    addedAt: item.addedAt,
+  }));
 }
