@@ -151,6 +151,8 @@ All tool input/output schemas are sourced from `server/src/lib/mcp-tools.ts`.
 
 Memory tools (`remember`, `recall`, `list_memories`, `forget`) are documented in [`memory.md`](./memory.md); they follow the same JSON-RPC calling convention and require the `read:memory` / `write:memory` scopes.
 
+Shared Spaces tools (`list_spaces`, `read_space`, `add_to_space`, `remove_from_space`, `create_space`, `manage_space_members`) are documented in [`spaces.md`](./spaces.md); they follow the same JSON-RPC calling convention and reuse the `read:drive` / `write:drive` scopes (no new scope).
+
 ### `list_files`
 
 Required scope: `read:drive`

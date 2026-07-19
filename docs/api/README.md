@@ -8,6 +8,7 @@ This directory documents the public HTTP surface of an Agent Drive deployment.
 | [`oauth.md`](./oauth.md) | OAuth client implementers, security reviewers |
 | [`drive-bundles.md`](./drive-bundles.md) | `adrive sync` users + anyone building versioned bundle workflows |
 | [`memory.md`](./memory.md) | Agents persisting/recalling cross-session context (remember/recall) |
+| [`spaces.md`](./spaces.md) | Sharing existing files/folders/memory by reference with other users (roles, live-edit consequence, MCP tools) |
 | [`access.md`](./access.md) | Session callers hitting `403 access_pending`/`access_suspended` — status, waitlist apply, the access gate |
 | [`registration.md`](./registration.md) | Agents helping a human with no account yet sign up — mint an intent, hand off a link, never touch the password |
 | [`agent-card.md`](./agent-card.md) | Peers discovering this deployment's identity, key, and capabilities |

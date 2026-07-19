@@ -14,6 +14,7 @@ import { createPendingUploadMarker, readPendingUploadDeclaredSize, readPendingUp
 import { maybePurgeStalePendingUploads, reclaimStalePendingUpload } from "../lib/pending-uploads";
 import { checkFileSize, checkTotalQuota } from "../lib/quota";
 import { assertRestListPathAllowed, assertRestPathAllowed, restPathFilter } from "../lib/rest-scopes";
+import { fileReadableFilter } from "../lib/spaces";
 import {
   displayTrashPath,
   hardPurgeSubtree,
@@ -227,12 +228,16 @@ filesRoutes.get(
     const pathVisible = restPathFilter(c);
     const { db } = await import("edgespark");
     const ownerId = c.get("ownerId") ?? null;
+    // Read-path union: own rows PLUS files reachable via this caller's space memberships
+    // (design §Read-path change). Reduces to the strict owner filter when the caller has no
+    // spaces, so non-members stay fully #30-isolated.
+    const readable = await fileReadableFilter(db, ownerId);
 
     const result = recursive
       ? path === "/"
-        ? await db.select().from(files).where(and(isNull(files.deletedAt), ownerId ? eq(files.ownerId, ownerId) : undefined)).orderBy(asc(files.path)).limit(limit).offset(offset)
-        : await db.select().from(files).where(and(sql`${files.path} LIKE ${escapedDescendantPattern(path)} ESCAPE '\\'`, isNull(files.deletedAt), ownerId ? eq(files.ownerId, ownerId) : undefined)).orderBy(asc(files.path)).limit(limit).offset(offset)
-      : await db.select().from(files).where(and(eq(files.parentPath, path), isNull(files.deletedAt), ownerId ? eq(files.ownerId, ownerId) : undefined)).orderBy(desc(files.isFolder), asc(files.name)).limit(limit).offset(offset);
+        ? await db.select().from(files).where(and(isNull(files.deletedAt), readable)).orderBy(asc(files.path)).limit(limit).offset(offset)
+        : await db.select().from(files).where(and(sql`${files.path} LIKE ${escapedDescendantPattern(path)} ESCAPE '\\'`, isNull(files.deletedAt), readable)).orderBy(asc(files.path)).limit(limit).offset(offset)
+      : await db.select().from(files).where(and(eq(files.parentPath, path), isNull(files.deletedAt), readable)).orderBy(desc(files.isFolder), asc(files.name)).limit(limit).offset(offset);
 
     return c.json({ files: result.filter((row) => pathVisible(row.path)).map(toFileObject), path, limit, offset });
   })
@@ -251,6 +256,7 @@ filesRoutes.get(
     const pattern = `%${escapeLikeQuery(query)}%`;
     const { db } = await import("edgespark");
     const ownerId = c.get("ownerId") ?? null;
+    const readable = await fileReadableFilter(db, ownerId);
     const result = await db
       .select()
       .from(files)
@@ -261,7 +267,7 @@ filesRoutes.get(
             sql`${files.path} LIKE ${pattern} ESCAPE '\\'`
           ),
           isNull(files.deletedAt),
-          ownerId ? eq(files.ownerId, ownerId) : undefined
+          readable
         )
       )
       .orderBy(desc(files.isFolder), asc(files.name))
@@ -547,10 +553,11 @@ filesRoutes.get(
   withErrorHandling(async (c) => {
     const { db } = await import("edgespark");
     const ownerId = c.get("ownerId") ?? null;
+    const readable = await fileReadableFilter(db, ownerId);
     const [file] = await db
       .select()
       .from(files)
-      .where(and(eq(files.id, getIdParam(c)), isNull(files.deletedAt), ownerId ? eq(files.ownerId, ownerId) : undefined))
+      .where(and(eq(files.id, getIdParam(c)), isNull(files.deletedAt), readable))
       .limit(1);
     if (!file) throw new ApiError(404, "file_not_found", "File not found");
     assertRestPathAllowed(c, file.path);
@@ -563,10 +570,13 @@ filesRoutes.get(
   withErrorHandling(async (c) => {
     const { db, storage } = await import("edgespark");
     const ownerId = c.get("ownerId") ?? null;
+    // Download/preview presign is a read path: a space file signs the CONTRIBUTOR's s3Uri
+    // (cross-owner), but ONLY because the widened filter matched it via space membership.
+    const readable = await fileReadableFilter(db, ownerId);
     const [file] = await db
       .select()
       .from(files)
-      .where(and(eq(files.id, getIdParam(c)), isNull(files.deletedAt), ownerId ? eq(files.ownerId, ownerId) : undefined))
+      .where(and(eq(files.id, getIdParam(c)), isNull(files.deletedAt), readable))
       .limit(1);
     if (!file) throw new ApiError(404, "file_not_found", "File not found");
     assertRestPathAllowed(c, file.path);

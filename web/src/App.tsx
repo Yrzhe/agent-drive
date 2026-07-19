@@ -12,6 +12,8 @@ const TrashPage = lazy(() => import("@/pages/TrashPage"));
 const WaitlistPage = lazy(() => import("@/pages/WaitlistPage"));
 const AdminPage = lazy(() => import("@/pages/AdminPage"));
 const SignupPage = lazy(() => import("@/pages/SignupPage"));
+const SpacesPage = lazy(() => import("@/pages/SpacesPage"));
+const SpaceViewPage = lazy(() => import("@/pages/SpaceViewPage"));
 
 function RouteFallback() {
   return (
@@ -37,6 +39,8 @@ function App() {
           <Route element={<WaitlistPage />} path="/waitlist" />
           <Route element={<AdminPage />} path="/admin" />
           <Route element={<SignupPage />} path="/signup" />
+          <Route element={<SpacesPage />} path="/spaces" />
+          <Route element={<SpaceViewPage />} path="/spaces/:id" />
           <Route element={<Navigate replace to="/" />} path="*" />
         </Routes>
       </Suspense>

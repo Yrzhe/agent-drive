@@ -14,6 +14,7 @@ Your private cloud drive that agents operate via API. Upload files, organize fol
 - You need to create or manage share links (with password, expiration, download limits)
 - You need to sync a local project folder to Agent Drive with version checks
 - You need to persist decisions/context across sessions and recall them later (memory)
+- You need to share your files/folders/memory with other users by reference (no copy), or read a space you were invited into
 - You need to send files to another agent and need the handoff message format
 - You're setting up Agent Drive for the first time
 
@@ -28,11 +29,12 @@ Your private cloud drive that agents operate via API. Upload files, organize fol
 | Module | Reference | When to read |
 |--------|-----------|-------------|
 | **Setup & Deploy** | `references/setup.md` | First-time deployment or re-deployment |
-| **MCP (remote tools)** | `references/mcp.md` | Connect an IDE/agent over Remote MCP; OAuth vs AGENT_TOKEN; the 10 tools + scopes |
+| **MCP (remote tools)** | `references/mcp.md` | Connect an IDE/agent over Remote MCP; OAuth vs AGENT_TOKEN; the 16 tools + scopes |
 | **File Operations** | `references/file-ops.md` | Upload, download, list, move, rename, delete files and folders |
 | **Share Management** | `references/sharing.md` | Create/delete share links, set password/expiration/limits, handoff message format |
 | **Receiving Downloads** | `references/receiving.md` | When another agent needs to download from a share link (pure API, no browser) |
 | **Memory** | `references/memory.md` | Persist decisions/context across sessions (`remember`/`recall` MCP tools, full-text search) |
+| **Shared Spaces** | `references/spaces.md` | Share your files/folders/memory with other users by reference (no copy); discover, read, contribute, roles, the live-edit warning |
 | **Peering** | `references/peering.md` | Send files Drive-to-Drive (`send_file`), receive via signed inbox, subscribe to published bundles |
 | **Account & Access** | `references/access.md` | A session call comes back `403 access_pending` / `403 access_suspended` — check status, apply to the waitlist |
 | **Registration Hand-off** | `references/registration.md` | Helping a human who has no account yet sign up — you mint the invite link, they set the password |

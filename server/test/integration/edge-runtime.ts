@@ -7,7 +7,7 @@ import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { sqliteTable, text } from "drizzle-orm/sqlite-core";
 
-import { buckets, bundleVersions, contacts, drizzleSchema, files, memories, shares } from "@defs";
+import { buckets, bundleVersions, contacts, drizzleSchema, files, memories, shares, spaceItems, spaceMembers, spaces } from "@defs";
 
 import { driveObjectKey } from "../../src/lib/object-keys";
 
@@ -498,6 +498,58 @@ export async function seedPublishedBundle(ownerId: string | null = null): Promis
     ownerId,
   });
   return { publicId, prefix };
+}
+
+/** Shared Spaces P1: seed a `spaces` row directly (Task 1's lib has resolvers only, no create endpoint yet). */
+export async function seedSpace(options: {
+  id?: string;
+  name?: string;
+  creatorId: string;
+  visibility?: "invite" | "public";
+}): Promise<string> {
+  const id = options.id ?? `space-${Math.random().toString(36).slice(2)}`;
+  await runtime.db.insert(spaces).values({
+    id,
+    name: options.name ?? "Test Space",
+    creatorId: options.creatorId,
+    visibility: options.visibility ?? "invite",
+    createdAt: new Date().toISOString(),
+  } as never);
+  return id;
+}
+
+export async function seedSpaceMember(options: {
+  spaceId: string;
+  userId: string;
+  role: "viewer" | "contributor" | "editor";
+  addedBy: string;
+}): Promise<void> {
+  await runtime.db.insert(spaceMembers).values({
+    spaceId: options.spaceId,
+    userId: options.userId,
+    role: options.role,
+    addedBy: options.addedBy,
+    addedAt: new Date().toISOString(),
+  } as never);
+}
+
+export async function seedSpaceItem(options: {
+  id?: string;
+  spaceId: string;
+  itemType: "file" | "folder" | "memory";
+  itemRef: string;
+  contributedBy: string;
+}): Promise<string> {
+  const id = options.id ?? `item-${Math.random().toString(36).slice(2)}`;
+  await runtime.db.insert(spaceItems).values({
+    id,
+    spaceId: options.spaceId,
+    itemType: options.itemType,
+    itemRef: options.itemRef,
+    contributedBy: options.contributedBy,
+    addedAt: new Date().toISOString(),
+  } as never);
+  return id;
 }
 
 resetRuntime();

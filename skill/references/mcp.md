@@ -17,7 +17,7 @@ POST {url}/api/public/mcp        (JSON-RPC 2.0)
 
 Both land on the same scope-checked tool surface. Never put the `AGENT_TOKEN` in a hand-off message — it is the owner's private key.
 
-## Tools (10) → required scope
+## Tools (16) → required scope
 
 | Tool | Scope | Notes |
 |---|---|---|
@@ -26,6 +26,8 @@ Both land on the same scope-checked tool surface. Never put the `AGENT_TOKEN` in
 | `create_share` | `share:create` | Returns `{ shareUrl, guideUrl }` — put `guideUrl` in hand-off messages |
 | `send_file` | `share:create` | Drive-to-Drive delivery to a pinned contact (see `peering.md`) |
 | `remember`, `recall`, `list_memories`, `forget` | `read:memory` / `write:memory` | Cross-session memory (see `memory.md`) |
+| `list_spaces`, `read_space` | `read:drive` | Discover/read Shared Spaces you belong to (see `spaces.md`) |
+| `add_to_space`, `remove_from_space`, `create_space`, `manage_space_members` | `write:drive` | Share your own resources by reference; no new scope (see `spaces.md`) |
 
 On `initialize`, the server returns rich `instructions` (granted scopes, path rules, text-vs-binary, error codes) — read them.
 
