@@ -8,7 +8,7 @@ import { hashPassword } from "./crypto";
 import { ensureFolderChain, nowIso, toFileObject } from "./files";
 import { forgetMemory, listMemories, recallMemories, rememberMemory } from "./memory";
 import { getContactByName, sendFileToContact } from "./peering";
-import { escapedDescendantPattern, joinPath, normalizeName, normalizePath, parentOfPath } from "./paths";
+import { escapedDescendantPattern, normalizeName, normalizePath, parentOfPath } from "./paths";
 import { extractPathPrefixes, hasScope, pathAllowed, requirePathAllowed, type McpScope } from "./mcp-scopes";
 import { fileReadableFilter } from "./spaces";
 import { checkTotalQuota, MCP_READ_FILE_MAX_BYTES, MCP_WRITE_FILE_MAX_BYTES } from "./quota";
