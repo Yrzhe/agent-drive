@@ -176,6 +176,32 @@ export async function accessibleMemoryIds(db: AppDb, userId: string): Promise<st
 }
 
 /**
+ * The memory twin of `fileReadableFilter` (design §Read-path change / §Security spine #1),
+ * as a Drizzle `WHERE` condition to drop into any MEMORY read query in place of the bare
+ * `ownerId ? eq(memories.ownerId, ownerId) : undefined` owner filter.
+ *
+ * Semantics, preserving #30 isolation exactly except for the one controlled hole:
+ * - `userId === null` (legacy trust-any-session): return `undefined` — no scoping, matching
+ *   the previous `ownerId ? … : undefined` behavior byte-for-byte.
+ * - user has NO reachable space memories: return `eq(memories.ownerId, userId)` — IDENTICAL
+ *   to the strict owner filter, so a non-member (or any caller with empty spaces) sees only
+ *   their own rows. This is why the #30 isolation suites stay green: no memberships ⇒
+ *   `accessibleMemoryIds` is `[]` ⇒ this reduces to the pre-Spaces filter.
+ * - user has reachable space memories: return `owner_id = me OR memories.id ∈ accessibleMemoryIds`.
+ *   The `inArray` set is computed per-caller from THIS user's active memberships only, so it can
+ *   never widen to another owner's non-shared rows.
+ *
+ * USE ONLY ON READ PATHS (recall/list/get). Writes/mutations (remember/forget/rebuild-index)
+ * stay strictly owner-scoped in P1 — do not use this there.
+ */
+export async function memoryReadableFilter(db: AppDb, userId: string | null): Promise<SQL | undefined> {
+  if (!userId) return undefined;
+  const ids = await accessibleMemoryIds(db, userId);
+  if (ids.length === 0) return eq(memories.ownerId, userId);
+  return or(eq(memories.ownerId, userId), inArray(memories.id, ids));
+}
+
+/**
  * Throw `ApiError(403, 'space_forbidden', …)` unless the user's resolved role in the space
  * is at or above `min` (viewer < contributor < editor < creator). A non-member (null role)
  * always fails, regardless of `min`.

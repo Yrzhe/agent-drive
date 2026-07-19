@@ -10,7 +10,7 @@ import { forgetMemory, listMemories, recallMemories, rememberMemory } from "./me
 import { getContactByName, sendFileToContact } from "./peering";
 import { escapedDescendantPattern, normalizeName, normalizePath, parentOfPath } from "./paths";
 import { extractPathPrefixes, hasScope, pathAllowed, requirePathAllowed, type McpScope } from "./mcp-scopes";
-import { fileReadableFilter } from "./spaces";
+import { fileReadableFilter, memoryReadableFilter } from "./spaces";
 import { checkTotalQuota, MCP_READ_FILE_MAX_BYTES, MCP_WRITE_FILE_MAX_BYTES } from "./quota";
 import { purgeConflictingTrashAtPath } from "./trash";
 import type { AppDb } from "../types";
@@ -420,14 +420,19 @@ export async function callMcpTool(db: AppDb, origin: string, scopes: readonly st
   if (name === "recall") {
     const query = stringArg(input, "query") ?? "";
     const limit = numberArg(input, "limit", 10);
-    const results = await recallMemories(db, query, limit, ownerId);
+    // Read-path union: own memories + memory ids reachable via spaces (design §Read-path
+    // change / MCP equivalents). Reduces to the strict owner filter when the caller has no
+    // spaces, so a non-member sees exactly the #30-isolated result.
+    const readable = await memoryReadableFilter(db, ownerId);
+    const results = await recallMemories(db, query, limit, ownerId, readable);
     return textResult({ query, count: results.length, memories: results });
   }
 
   if (name === "list_memories") {
     const limit = numberArg(input, "limit", 20);
     const offset = Math.max(0, Math.trunc(numberArg(input, "offset", 0)));
-    const results = await listMemories(db, limit, offset, ownerId);
+    const readable = await memoryReadableFilter(db, ownerId);
+    const results = await listMemories(db, limit, offset, ownerId, readable);
     return textResult({ count: results.length, offset, memories: results });
   }
 

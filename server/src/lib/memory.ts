@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, sql, type SQL } from "drizzle-orm";
 import { sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { nanoid } from "nanoid";
 
@@ -173,16 +173,35 @@ function ftsRowValues(id: string, content: string, tags: string | null): typeof 
   return { id, content, tags: tags ?? "" };
 }
 
-/** Full-text search via the memories_fts FTS5 index, best match first. */
-export async function recallMemories(db: AppDb, query: string, limit: number, ownerId: string | null = null): Promise<MemoryObject[]> {
+/**
+ * Full-text search via the memories_fts FTS5 index, best match first.
+ *
+ * Scope resolution mirrors `listMemories`/`getMemory`: when `readable` (a widened read-path
+ * filter from `memoryReadableFilter`) is supplied it REPLACES the owner filter; otherwise
+ * fall back to the strict `ownerId` filter. The scope is applied to the JOINED `memories`
+ * rows — NOT the FTS index — so a foreign private memory can never surface in results even
+ * though its content token matched the FTS MATCH. The union (own + space-reachable ids) is
+ * ranked and limited in a single query so `f.rank`/`LIMIT` see the full candidate set.
+ *
+ * The `memories` table is referenced unaliased so a widened `readable` (which is built against
+ * the `memories` table object, e.g. `"memories"."id" IN (...)`) resolves correctly here.
+ */
+export async function recallMemories(
+  db: AppDb,
+  query: string,
+  limit: number,
+  ownerId: string | null = null,
+  readable?: SQL
+): Promise<MemoryObject[]> {
   const match = buildFtsMatchQuery(query);
   if (!match) throw new Error("invalid_params:query is required");
   const boundedLimit = Math.max(1, Math.min(MEMORY_LIST_MAX_LIMIT, Math.trunc(limit)));
+  const scope = readable ?? (ownerId ? eq(memories.ownerId, ownerId) : undefined);
   const rows = await db.all<Record<string, unknown>>(sql`
-    SELECT m.* FROM ${memories} m
-    JOIN memories_fts f ON m.id = f.id
+    SELECT ${memories}.* FROM ${memories}
+    JOIN memories_fts f ON ${memories.id} = f.id
     WHERE memories_fts MATCH ${match}
-    AND (${ownerId} IS NULL OR m.owner_id = ${ownerId})
+    ${scope ? sql`AND (${scope})` : sql``}
     ORDER BY f.rank
     LIMIT ${boundedLimit}
   `);
@@ -203,13 +222,22 @@ function mapRawRow(row: Record<string, unknown>): MemoryRow {
   };
 }
 
-export async function listMemories(db: AppDb, limit: number, offset: number, ownerId: string | null = null): Promise<MemoryObject[]> {
+export async function listMemories(
+  db: AppDb,
+  limit: number,
+  offset: number,
+  ownerId: string | null = null,
+  readable?: SQL
+): Promise<MemoryObject[]> {
   const boundedLimit = Math.max(1, Math.min(MEMORY_LIST_MAX_LIMIT, Math.trunc(limit)));
   const boundedOffset = Math.max(0, Math.trunc(offset));
+  // Widened read-path scope wins when supplied; otherwise strict owner filter (see
+  // recallMemories for the full rationale).
+  const scope = readable ?? (ownerId ? eq(memories.ownerId, ownerId) : undefined);
   const rows = await db
     .select()
     .from(memories)
-    .where(ownerId ? eq(memories.ownerId, ownerId) : undefined)
+    .where(scope)
     .orderBy(desc(memories.updatedAt))
     .limit(boundedLimit)
     .offset(boundedOffset);
@@ -263,18 +291,22 @@ export async function rebuildMemoryIndex(db: AppDb): Promise<number> {
   return rebuilt;
 }
 
-export async function getMemory(db: AppDb, idOrKey: string, ownerId: string | null = null): Promise<MemoryRow | null> {
+export async function getMemory(db: AppDb, idOrKey: string, ownerId: string | null = null, readable?: SQL): Promise<MemoryRow | null> {
+  // Widened read-path scope wins when supplied; otherwise strict owner filter. Write-path
+  // callers (forgetMemory, resolveOwnedContributionRef) never pass `readable`, so contribute/
+  // delete stay strictly owner-scoped even when the caller is a space member.
+  const scope = readable ?? (ownerId ? eq(memories.ownerId, ownerId) : undefined);
   // id wins over key so a user-chosen key can never shadow another row's id.
   const [byId] = await db
     .select()
     .from(memories)
-    .where(and(eq(memories.id, idOrKey), ownerId ? eq(memories.ownerId, ownerId) : undefined))
+    .where(and(eq(memories.id, idOrKey), scope))
     .limit(1);
   if (byId) return byId;
   const [byKey] = await db
     .select()
     .from(memories)
-    .where(and(eq(memories.key, idOrKey), ownerId ? eq(memories.ownerId, ownerId) : undefined))
+    .where(and(eq(memories.key, idOrKey), scope))
     .limit(1);
   return byKey ?? null;
 }
