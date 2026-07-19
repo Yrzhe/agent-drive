@@ -150,6 +150,38 @@ DELETE /api/public/v1/memory/{idOrKey}  Returns { forgotten }
 
 MCP tools: `remember`, `recall`, `list_memories`, `forget`.
 
+### Shared Spaces
+
+Share your files/folders/memory with other users by reference (no storage copy).
+Scopes reuse `read:drive`/`write:drive` — no new scope. Full guide: `spaces.md`.
+
+```
+POST   /api/public/v1/spaces                      Body { name }
+Returns: 201 { space }
+
+GET    /api/public/v1/spaces                       Returns: { spaces: [space, ...] }
+GET    /api/public/v1/spaces/{id}                   Returns: { space }
+DELETE /api/public/v1/spaces/{id}                   (creator only) Returns: { deleted: true, id }
+
+GET    /api/public/v1/spaces/{id}/members           Returns: { members: [...] }
+POST   /api/public/v1/spaces/{id}/members           Body { email, role }        (creator only)
+DELETE /api/public/v1/spaces/{id}/members/{userId}  (creator only)
+PATCH  /api/public/v1/spaces/{id}/members/{userId}  Body { role }               (creator only)
+
+POST   /api/public/v1/spaces/{id}/items             Body { itemType, ref }
+GET    /api/public/v1/spaces/{id}/items             ?type=&limit=&offset=
+DELETE /api/public/v1/spaces/{id}/items/{itemId}
+```
+
+- Roles: `viewer < contributor < editor < creator`. A `contributor`+ may add
+  only resources they own; an `editor` may edit/remove ANY item in the space
+  — including overwriting a file someone else contributed (items are live
+  references, not copies).
+- Every space endpoint requires a real user identity: `403 identity_required`
+  for the legacy install-wide `AGENT_TOKEN` (no `OWNER_EMAIL` set).
+- MCP tools: `list_spaces`, `read_space`, `add_to_space`, `remove_from_space`,
+  `create_space`, `manage_space_members`.
+
 ### List pagination
 
 All list endpoints (`GET /v1/files/trash`, `/v1/shares`, `/v1/contacts`, `/v1/tokens`, `/v1/webhooks`) accept `?limit=` (default 100, max 500) and `?offset=`, and echo `{ limit, offset }` in the response. Note for path-scoped tokens: trash/share rows outside your prefix are filtered AFTER the SQL page, so a page may come back short — keep paging until an empty page.
@@ -374,6 +406,12 @@ Returns: binary ZIP file (Content-Type: application/zip)
 | 404 | `share_not_found` | Share link not found or deleted |
 | 404 | `upload_not_found` | File not in R2 (upload incomplete) |
 | 404 | `intent_not_found` | Registration intent token unknown, expired, or already consumed |
+| 403 | `identity_required` | Spaces call with no resolvable user identity |
+| 403 | `space_forbidden` | Caller's role in the space is below what the operation requires |
+| 403 | `not_your_resource` | Tried to contribute a space item you don't own |
+| 404 | `space_not_found` | Space doesn't exist, or caller isn't a member |
+| 404 | `member_not_found` | Target user isn't a member of the space |
+| 404 | `item_not_found` | Item id isn't in this space |
 | 409 | `path_conflict` | Path already exists |
 | 410 | `share_expired` | Share link expired |
 | 413 | `zip_file_count_exceeded` | Folder ZIP has more than 400 files |

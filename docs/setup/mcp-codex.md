@@ -55,7 +55,10 @@ Ask Codex to list available tools. With full drive scopes you should see them gr
 
 ```text
 read:drive write:drive share:create  ->  list_files, read_file, write_file, search_files, create_share, send_file
-+ read:memory write:memory           ->  also remember, recall, list_memories, forget   (10 tools total)
++ read:memory write:memory           ->  also remember, recall, list_memories, forget
++ (spaces reuse read:drive/write:drive)  ->  also list_spaces, read_space, add_to_space,
+                                          remove_from_space, create_space, manage_space_members
+                                          (16 tools total)
 ```
 
 Sanity check:
