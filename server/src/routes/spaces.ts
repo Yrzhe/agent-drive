@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import type { Context } from "hono";
 import { Hono } from "hono";
 import { nanoid } from "nanoid";
@@ -12,7 +12,10 @@ import {
   assertSpaceRole,
   resolveOwnedContributionRef,
   resolveSpaceRole,
+  resolveUserIdByEmail,
+  spaceCounts,
   toDisplayItems,
+  toSpaceSummary,
   userSpaceIds,
   type SpaceItemRow,
   type SpaceItemType,
@@ -98,49 +101,10 @@ function validateItemRef(input: unknown): string {
   return input.trim();
 }
 
-/**
- * Resolve an existing user's id from an email, case-insensitively. Never creates a user
- * (invite-by-email only targets existing accounts — design D2). Fails closed to the same
- * 404 on both "no match" and "ambiguous case-only-duplicate match", mirroring
- * `resolveOwnerUserId`'s ambiguity handling in lib/owner.ts — an invite must never
- * silently bind to an arbitrarily-picked duplicate row.
- */
-async function resolveUserIdByEmail(db: AppDb, email: string): Promise<string> {
-  const rows = await db
-    .select({ id: esSystemAuthUser.id })
-    .from(esSystemAuthUser)
-    .where(sql`lower(${esSystemAuthUser.email}) = lower(${email})`)
-    .limit(2);
-  if (rows.length !== 1) throw new ApiError(404, "user_not_found", "No user with that email exists");
-  return rows[0].id;
-}
-
 async function requireSpaceRow(db: AppDb, spaceId: string): Promise<SpaceRow> {
   const [space] = await db.select().from(spaces).where(eq(spaces.id, spaceId)).limit(1);
   if (!space) throw new ApiError(404, "space_not_found", "Space not found");
   return space;
-}
-
-/** memberCount includes the creator (who never has a space_members row of their own). */
-async function spaceCounts(db: AppDb, spaceId: string): Promise<{ memberCount: number; itemCount: number }> {
-  const [[memberRow], [itemRow]] = await Promise.all([
-    db.select({ n: sql<number>`count(*)` }).from(spaceMembers).where(eq(spaceMembers.spaceId, spaceId)),
-    db.select({ n: sql<number>`count(*)` }).from(spaceItems).where(eq(spaceItems.spaceId, spaceId)),
-  ]);
-  return { memberCount: (memberRow?.n ?? 0) + 1, itemCount: itemRow?.n ?? 0 };
-}
-
-function toSpaceSummary(space: SpaceRow, role: SpaceRole, counts: { memberCount: number; itemCount: number }) {
-  return {
-    id: space.id,
-    name: space.name,
-    visibility: space.visibility,
-    creatorId: space.creatorId,
-    createdAt: space.createdAt,
-    role,
-    memberCount: counts.memberCount,
-    itemCount: counts.itemCount,
-  };
 }
 
 spacesRoutes.post(

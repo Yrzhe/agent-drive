@@ -1,6 +1,6 @@
 import { and, eq, inArray, isNull, or, sql, type SQL } from "drizzle-orm";
 
-import { files, memories, spaceItems, spaceMembers, spaces } from "@defs";
+import { esSystemAuthUser, files, memories, spaceItems, spaceMembers, spaces } from "@defs";
 
 import type { AppDb } from "../types";
 import { ApiError } from "./errors";
@@ -167,6 +167,47 @@ export async function fileReadableFilter(db: AppDb, userId: string | null): Prom
 }
 
 /**
+ * WRITE-side authorization for the Shared Spaces live-reference edit (design D1, Task 6):
+ * true when `userId` may OVERWRITE the file `fileId` THROUGH a space — i.e. the file is a
+ * directly-contributed `'file'` item, or a descendant of a contributed `'folder'` item, in
+ * some space where the user is editor+ (the stored `editor` role, or the space creator).
+ *
+ * Contributors and viewers always get `false`, so relaxing `write_file` for this can never
+ * widen writes below the editor role. It also only ever looks at spaces where the caller is
+ * editor+, so a file the caller merely *reads* through a viewer/contributor membership is
+ * not writable. Callers use this only AFTER establishing that `userId` does not own
+ * `fileId` (owners take the normal owner-scoped write path unchanged).
+ */
+export async function canEditFileViaSpace(db: AppDb, userId: string, fileId: string): Promise<boolean> {
+  const created = await db.select({ id: spaces.id }).from(spaces).where(eq(spaces.creatorId, userId));
+  const editorOf = await db
+    .select({ spaceId: spaceMembers.spaceId })
+    .from(spaceMembers)
+    .where(and(eq(spaceMembers.userId, userId), eq(spaceMembers.role, "editor")));
+
+  const editorSpaceIds = new Set<string>();
+  for (const row of created) editorSpaceIds.add(row.id);
+  for (const row of editorOf) editorSpaceIds.add(row.spaceId);
+  if (editorSpaceIds.size === 0) return false;
+
+  const items = await db
+    .select()
+    .from(spaceItems)
+    .where(inArray(spaceItems.spaceId, [...editorSpaceIds]));
+  for (const item of items) {
+    if (item.itemType === "file") {
+      if (item.itemRef === fileId) return true;
+      continue;
+    }
+    if (item.itemType === "folder") {
+      const descendants = await expandFolderItemToFileIds(db, item.itemRef, item.contributedBy);
+      if (descendants.includes(fileId)) return true;
+    }
+  }
+  return false;
+}
+
+/**
  * Memory ids reachable via any space the user belongs to (directly contributed `'memory'`
  * items). Returns `[]` when the user has no spaces.
  */
@@ -296,4 +337,57 @@ export async function toDisplayItems(db: AppDb, items: readonly SpaceItemRow[]):
     contributedBy: item.contributedBy,
     addedAt: item.addedAt,
   }));
+}
+
+export type SpaceRow = typeof spaces.$inferSelect;
+
+export interface SpaceSummary {
+  id: string;
+  name: string;
+  visibility: string;
+  creatorId: string;
+  createdAt: string;
+  role: SpaceRole;
+  memberCount: number;
+  itemCount: number;
+}
+
+/** memberCount includes the creator (who never has a `space_members` row of their own). */
+export async function spaceCounts(db: AppDb, spaceId: string): Promise<{ memberCount: number; itemCount: number }> {
+  const [[memberRow], [itemRow]] = await Promise.all([
+    db.select({ n: sql<number>`count(*)` }).from(spaceMembers).where(eq(spaceMembers.spaceId, spaceId)),
+    db.select({ n: sql<number>`count(*)` }).from(spaceItems).where(eq(spaceItems.spaceId, spaceId)),
+  ]);
+  return { memberCount: (memberRow?.n ?? 0) + 1, itemCount: itemRow?.n ?? 0 };
+}
+
+/** The `{ …, role, memberCount, itemCount }` shape shared by the REST and MCP space surfaces. */
+export function toSpaceSummary(space: SpaceRow, role: SpaceRole, counts: { memberCount: number; itemCount: number }): SpaceSummary {
+  return {
+    id: space.id,
+    name: space.name,
+    visibility: space.visibility,
+    creatorId: space.creatorId,
+    createdAt: space.createdAt,
+    role,
+    memberCount: counts.memberCount,
+    itemCount: counts.itemCount,
+  };
+}
+
+/**
+ * Resolve an existing user's id from an email, case-insensitively. Never creates a user
+ * (invite-by-email only targets existing accounts — design D2). Fails closed to the same
+ * 404 on both "no match" and "ambiguous case-only-duplicate match", mirroring
+ * `resolveOwnerUserId`'s ambiguity handling in lib/owner.ts — an invite must never silently
+ * bind to an arbitrarily-picked duplicate row.
+ */
+export async function resolveUserIdByEmail(db: AppDb, email: string): Promise<string> {
+  const rows = await db
+    .select({ id: esSystemAuthUser.id })
+    .from(esSystemAuthUser)
+    .where(sql`lower(${esSystemAuthUser.email}) = lower(${email})`)
+    .limit(2);
+  if (rows.length !== 1) throw new ApiError(404, "user_not_found", "No user with that email exists");
+  return rows[0].id;
 }

@@ -1,8 +1,8 @@
-import { and, asc, desc, eq, isNull, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { driveObjectKey } from "./object-keys";
 
-import { buckets, files, shares } from "@defs";
+import { buckets, files, shares, spaceItems, spaceMembers, spaces } from "@defs";
 
 import { hashPassword } from "./crypto";
 import { ensureFolderChain, nowIso, toFileObject } from "./files";
@@ -10,7 +10,20 @@ import { forgetMemory, listMemories, recallMemories, rememberMemory } from "./me
 import { getContactByName, sendFileToContact } from "./peering";
 import { escapedDescendantPattern, normalizeName, normalizePath, parentOfPath } from "./paths";
 import { extractPathPrefixes, hasScope, pathAllowed, requirePathAllowed, type McpScope } from "./mcp-scopes";
-import { fileReadableFilter, memoryReadableFilter } from "./spaces";
+import {
+  assertSpaceRole,
+  canEditFileViaSpace,
+  fileReadableFilter,
+  memoryReadableFilter,
+  resolveOwnedContributionRef,
+  resolveSpaceRole,
+  resolveUserIdByEmail,
+  spaceCounts,
+  toDisplayItems,
+  toSpaceSummary,
+  userSpaceIds,
+  type SpaceItemType,
+} from "./spaces";
 import { checkTotalQuota, MCP_READ_FILE_MAX_BYTES, MCP_WRITE_FILE_MAX_BYTES } from "./quota";
 import { purgeConflictingTrashAtPath } from "./trash";
 import type { AppDb } from "../types";
@@ -189,7 +202,112 @@ export const MCP_TOOLS: McpToolDefinition[] = [
       required: ["id"],
     },
   },
+  {
+    name: "list_spaces",
+    description: "List the Shared Spaces you can reach (spaces you created plus spaces you were invited into), with your role and item/member counts.",
+    requiredScope: "read:drive",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "read_space",
+    description: "List the items in a space as a flat, attributed list (each item shows who contributed it). You must be a member of the space.",
+    requiredScope: "read:drive",
+    inputSchema: {
+      type: "object",
+      properties: {
+        space: { type: "string", description: "Space id (from list_spaces)." },
+        type: { type: "string", description: "Optional filter: file, folder, or memory." },
+      },
+      required: ["space"],
+    },
+  },
+  {
+    name: "add_to_space",
+    description: "Contribute one of YOUR OWN resources to a space by reference (no copy). You must be a contributor+ in the space and must own the resource. Editors who later edit a shared file change your real file.",
+    requiredScope: "write:drive",
+    inputSchema: {
+      type: "object",
+      properties: {
+        space: { type: "string", description: "Space id." },
+        type: { type: "string", description: "file, folder, or memory." },
+        path: { type: "string", description: "Drive path of the file/folder to contribute (for type file|folder)." },
+        memory_key: { type: "string", description: "Memory id or key to contribute (for type memory)." },
+      },
+      required: ["space", "type"],
+    },
+  },
+  {
+    name: "remove_from_space",
+    description: "Remove an item reference from a space (never deletes the underlying file/memory). You may remove your own items; removing another member's item requires the editor role.",
+    requiredScope: "write:drive",
+    inputSchema: {
+      type: "object",
+      properties: {
+        space: { type: "string", description: "Space id." },
+        item_id: { type: "string", description: "The space item id (from read_space)." },
+      },
+      required: ["space", "item_id"],
+    },
+  },
+  {
+    name: "create_space",
+    description: "Create a new invite-only Shared Space. You become its creator and can invite members with manage_space_members.",
+    requiredScope: "write:drive",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Human-readable space name." },
+      },
+      required: ["name"],
+    },
+  },
+  {
+    name: "manage_space_members",
+    description: "Invite, re-role, or remove a member of a space by email. Creator only. Pass role (viewer|contributor|editor) to add/update, or remove:true to remove.",
+    requiredScope: "write:drive",
+    inputSchema: {
+      type: "object",
+      properties: {
+        space: { type: "string", description: "Space id." },
+        email: { type: "string", description: "Email of an existing user to invite/update/remove." },
+        role: { type: "string", description: "viewer, contributor, or editor (to add or update)." },
+        remove: { type: "boolean", description: "Set true to remove the member instead of adding/updating." },
+      },
+      required: ["space", "email"],
+    },
+  },
 ];
+
+const SPACE_ITEM_TYPES: readonly SpaceItemType[] = ["file", "folder", "memory"];
+const SPACE_MEMBER_ROLES = ["viewer", "contributor", "editor"] as const;
+type SpaceMemberRole = (typeof SPACE_MEMBER_ROLES)[number];
+
+/**
+ * Spaces require a real user identity. The owner-bound AGENT_TOKEN resolves to the owner's
+ * user id (unaffected). The legacy deployment-wide AGENT_TOKEN on an OWNER_EMAIL-unset
+ * install has no principal (userId null) — it cannot act in the per-user space model, so it
+ * is rejected here rather than silently attributed to a null owner.
+ */
+function requireUserId(ownerId: string | null): string {
+  if (!ownerId) throw new Error("identity_required:spaces require an authenticated user identity (session or a user-bound bearer token)");
+  return ownerId;
+}
+
+function requireSpaceItemType(input: Record<string, unknown>): SpaceItemType {
+  const value = stringArg(input, "type")!;
+  if (!(SPACE_ITEM_TYPES as readonly string[]).includes(value)) {
+    throw new Error(`invalid_params:type must be one of ${SPACE_ITEM_TYPES.join(", ")}`);
+  }
+  return value as SpaceItemType;
+}
+
+function requireSpaceMemberRole(input: Record<string, unknown>): SpaceMemberRole {
+  const value = stringArg(input, "role")!;
+  if (!(SPACE_MEMBER_ROLES as readonly string[]).includes(value)) {
+    throw new Error(`invalid_params:role must be one of ${SPACE_MEMBER_ROLES.join(", ")}`);
+  }
+  return value as SpaceMemberRole;
+}
 
 export function listMcpTools(scopes: readonly string[]) {
   return MCP_TOOLS
@@ -292,16 +410,47 @@ export async function callMcpTool(db: AppDb, origin: string, scopes: readonly st
     const filename = normalizeName(path.split("/").pop());
     const bytes = new TextEncoder().encode(content);
     const { storage } = await import("edgespark");
-    await ensureFolderChain(db, parentPath, ownerId);
-    await purgeConflictingTrashAtPath(db, storage, path);
 
-    const [existing] = await db
+    // Resolve the write target BEFORE mutating anything. Prefer the caller's OWN row at this
+    // path — the #30 owner-scoped behavior, unchanged for a caller writing their own file.
+    const [ownRow] = await db
       .select()
       .from(files)
       .where(and(eq(files.path, path), isNull(files.deletedAt), ownerId ? eq(files.ownerId, ownerId) : undefined))
       .limit(1);
+
+    // Shared Spaces write relaxation (design D1 / Task 6): if the caller does NOT own a file
+    // here but reaches a cross-owner file at this path through a space, an editor+ overwrites
+    // the CONTRIBUTOR's real file (live-reference edit); a contributor/viewer is refused with
+    // `space_forbidden` rather than silently forking a shadow copy into their own namespace.
+    let existing = ownRow;
+    let editingViaSpace = false;
+    if (!ownRow && ownerId) {
+      const readable = await fileReadableFilter(db, ownerId);
+      const [spaceFile] = await db
+        .select()
+        .from(files)
+        .where(and(eq(files.path, path), eq(files.isFolder, 0), isNull(files.deletedAt), readable))
+        .limit(1);
+      if (spaceFile && spaceFile.ownerId !== ownerId) {
+        if (!(await canEditFileViaSpace(db, ownerId, spaceFile.id))) {
+          throw new Error("space_forbidden:editing another member's file in a space requires the editor role");
+        }
+        existing = spaceFile;
+        editingViaSpace = true;
+      }
+    }
+
     if (existing?.isFolder === 1) throw new Error("path_conflict:target is a folder");
     if (existing && !overwrite) throw new Error("path_conflict:file already exists");
+
+    // The caller's folder chain + trash purge apply only when writing into the caller's own
+    // namespace. Editing a contributor's existing file must not scaffold caller-owned folders
+    // or touch the contributor's trash.
+    if (!editingViaSpace) {
+      await ensureFolderChain(db, parentPath, ownerId);
+      await purgeConflictingTrashAtPath(db, storage, path);
+    }
 
     if (bytes.byteLength > MCP_WRITE_FILE_MAX_BYTES) {
       throw new Error(`file_too_large:write_file content is ${bytes.byteLength} bytes; the limit is ${MCP_WRITE_FILE_MAX_BYTES} bytes (use REST presigned upload for larger/binary files)`);
@@ -453,6 +602,140 @@ export async function callMcpTool(db: AppDb, origin: string, scopes: readonly st
     const forgotten = await forgetMemory(db, idOrKey, ownerId);
     if (!forgotten) throw new Error("memory_not_found");
     return textResult({ forgotten });
+  }
+
+  if (name === "list_spaces") {
+    const callerId = requireUserId(ownerId);
+    const spaceIds = await userSpaceIds(db, callerId);
+    if (spaceIds.length === 0) return textResult({ spaces: [] });
+    const rows = await db.select().from(spaces).where(inArray(spaces.id, spaceIds));
+    const result = await Promise.all(
+      rows.map(async (space) => {
+        // Role is never null: space.id came from userSpaceIds(callerId).
+        const role = (await resolveSpaceRole(db, space.id, callerId))!;
+        const counts = await spaceCounts(db, space.id);
+        return toSpaceSummary(space, role, counts);
+      })
+    );
+    return textResult({ spaces: result });
+  }
+
+  if (name === "read_space") {
+    const callerId = requireUserId(ownerId);
+    const spaceId = stringArg(input, "space")!;
+    const itemType = input.type == null ? undefined : requireSpaceItemType(input);
+
+    // Non-member (or missing space) → space_not_found, never leaking that the id is real —
+    // mirrors REST GET /spaces/:id (404, not the 403 the creator-only mutations use).
+    const role = await resolveSpaceRole(db, spaceId, callerId);
+    if (role === null) throw new Error("space_not_found:space not found");
+
+    const [space] = await db.select().from(spaces).where(eq(spaces.id, spaceId)).limit(1);
+    const counts = await spaceCounts(db, spaceId);
+    const rows = await db
+      .select()
+      .from(spaceItems)
+      .where(and(eq(spaceItems.spaceId, spaceId), itemType ? eq(spaceItems.itemType, itemType) : undefined))
+      .orderBy(desc(spaceItems.addedAt));
+    const items = await toDisplayItems(db, rows);
+    return textResult({ space: toSpaceSummary(space, role, counts), items });
+  }
+
+  if (name === "add_to_space") {
+    const callerId = requireUserId(ownerId);
+    const spaceId = stringArg(input, "space")!;
+    const itemType = requireSpaceItemType(input);
+    const ref = itemType === "memory" ? stringArg(input, "memory_key")! : stringArg(input, "path")!;
+
+    // contributor+ to add; ownership of the resource is re-verified by resolveOwnedContributionRef.
+    await assertSpaceRole(db, spaceId, callerId, "contributor");
+    const itemRef = await resolveOwnedContributionRef(db, itemType, ref, callerId);
+
+    await db
+      .insert(spaceItems)
+      .values({ id: nanoid(), spaceId, itemType, itemRef, contributedBy: callerId, addedAt: nowIso() })
+      .onConflictDoNothing({ target: [spaceItems.spaceId, spaceItems.itemType, spaceItems.itemRef] });
+    // Idempotent contribute: re-select rather than trust .returning() after onConflictDoNothing.
+    const [item] = await db
+      .select()
+      .from(spaceItems)
+      .where(and(eq(spaceItems.spaceId, spaceId), eq(spaceItems.itemType, itemType), eq(spaceItems.itemRef, itemRef)))
+      .limit(1);
+    if (!item) throw new Error("internal_error:space item was not created");
+    const [display] = await toDisplayItems(db, [item]);
+    return textResult({ item: display });
+  }
+
+  if (name === "remove_from_space") {
+    const callerId = requireUserId(ownerId);
+    const spaceId = stringArg(input, "space")!;
+    const itemId = stringArg(input, "item_id")!;
+
+    // contributor+ required before any lookup; a viewer/non-member is refused here.
+    await assertSpaceRole(db, spaceId, callerId, "contributor");
+    const [item] = await db
+      .select()
+      .from(spaceItems)
+      .where(and(eq(spaceItems.id, itemId), eq(spaceItems.spaceId, spaceId)))
+      .limit(1);
+    if (!item) throw new Error("item_not_found:space item not found");
+    // A contributor may remove only their OWN item; removing anyone else's needs editor+.
+    if (item.contributedBy !== callerId) {
+      await assertSpaceRole(db, spaceId, callerId, "editor");
+    }
+    await db.delete(spaceItems).where(eq(spaceItems.id, itemId));
+    return textResult({ removed: true, id: itemId });
+  }
+
+  if (name === "create_space") {
+    const callerId = requireUserId(ownerId);
+    const rawName = stringArg(input, "name")!;
+    const spaceName = rawName.length > 200 ? rawName.slice(0, 200) : rawName;
+    const [space] = await db
+      .insert(spaces)
+      .values({ id: nanoid(), name: spaceName, creatorId: callerId, visibility: "invite", createdAt: nowIso() })
+      .returning();
+    if (!space) throw new Error("internal_error:space was not created");
+    return textResult({ space: toSpaceSummary(space, "creator", { memberCount: 1, itemCount: 0 }) });
+  }
+
+  if (name === "manage_space_members") {
+    const callerId = requireUserId(ownerId);
+    const spaceId = stringArg(input, "space")!;
+    const email = stringArg(input, "email")!;
+    const remove = input.remove === true;
+
+    // Creator-only membership management (design §Security spine #3).
+    await assertSpaceRole(db, spaceId, callerId, "creator");
+    const [space] = await db.select().from(spaces).where(eq(spaces.id, spaceId)).limit(1);
+    if (!space) throw new Error("space_not_found:space not found");
+    const memberUserId = await resolveUserIdByEmail(db, email);
+    if (memberUserId === space.creatorId) {
+      throw new Error("invalid_params:the space creator cannot be added, changed, or removed as a member");
+    }
+
+    if (remove) {
+      const deleted = await db
+        .delete(spaceMembers)
+        .where(and(eq(spaceMembers.spaceId, spaceId), eq(spaceMembers.userId, memberUserId)))
+        .returning({ userId: spaceMembers.userId });
+      if (deleted.length === 0) throw new Error("member_not_found:that user is not a member of this space");
+      // Retract the removed member's contributions too (parity with REST DELETE members) —
+      // a removed member's shared resources should stop being reachable by the space.
+      await db.delete(spaceItems).where(and(eq(spaceItems.spaceId, spaceId), eq(spaceItems.contributedBy, memberUserId)));
+      return textResult({ removed: true, userId: memberUserId });
+    }
+
+    const role = requireSpaceMemberRole(input);
+    const addedAt = nowIso();
+    await db
+      .insert(spaceMembers)
+      .values({ spaceId, userId: memberUserId, role, addedBy: callerId, addedAt })
+      .onConflictDoUpdate({
+        target: [spaceMembers.spaceId, spaceMembers.userId],
+        set: { role, addedBy: callerId, addedAt },
+      });
+    return textResult({ member: { userId: memberUserId, email, role, addedBy: callerId, addedAt } });
   }
 
   throw new Error(`unknown_tool:${name}`);

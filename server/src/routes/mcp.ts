@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 
 import { checkAccessGate } from "../lib/access";
+import { ApiError } from "../lib/errors";
 import { authenticateMcpBearer, type McpAuthContext } from "../lib/mcp-auth";
 import { callMcpTool, listMcpTools } from "../lib/mcp-tools";
 
@@ -54,6 +55,7 @@ function initializeResult(origin: string, auth: McpAuthContext) {
     `- write_file -> write:drive. UTF-8 TEXT only, max 5MB. For binary or large files (PDF, images, video) do NOT use write_file — use the REST presigned flow: POST ${origin}/api/public/v1/files/upload -> PUT the bytes to the returned uploadUrl -> POST ${origin}/api/public/v1/files/upload/complete.`,
     `- create_share, send_file -> share:create`,
     `- remember, recall, list_memories, forget -> read:memory / write:memory`,
+    `- list_spaces, read_space -> read:drive; add_to_space, remove_from_space, create_space, manage_space_members -> write:drive. Shared Spaces let you read/contribute files + memory by reference; an editor+ writing a shared file edits the contributor's REAL file.`,
     ``,
     `Rules:`,
     `- Paths are absolute and must start with "/".`,
@@ -113,7 +115,14 @@ mcpRoutes.post("/", async (c) => {
       const result = await callMcpTool(db, origin, auth.scopes, params.name, args, auth.userId);
       return jsonRpcResult(request.id, result);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Tool call failed";
+      // Space helpers (assertSpaceRole/resolveOwnedContributionRef/resolveUserIdByEmail) throw
+      // ApiError with a machine code in `.code`; surface it as the colon-prefixed code the MCP
+      // error convention uses, so agents see `space_forbidden:...`, not just the prose message.
+      const message = error instanceof ApiError
+        ? `${error.code}:${error.message}`
+        : error instanceof Error
+          ? error.message
+          : "Tool call failed";
       const code = message.startsWith("invalid_scope:") ? -32001 : message.startsWith("invalid_params:") ? -32602 : -32000;
       return jsonRpcError(request.id, code, message);
     }
