@@ -10,6 +10,7 @@ import { forgetMemory, listMemories, recallMemories, rememberMemory } from "./me
 import { getContactByName, sendFileToContact } from "./peering";
 import { escapedDescendantPattern, joinPath, normalizeName, normalizePath, parentOfPath } from "./paths";
 import { extractPathPrefixes, hasScope, pathAllowed, requirePathAllowed, type McpScope } from "./mcp-scopes";
+import { fileReadableFilter } from "./spaces";
 import { checkTotalQuota, MCP_READ_FILE_MAX_BYTES, MCP_WRITE_FILE_MAX_BYTES } from "./quota";
 import { purgeConflictingTrashAtPath } from "./trash";
 import type { AppDb } from "../types";
@@ -219,13 +220,16 @@ export async function callMcpTool(db: AppDb, origin: string, scopes: readonly st
       const allowAsAncestor = grantedPrefixes.some((prefix) => prefix.startsWith(`${path === "/" ? "" : path}/`));
       if (!allowAsAncestor) throw new Error(`invalid_scope:path:${path}`);
     }
+    // Read-path union: own rows plus space-reachable files (design §Read-path change / MCP
+    // equivalents). Reduces to the strict owner filter when the caller has no spaces.
+    const readable = await fileReadableFilter(db, ownerId);
     const loadRows = async (pageLimit: number, pageOffset: number): Promise<Array<typeof files.$inferSelect>> => {
       if (recursive) {
         return path === "/"
-          ? db.select().from(files).where(and(isNull(files.deletedAt), ownerId ? eq(files.ownerId, ownerId) : undefined)).orderBy(asc(files.path)).limit(pageLimit).offset(pageOffset)
-          : db.select().from(files).where(and(sql`${files.path} LIKE ${escapedDescendantPattern(path)} ESCAPE '\\'`, isNull(files.deletedAt), ownerId ? eq(files.ownerId, ownerId) : undefined)).orderBy(asc(files.path)).limit(pageLimit).offset(pageOffset);
+          ? db.select().from(files).where(and(isNull(files.deletedAt), readable)).orderBy(asc(files.path)).limit(pageLimit).offset(pageOffset)
+          : db.select().from(files).where(and(sql`${files.path} LIKE ${escapedDescendantPattern(path)} ESCAPE '\\'`, isNull(files.deletedAt), readable)).orderBy(asc(files.path)).limit(pageLimit).offset(pageOffset);
       }
-      return db.select().from(files).where(and(eq(files.parentPath, path), isNull(files.deletedAt), ownerId ? eq(files.ownerId, ownerId) : undefined)).orderBy(desc(files.isFolder), asc(files.name)).limit(pageLimit).offset(pageOffset);
+      return db.select().from(files).where(and(eq(files.parentPath, path), isNull(files.deletedAt), readable)).orderBy(desc(files.isFolder), asc(files.name)).limit(pageLimit).offset(pageOffset);
     };
 
     const visible: Array<typeof files.$inferSelect> = [];
@@ -252,10 +256,14 @@ export async function callMcpTool(db: AppDb, origin: string, scopes: readonly st
   if (name === "read_file") {
     const path = normalizePath(stringArg(input, "path")!);
     requirePathAllowed(scopes, path);
+    // Read path: widen to space-reachable files. A space file lives in the contributor's path
+    // namespace; `.limit(1)` may pick the caller's own row first on a rare cross-owner path
+    // collision — acceptable in P1 (the space endpoints are the collision-free access path).
+    const readable = await fileReadableFilter(db, ownerId);
     const [file] = await db
       .select()
       .from(files)
-      .where(and(eq(files.path, path), eq(files.isFolder, 0), isNull(files.deletedAt), ownerId ? eq(files.ownerId, ownerId) : undefined))
+      .where(and(eq(files.path, path), eq(files.isFolder, 0), isNull(files.deletedAt), readable))
       .limit(1);
     if (!file?.s3Uri) throw new Error("file_not_found");
     const { storage } = await import("edgespark");
@@ -333,13 +341,14 @@ export async function callMcpTool(db: AppDb, origin: string, scopes: readonly st
     const limit = Math.max(1, Math.min(100, Math.trunc(numberArg(input, "limit", 50))));
     if (query.length < 2) return textResult({ query, files: [] });
     const pattern = `%${escapeLikeQuery(query)}%`;
+    const readable = await fileReadableFilter(db, ownerId);
     const rows = await db
       .select()
       .from(files)
       .where(and(
         or(sql`${files.name} LIKE ${pattern} ESCAPE '\\'`, sql`${files.path} LIKE ${pattern} ESCAPE '\\'`),
         isNull(files.deletedAt),
-        ownerId ? eq(files.ownerId, ownerId) : undefined
+        readable
       ))
       .orderBy(desc(files.isFolder), asc(files.name))
       .limit(limit);

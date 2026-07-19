@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, or, sql, type SQL } from "drizzle-orm";
 
 import { files, memories, spaceItems, spaceMembers, spaces } from "@defs";
 
@@ -137,6 +137,33 @@ export async function accessibleFileIds(db: AppDb, userId: string): Promise<stri
     for (const id of descendants) ids.add(id);
   }
   return [...ids];
+}
+
+/**
+ * The Shared Spaces P1 read-path union (design §Read-path change / §Security spine #1),
+ * as a Drizzle `WHERE` condition to drop into any FILE read query in place of the bare
+ * `ownerId ? eq(files.ownerId, ownerId) : undefined` owner filter.
+ *
+ * Semantics, preserving #30 isolation exactly except for the one controlled hole:
+ * - `userId === null` (legacy trust-any-session): return `undefined` — no scoping, matching
+ *   the previous `ownerId ? … : undefined` behavior byte-for-byte.
+ * - user has NO reachable space files: return `eq(files.ownerId, userId)` — IDENTICAL to the
+ *   strict owner filter, so a non-member (or any caller with empty spaces) sees only their own
+ *   rows. This is why the #30 isolation suites stay green: no spaces ⇒ `accessibleFileIds` is
+ *   `[]` ⇒ this reduces to the pre-Spaces filter.
+ * - user has reachable space files: return `owner_id = me OR files.id ∈ accessibleFileIds`.
+ *   The `inArray` set is computed per-caller from THIS user's active memberships only, so it can
+ *   never widen to another owner's non-shared rows.
+ *
+ * USE ONLY ON READ PATHS (list/get/read/search/download-presign). Writes/mutations
+ * (rename/move/delete/overwrite/share/send) stay strictly owner-scoped in P1 — do not use this
+ * there.
+ */
+export async function fileReadableFilter(db: AppDb, userId: string | null): Promise<SQL | undefined> {
+  if (!userId) return undefined;
+  const ids = await accessibleFileIds(db, userId);
+  if (ids.length === 0) return eq(files.ownerId, userId);
+  return or(eq(files.ownerId, userId), inArray(files.id, ids));
 }
 
 /**
