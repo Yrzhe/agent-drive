@@ -1,4 +1,3 @@
-PRAGMA foreign_keys=OFF;--> statement-breakpoint
 CREATE TABLE `__new_bundle_versions` (
 	`id` text PRIMARY KEY NOT NULL,
 	`prefix` text NOT NULL,
@@ -17,7 +16,6 @@ CREATE TABLE `__new_bundle_versions` (
 INSERT INTO `__new_bundle_versions`(`id`, `prefix`, `public_id`, `current_version_id`, `previous_version_id`, `machine_id`, `hash`, `file_count`, `total_size`, `pushed_at`, `updated_at`, `owner_id`) SELECT lower(hex(randomblob(16))), `prefix`, `public_id`, `current_version_id`, `previous_version_id`, `machine_id`, `hash`, `file_count`, `total_size`, `pushed_at`, `updated_at`, `owner_id` FROM `bundle_versions`;--> statement-breakpoint
 DROP TABLE `bundle_versions`;--> statement-breakpoint
 ALTER TABLE `__new_bundle_versions` RENAME TO `bundle_versions`;--> statement-breakpoint
-PRAGMA foreign_keys=ON;--> statement-breakpoint
 CREATE UNIQUE INDEX `bundle_versions_public_id_unique` ON `bundle_versions` (`public_id`);--> statement-breakpoint
 CREATE INDEX `idx_bundle_versions_current` ON `bundle_versions` (`current_version_id`);--> statement-breakpoint
 CREATE INDEX `idx_bundle_versions_pushed_at` ON `bundle_versions` (`pushed_at`);--> statement-breakpoint
