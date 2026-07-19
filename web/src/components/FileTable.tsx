@@ -23,6 +23,7 @@ export function FileTable({
   onRename,
   onShare,
   onDelete,
+  onAddToSpace,
 }: {
   entries: DriveFile[];
   loading: boolean;
@@ -34,6 +35,7 @@ export function FileTable({
   onRename: (entry: DriveFile) => void;
   onShare: (entry: DriveFile) => void;
   onDelete: (entry: DriveFile) => void;
+  onAddToSpace?: (entry: DriveFile) => void;
 }) {
   const selectableIds = entries.map((entry) => entry.id);
   const selectedCount = selectableIds.filter((id) => selectedIds.has(id)).length;
@@ -104,6 +106,9 @@ export function FileTable({
                     <div className="flex flex-wrap gap-2">
                       <button className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-700" onClick={() => onRename(entry)} type="button">Rename</button>
                       <button className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-700" onClick={() => onShare(entry)} type="button">Share</button>
+                      {onAddToSpace ? (
+                        <button className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-700" onClick={() => onAddToSpace(entry)} type="button">Add to space</button>
+                      ) : null}
                       <button className="rounded border border-red-300 px-2 py-1 text-xs text-red-700" onClick={() => onDelete(entry)} type="button">Delete</button>
                     </div>
                   </td>

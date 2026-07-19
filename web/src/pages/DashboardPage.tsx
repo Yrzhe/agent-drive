@@ -5,6 +5,7 @@ import { Breadcrumbs } from "@/components/Breadcrumbs";
 import { FileTable } from "@/components/FileTable";
 import { PreviewModal } from "@/components/PreviewModal";
 import { ShareModal, type ShareModalInput } from "@/components/ShareModal";
+import { AddToSpaceModal } from "@/components/spaces/AddToSpaceModal";
 import { UploadZone, type UploadProgress } from "@/components/UploadZone";
 import { useAccessStatus } from "@/hooks/useAccessStatus";
 import { useAuth } from "@/hooks/useAuth";
@@ -38,6 +39,7 @@ export default function DashboardPage() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [shareTarget, setShareTarget] = useState<DriveFile | null>(null);
   const [previewTarget, setPreviewTarget] = useState<DriveFile | null>(null);
+  const [addToSpaceTarget, setAddToSpaceTarget] = useState<DriveFile | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<UploadProgress | null>(null);
@@ -394,6 +396,7 @@ export default function DashboardPage() {
               value={searchQuery}
             />
             <Link className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700" to="/connect"><span aria-hidden="true">+</span> Connect AI Agent</Link>
+            <Link className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-700" to="/spaces">Spaces</Link>
             <Link className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-700" to="/bundles">Synced bundles</Link>
             <Link className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-700" to="/trash">Trash</Link>
             <Link className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-700" to="/guide">Open Guide</Link>
@@ -460,6 +463,7 @@ export default function DashboardPage() {
           <FileTable
             entries={displayedEntries}
             loading={isSearchActive ? searching : loadingFiles}
+            onAddToSpace={(entry) => setAddToSpaceTarget(entry)}
             onDelete={(entry) => { void handleDelete(entry); }}
             onOpenFolder={handleOpenFolder}
             onPreview={(entry) => setPreviewTarget(entry)}
@@ -566,6 +570,16 @@ export default function DashboardPage() {
 
       {shareTarget ? <ShareModal onCancel={() => setShareTarget(null)} onCreate={(input) => { void handleCreateShare(input); }} target={shareTarget} /> : null}
       {previewTarget ? <PreviewModal loadPreview={loadPreview} onClose={() => setPreviewTarget(null)} target={previewTarget} /> : null}
+      {addToSpaceTarget ? (
+        <AddToSpaceModal
+          onAdded={() => {
+            setAddToSpaceTarget(null);
+            window.alert(`Added "${addToSpaceTarget.name}" to the space.`);
+          }}
+          onCancel={() => setAddToSpaceTarget(null)}
+          target={addToSpaceTarget}
+        />
+      ) : null}
     </main>
   );
 }
