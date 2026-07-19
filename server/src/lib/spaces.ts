@@ -46,7 +46,11 @@ export async function resolveSpaceRole(db: AppDb, spaceId: string, userId: strin
     .from(spaceMembers)
     .where(and(eq(spaceMembers.spaceId, spaceId), eq(spaceMembers.userId, userId)))
     .limit(1);
-  return (member?.role as SpaceRole | undefined) ?? null;
+  // Fail closed on any role value outside the known set: an unrecognized string would make
+  // ROLE_RANK[role] undefined, and `undefined < min` is false — assertSpaceRole would NOT
+  // throw, silently granting access. Treat an unknown role as no membership.
+  const role = member?.role;
+  return role && role in ROLE_RANK ? (role as SpaceRole) : null;
 }
 
 /**

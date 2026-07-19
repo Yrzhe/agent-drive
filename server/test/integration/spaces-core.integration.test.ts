@@ -44,6 +44,15 @@ describe("lib/spaces core resolvers (Shared Spaces P1 Task 1)", () => {
     it("an unknown space id resolves null", async () => {
       expect(await resolveSpaceRole(runtime.db as never, "does-not-exist", "user-a")).toBeNull();
     });
+
+    it("fails closed: a role value outside the known set resolves null (not silently authorized)", async () => {
+      const spaceId = await seedSpace({ creatorId: "user-a" });
+      // A corrupt/unknown role must never make ROLE_RANK[role] undefined and slip past
+      // `undefined < min`; it must deny like a non-member.
+      await seedSpaceMember({ spaceId, userId: "user-bad", role: "superadmin" as never, addedBy: "user-a" });
+      expect(await resolveSpaceRole(runtime.db as never, spaceId, "user-bad")).toBeNull();
+      await expect(assertSpaceRole(runtime.db as never, spaceId, "user-bad", "viewer")).rejects.toThrow(ApiError);
+    });
   });
 
   describe("userSpaceIds", () => {
