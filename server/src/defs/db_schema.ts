@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { index, integer, sqliteTable, text, unique } from "drizzle-orm/sqlite-core";
+import { index, integer, primaryKey, sqliteTable, text, unique } from "drizzle-orm/sqlite-core";
 
 export const files = sqliteTable(
   "files",
@@ -232,6 +232,68 @@ export const registrationIntents = sqliteTable(
     consumedAt: text("consumed_at"),
   },
   (table) => [index("idx_registration_intents_email").on(table.email)]
+);
+
+/**
+ * Shared Spaces P1 (design: docs/implementation/2026-07-19-shared-spaces-design.md).
+ *
+ * A Space is a sharing/authorization layer on top of #30's per-owner isolation: it lets
+ * users reference each other's existing files/folders/memory **by reference** (no storage
+ * duplication — the bytes/rows stay owned by whoever contributed them). `visibility` is
+ * `'invite'` (creator-managed membership) in P1; `'public'` (the single built-in commons,
+ * implicit membership for all active users) is P2.
+ */
+export const spaces = sqliteTable("spaces", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  creatorId: text("creator_id").notNull(),
+  visibility: text("visibility").notNull().default("invite"), // 'invite' | 'public'
+  createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
+});
+
+/**
+ * Explicit membership rows for a space. The creator is NOT required to have a row here —
+ * `resolveSpaceRole` derives 'creator' from `spaces.creatorId` — so this table only ever
+ * holds invited members (viewer/contributor/editor). Public-space implicit membership (P2)
+ * has no row per user either; an explicit row there would only be used to OVERRIDE a
+ * specific user's default role.
+ */
+export const spaceMembers = sqliteTable(
+  "space_members",
+  {
+    spaceId: text("space_id").notNull(),
+    userId: text("user_id").notNull(),
+    role: text("role").notNull(), // 'viewer' | 'contributor' | 'editor'
+    addedBy: text("added_by").notNull(),
+    addedAt: text("added_at").notNull().default(sql`(datetime('now'))`),
+  },
+  (table) => [
+    primaryKey({ columns: [table.spaceId, table.userId] }),
+    index("idx_space_members_user").on(table.userId),
+  ]
+);
+
+/**
+ * A reference-only row into a space: `itemRef` is `files.id` for a `'file'` item, the
+ * folder root's `files.id` for a `'folder'` item (descendants resolved on read via
+ * `expandFolderItemToFileIds`), or `memories.id` for a `'memory'` item. Removing a row here
+ * removes the reference only — the underlying resource is untouched and stays owned by
+ * `contributedBy`.
+ */
+export const spaceItems = sqliteTable(
+  "space_items",
+  {
+    id: text("id").primaryKey(),
+    spaceId: text("space_id").notNull(),
+    itemType: text("item_type").notNull(), // 'file' | 'folder' | 'memory'
+    itemRef: text("item_ref").notNull(),
+    contributedBy: text("contributed_by").notNull(),
+    addedAt: text("added_at").notNull().default(sql`(datetime('now'))`),
+  },
+  (table) => [
+    index("idx_space_items_space").on(table.spaceId),
+    unique("space_items_space_type_ref_unq").on(table.spaceId, table.itemType, table.itemRef),
+  ]
 );
 
 export const oauthTokens = sqliteTable(
