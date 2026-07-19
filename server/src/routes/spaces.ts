@@ -318,6 +318,15 @@ spacesRoutes.delete(
       .returning({ userId: spaceMembers.userId });
     if (deleted.length === 0) throw new ApiError(404, "member_not_found", "That user is not a member of this space");
 
+    // Retract the removed member's contributions too. Otherwise their files/memory would
+    // stay readable by the remaining members once the read-path union (Task 4/5) lands,
+    // while they — no longer a member — could no longer remove those items themselves. A
+    // removed member's shared resources should stop being shared. Reference rows only; the
+    // underlying files/memory are never touched.
+    await db
+      .delete(spaceItems)
+      .where(and(eq(spaceItems.spaceId, spaceId), eq(spaceItems.contributedBy, targetUserId)));
+
     return c.json({ removed: true, userId: targetUserId });
   })
 );

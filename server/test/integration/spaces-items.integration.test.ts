@@ -168,6 +168,31 @@ describe("spaces items REST (P1 Task 3)", () => {
     expect(listBody.items[0]).toMatchObject({ itemType: "memory", name: "b-note" });
   });
 
+  it("removing a member retracts their contributed items (reference rows only; underlying file survives)", async () => {
+    seedUsers();
+    await seedDriveFile({ id: "file-bob", path: "/bobs.txt", ownerId: USER_B.id });
+    useSession(USER_A);
+    const space = await createSpace();
+    await inviteMember(space.id, USER_B.email, "contributor");
+
+    useSession(USER_B);
+    expect((await contribute(space.id, "file", "/bobs.txt")).status).toBe(201);
+
+    useSession(USER_A);
+    const removed = await app.request(`/api/public/v1/spaces/${space.id}/members/${USER_B.id}`, {
+      method: "DELETE",
+      headers: jsonHeaders(),
+    });
+    expect(removed.status).toBe(200);
+
+    // B's contribution is gone from the space...
+    const listBody = (await (await listItems(space.id)).json()) as { items: unknown[] };
+    expect(listBody.items).toHaveLength(0);
+    // ...but B's real file is untouched.
+    const [row] = await runtime.db.select().from(files).where(eq(files.id, "file-bob"));
+    expect(row).toBeDefined();
+  });
+
   it("contributing the same ref twice is idempotent — no duplicate row, same item id", async () => {
     seedUsers();
     await seedDriveFile({ id: "file-a2", path: "/dupe.txt", ownerId: USER_A.id });
