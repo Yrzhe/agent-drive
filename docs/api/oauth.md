@@ -76,9 +76,8 @@ Request:
 Validation rules:
 
 - `client_name`: 1–64 printable ASCII characters.
-- `redirect_uris`: array, 1–5 entries. Each must be `https://...` **except** `http://localhost:*` and `http://127.0.0.1:*` (allowed for local dev / desktop apps per IETF guidance).
-- `grant_types`: must be a subset of `["authorization_code", "refresh_token"]`.
-- `response_types`: must be `["code"]`.
+- `redirect_uris`: array, at least 1 entry — no maximum. Each must be `https://...` **except** `http://localhost:*` and `http://127.0.0.1:*` (allowed for local dev / desktop apps per IETF guidance).
+- `grant_types` / `response_types`: not read from the request body — whatever the client sends for these two fields is ignored. The server always responds with `grant_types: ["authorization_code", "refresh_token"]` and `response_types: ["code"]`.
 - `scope`: space-separated; unknown/malformed scope tokens are silently dropped during normalization (the effective set is returned in the response). An all-invalid or empty scope falls back to `read:drive`.
 
 Rate limits:
@@ -119,6 +118,8 @@ Required query params:
 | `code_challenge_method` | `S256` |
 | `scope` | Space-separated; must be subset of registered scope |
 
+Errors: `400 invalid_request` — missing `code_challenge` or `code_challenge_method` is not `S256`. `400 unsupported_response_type` — `response_type` is not `code`. `400 invalid_client` — unknown `client_id`. `400 invalid_redirect_uri` — `redirect_uri` doesn't match a registered URI.
+
 Behavior:
 
 1. If the user has no EdgeSpark session, redirects to login then back.
@@ -141,6 +142,7 @@ Internal endpoint hit by the consent UI when the user approves or denies. Origin
 - `Origin` header is required and must equal the deployment origin (or `ALLOWED_ORIGIN`). Missing/mismatched Origin → `403 csrf_error`.
 - `approved` must be the literal string `"true"` to grant. Any other value (including missing) denies.
 - `scope` may be a strict subset of what the client requested.
+- Same PKCE requirement as `/authorize`: missing `code_challenge` or a non-`S256` `code_challenge_method` → `400 invalid_request`. Unknown `client_id` → `400 invalid_client`; mismatched `redirect_uri` → `400 invalid_redirect_uri`.
 
 ### `POST /oauth/token`
 
@@ -196,11 +198,32 @@ Response:
 
 | `error` | When |
 |---|---|
-| `invalid_request` | Missing required field |
-| `invalid_grant` | Code not found, expired, already used, or PKCE mismatch |
-| `invalid_client` | `client_id` not registered |
-| `invalid_scope` | Requested scope exceeds prior grant |
+| `too_many_attempts` | Rate limit exceeded (429) |
+| `invalid_client` | `client_id` not registered, or `client_secret` invalid |
+| `invalid_grant` | Code/refresh token not found, expired, already used, PKCE mismatch, or `redirect_uri` mismatch |
 | `unsupported_grant_type` | Anything other than `authorization_code` or `refresh_token` |
+
+Note: refresh does not currently support narrowing scope via the `scope` request parameter — see "Grant: `refresh_token`" above.
+
+### `GET /oauth/clients/:clientId`
+
+Public, no authentication. Returns a registered client's public metadata.
+
+Response (200):
+
+```json
+{
+  "client_id": "ad_...",
+  "client_name": "my-ide",
+  "redirect_uris": ["https://example.com/callback"],
+  "scope": "read:drive write:drive share:create",
+  "token_endpoint_auth_method": "none"
+}
+```
+
+`token_endpoint_auth_method` is derived from whether the client has a stored secret hash (`"client_secret_post"` if so, else `"none"`) — it is not stored as its own field. `client_secret` is never returned.
+
+Errors: `400 invalid_request` — missing `clientId` path param. `404 client_not_found` — no client with that id.
 
 ## Token format
 

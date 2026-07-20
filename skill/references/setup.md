@@ -70,6 +70,18 @@ The second command prints a URL. **STOP and tell the user:**
 
 **Wait for confirmation.**
 
+## Set OWNER_EMAIL — required to arm the ownership boundary
+
+**Do not skip this.** `OWNER_EMAIL` is what makes the deployment know who owns it.
+
+```bash
+edgespark var set OWNER_EMAIL <the owner's login email>
+```
+
+While it is unset, `isRequestOwner()` returns **true for any authenticated session** — every account that can log in is treated as the owner. Signup is open on this product, so an unset `OWNER_EMAIL` means the next person who registers has owner-level reach over the drive. It also leaves `AGENT_TOKEN` bound to no real user, which is why space operations reject that token with `403 identity_required`.
+
+Match it to the email the owner actually logs in with (comparison is trimmed and case-insensitive). Set it right after the first deploy, then confirm the owner can still reach `/api/public/v1/account/status` before handing the drive to anyone.
+
 ### Optional: Narrow MCP scopes for AGENT_TOKEN
 
 ### Handing a narrow token to a third-party agent

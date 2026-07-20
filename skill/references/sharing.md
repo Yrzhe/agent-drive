@@ -98,8 +98,23 @@ Created → Active → Expired (expiresAt passed)
 ```
 
 - **Active**: appears in share list, download works
-- **Expired/Exhausted**: hidden from share list, public access returns 410/429
-- **Deleted**: removed from DB, public access returns 404
+- **Expired/Exhausted**: hidden from your share list. The status endpoint `GET /s/{shareId}` still answers **200** with `{ expired: true }` / `{ exhausted: true }` — it does NOT error. Only the acting endpoints refuse: `/access`, `/download`, and `/download-zip` throw `410 share_expired` / `429 share_exhausted`. **Do not infer liveness from a 200 on the status endpoint — read the two flags.**
+- **Deleted**: removed from DB, every endpoint returns 404 `share_not_found`
+
+## Share Analytics
+
+```bash
+GET {apiBase}/shares/{shareId}/stats
+Returns: {
+  share, totalDownloads, totalAccesses,
+  firstAccessed, lastAccessed, lastDownload,
+  fileBreakdown: [{ fileId, filename, downloads }],
+  ipStats:        [{ ip, count }],
+  userAgentStats: [{ userAgent, count }]
+}
+```
+
+Owner-only. Note that `ipStats` and `userAgentStats` are personally identifying information about whoever opened the link — report them to the owner when asked, but do not volunteer or republish them elsewhere.
 
 ## Handoff Message Format
 

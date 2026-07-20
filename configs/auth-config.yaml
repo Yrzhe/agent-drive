@@ -7,9 +7,10 @@ providerEmailPassword:
     # Required before signup opens (#30 Part ②): the allowlist auto-activates a new
     # account by matching email, so an unverified signer could claim an allowlisted
     # address they do not own. Email verification makes the allowlist match trustworthy.
-    # Prod email transport is platform-delivered (Resend/Postmark) and can only be
-    # confirmed on a deployed cloud environment — a go-live checklist item, see the
-    # deploy runbook. disableSignUp stays true until Task 8 / go-live.
+    # Prod email transport is platform-delivered (Resend/Postmark); confirmed working
+    # against the deployed environment at go-live. Signup is now open
+    # (disableSignUp: false) — new accounts land on the waitlist as `pending` and
+    # need owner approval unless their email is allowlisted.
     requireEmailVerification: true
     requirePasswordResetEmailVerification: false
     revokeSessionsOnPasswordReset: false

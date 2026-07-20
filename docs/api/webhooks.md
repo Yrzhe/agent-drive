@@ -69,6 +69,9 @@ Body:
 
 The target URL is re-validated at delivery time and `redirect: "manual"` blocks redirect-based SSRF (a DNS-rebinding window is documented in code). Delivery is best-effort/background; the result is reflected in `lastStatus` / `failureCount` (via `GET`).
 
+- **Retry**: a `5xx` response triggers exactly one retry, after a 2-second delay. Network errors, timeouts, and non-5xx failures are not retried.
+- **Auto-disable**: `failureCount` increments on any failed delivery (after the retry, if one happened) and resets to 0 on success. After 5 consecutive failures, the webhook is automatically disabled (`enabled: false`) — re-enable it manually (delete and recreate, since there is no separate enable endpoint) once the target is fixed.
+
 ## Errors
 
 `400 validation_error` (missing `url`, empty or non-array `eventTypes`, or an SSRF-rejected URL), `403 invalid_scope` (message `invalid_scope:path:/` — a path-restricted token), `404 webhook_not_found`.

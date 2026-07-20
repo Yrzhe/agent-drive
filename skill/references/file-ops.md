@@ -63,11 +63,22 @@ GET {apiBase}/files?path=/projects/2024
 
 # List everything recursively (flat)
 GET {apiBase}/files?path=/&recursive=true
+
+# Page through a large folder
+GET {apiBase}/files?path=/&limit=500&offset=500
 ```
 
-Returns: `{ files: [{ id, name, path, parentPath, isFolder, size, contentType, createdAt, updatedAt }], path }`
+Returns: `{ files: [{ id, name, path, parentPath, isFolder, size, contentType, createdAt, updatedAt }], path, limit, offset }`
 
-Files are sorted: folders first, then files alphabetically.
+**This endpoint is paginated and truncates silently.** `limit` defaults to **100** and is clamped to 1–500; `offset` defaults to 0. A folder with more than 100 entries returns only the first 100 with no flag saying so — if you need the whole listing, page until you get back fewer rows than you asked for. Do not treat one call as complete.
+
+Sort order differs by mode:
+- **Non-recursive** — folders first, then by name (`isFolder DESC, name ASC`).
+- **`recursive=true`** — by full path only. Folders and files are interleaved, NOT grouped.
+
+**Reads can return files you do not own.** If you belong to any Shared Space, this endpoint (and `search`, `GET /files/{id}`, and preview/download) returns your own files UNION the items reachable through your space memberships. With no memberships the result is exactly your own files.
+
+The file objects here carry **no ownership field** — you cannot tell from this response whether a row is yours or someone else's. To attribute an item, list the space (`read_space` / `GET /spaces/{id}/items`), whose entries carry `contributedBy`. Until you have done that, do not describe a listed file to a human as "your file", and do not re-share or delete it on the assumption that it is. Writes remain owner-only unless you hold `editor` in a space that carries the file — see `spaces.md`.
 
 ## Get File Details
 
@@ -105,6 +116,51 @@ Returns: { trashed: N, targetId: string }
 ```
 
 Delete is a soft-delete to trash. Deleting a folder trashes everything inside it, and associated share links are cleaned up via cascade. Trashed files are excluded from share downloads and drive stats. Trashed items are moved to an internal tombstone namespace, so re-creating a file or folder at the same path is safe and does not destroy the trashed copy; restoring returns 409 `path_conflict` if the original path is occupied again.
+
+## Search
+
+```bash
+GET {apiBase}/files/search?q=invoice&limit=50
+Returns: { files: [...], query, count }
+```
+
+Substring match on **name and path** (not file contents). `q` shorter than 2 characters returns an empty list rather than an error. `limit` defaults to 50, clamped 1–200; there is no `offset` — narrow the query instead of paging. Sorted folders first, then by name. Like all reads, this can return space-shared files you do not own.
+
+## Trash, Restore, Purge
+
+Nothing is destroyed by `DELETE /files/{id}` — it is recoverable for **30 days**.
+
+```bash
+# List trashed items (newest deletion first)
+GET {apiBase}/files/trash?limit=100&offset=0
+Returns: { files: [{ ..., deletedAt, retention }], retentionDays: 30, limit, offset }
+
+# Put one back at its original path
+POST {apiBase}/files/{fileId}/restore
+
+# Destroy it now, bytes included — irreversible
+DELETE {apiBase}/files/{fileId}/purge
+Returns: { purged: N, objectsRemoved: N }
+```
+
+`GET /files/trash` is paginated the same way as the list endpoint (`limit` default 100, max 500). Restoring a folder restores its whole subtree; if something else now occupies the original path you get 409 `path_conflict` — move the occupant first. Purge deletes the DB rows and the underlying objects with no recovery path, so prefer letting the 30-day retention expire unless the user explicitly asked to destroy something.
+
+## Batch Operations
+
+Up to **200 ids** per call.
+
+```bash
+# Trash many at once
+DELETE {apiBase}/files/batch
+Body: { "ids": ["id1", "id2"] }
+Returns: { requested, trashedFiles, trashedFolders, trashedIds, failures: [{ id, error, message }] }
+
+# Move many into one folder
+PATCH {apiBase}/files/batch
+Body: { "ids": ["id1", "id2"], "parentPath": "/archive/2024" }
+```
+
+**Both are partial-success — a 200 does NOT mean every id succeeded.** Compare `requested` against what actually moved, and read `failures[]`. An id you do not own simply does not appear in the results; it is not an error. `parentPath` is required on the move, and its folder chain is created if missing. Batch operations act only on files you own — they are never widened by space membership.
 
 ## Download Your Own File
 

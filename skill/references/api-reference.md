@@ -54,11 +54,41 @@ Returns: { files: FileObject[], path: string, limit: number, offset: number }
 - `limit`: default `100`, max `500`
 - `offset`: default `0`
 
+#### Search
+```
+GET /api/public/v1/files/search?q={query}&limit=50
+Returns: { files: FileObject[], query: string, count: number }
+```
+- `q`: shorter than 2 characters returns `{ files: [], query, count: 0 }` without querying
+- Matches `name` OR `path` by substring (SQL `LIKE`; `%`/`_` in `q` are escaped to match literally)
+- `limit`: default `50`, max `200` — no `offset`, not paginated
+- Includes folders in results
+- Can return other users' files reachable via your Shared Spaces membership (`spaces.md`)
+
+#### Trash
+```
+GET /api/public/v1/files/trash?limit=100&offset=0
+Returns: { files: FileObject[], retentionDays: 30, limit: number, offset: number }
+```
+- Each row adds `deletedAt` and `retention: { deletedAt, purgesAt, daysLeft }`
+- `path`/`parentPath` are the pre-delete paths (tombstone markers stripped for display)
+- `limit`: default `100`, max `500`
+- Trashed items are hard-purged automatically 30 days after `deletedAt`
+
 #### Get Details
 ```
 GET /api/public/v1/files/{id}
 Returns: { file: FileObject }
 ```
+
+#### Preview
+```
+GET /api/public/v1/files/{id}/preview
+Returns: { id, name, contentType, size, downloadUrl, expiresInSecs }
+```
+- Presigned GET URL, valid 300 seconds — same short-TTL pattern as share downloads
+- Can preview other users' files reachable via your Shared Spaces membership (`spaces.md`) — the presigned URL is signed against the contributor's stored object, not yours
+- Errors: 400 `validation_error` (folders can't be previewed), 409 `upload_pending` (upload not finished), 500 `storage_error` (corrupt storage URI)
 
 #### Rename / Move
 ```
@@ -76,6 +106,49 @@ Returns: { trashed: number, targetId: string }
 ```
 - Soft-delete to trash; folder delete is recursive (trashes everything inside)
 - Associated shares cleaned up via cascade
+
+#### Restore
+```
+POST /api/public/v1/files/{id}/restore
+Returns: { restored: number, file: FileObject }
+```
+- Only trashed items; 404 `file_not_found` if the id isn't currently in trash
+- Restores to the original pre-delete path; 409 `path_conflict` if something now occupies that path — rename/move the conflicting item first
+- Folder restore is recursive (`restored` counts every row un-tombstoned)
+
+#### Purge
+```
+DELETE /api/public/v1/files/{id}/purge
+Returns: { purged: number, objectsRemoved: number }
+```
+- Only trashed items; 404 `file_not_found` if the id isn't currently in trash
+- Permanently deletes DB rows and R2 objects — cannot be undone
+
+#### Batch Delete
+```
+DELETE /api/public/v1/files/batch
+Body: { ids: string[] }         // max 200
+Returns: {
+  requested: number, trashedFiles: number, trashedFolders: number,
+  trashedIds: string[], failures: [{ id, error, message }]
+}
+```
+- Partial success: a `200` does not mean every id succeeded — check `failures`
+- Per-id failure codes: `file_not_found`, `invalid_scope` (path-scoped token), `delete_failed`
+- Folder ids trash recursively, same as single delete
+
+#### Batch Move
+```
+PATCH /api/public/v1/files/batch
+Body: { ids: string[], parentPath: string }   // ids max 200
+Returns: {
+  requested: number, moved: number, movedIds: string[],
+  parentPath: string, failures: [{ id, error, message }]
+}
+```
+- Partial success: a `200` does not mean every id succeeded — check `failures`
+- Per-id failure codes: `file_not_found`, `invalid_scope`, `validation_error` (folder into itself), `path_conflict`, `move_failed`
+- Auto-creates `parentPath` if it doesn't already exist
 
 ### Folders
 
@@ -118,6 +191,21 @@ GET /api/public/v1/shares/{id}
 Returns: { share: ShareObject }
 ```
 
+#### Download & Access Stats
+```
+GET /api/public/v1/shares/{id}/stats
+Returns: {
+  share: ShareObject,
+  totalDownloads: number, totalAccesses: number,
+  firstAccessed: string|null, lastAccessed: string|null, lastDownload: string|null,
+  fileBreakdown: [{ fileId, filename, downloads }],
+  ipStats: [{ ip, count }],            // top 5
+  userAgentStats: [{ userAgent, count }]  // top 5
+}
+```
+- Aggregated from the activity log (`share.downloaded` / `share.accessed` events) for this share
+- `fileBreakdown` is per-file download counts for folder shares; empty for file shares
+
 #### Delete
 ```
 DELETE /api/public/v1/shares/{id}
@@ -131,6 +219,19 @@ Returns: { totalFiles, totalFolders, totalSize, totalShares, totalDownloads }
 ```
 - File/folder counts and size exclude trashed rows
 - Requires an unrestricted (`path:/`) token — aggregates span the whole drive
+
+### Activity
+
+Read-only audit log of drive events (uploads, deletes, moves, share/webhook lifecycle, …).
+
+```
+GET /api/public/v1/activity?type=&since=&limit=50
+Returns: { activities: [{ id, eventType, targetType, targetId, targetPath, actor, metadata, createdAt }] }
+```
+- `type`: exact `eventType` match (e.g. `file.trashed`), omit for all types
+- `since`: ISO timestamp lower bound; 400 `validation_error` if unparseable
+- `limit`: default `50`, max `200` — no `offset`, not paginated
+- Path-scoped tokens only see rows whose `targetPath` is in scope; events with no target path (share/webhook admin actions) are hidden entirely from path-scoped tokens
 
 ### Memory
 
@@ -210,10 +311,12 @@ Mintable scopes: `read:drive write:drive share:create read:memory write:memory` 
 
 ### Account & Access (session-only)
 
-Session callers are gated by access status on every `/api/public/v1/*` route except
+Callers are gated by access status on every `/api/public/v1/*` route except
 `/account/*` and `/admin/*`: `active` passes, `pending` → 403 `access_pending`,
-`suspended` → 403 `access_suspended`. Bearer/agent tokens are never gated. Full guide:
-`access.md`.
+`suspended` → 403 `access_suspended`. This applies to **sessions AND user-bound bearer
+tokens** (OAuth / minted drive tokens) — suspending a user breaks their existing tokens
+immediately. Only the legacy install-wide `AGENT_TOKEN` on an `OWNER_EMAIL`-unset
+deployment is ungated. Do not retry these 403s. Full guide: `access.md`.
 
 ```
 GET  /api/public/v1/account/status   (session-only)
@@ -258,6 +361,16 @@ Returns: { versionId, previousVersionId, pushedAt, manifestPath, hash, fileCount
 - `ifMatch` protects against stale writes. Use the last seen `versionId`, `null` for a fresh bundle, or `"*"` to force.
 - File/artifact writes are not fully atomic with the pointer swap; failed racing commits can leave non-current artifacts behind.
 
+#### Publish
+```
+POST /api/public/v1/bundles/publish
+Body: { prefix: string, public: boolean }
+Returns: { prefix, public, publicId: string|null, subscribeUrl: string|null }
+```
+- Requires a bundle already committed at `prefix` — 404 `bundle_not_found` if nothing was ever committed there
+- `public: true` mints (or reuses) a `publicId` and exposes it at `subscribeUrl` (`/api/public/b/{publicId}/current`, no auth); `public: false` unpublishes
+- Bearer callers need `share:create` in addition to write access to `prefix` — publishing makes content world-readable
+
 #### Current
 ```
 GET /api/public/v1/bundles/current?prefix={prefix}
@@ -275,6 +388,28 @@ Returns: { prefix, currentVersionId, history: BundleVersion[] }
 GET /api/public/v1/bundles/manifest?prefix={prefix}&versionId={versionId}
 Returns: { prefix, versionId, manifest }
 ```
+
+### Webhooks
+
+Fire-and-forget HTTP callbacks for drive events. Every route requires an unrestricted (`path:/`) token — a path-scoped bearer gets 403 `invalid_scope` on all of `/webhooks/*`.
+
+```
+POST   /api/public/v1/webhooks           Body { url, eventTypes: string[], secret? }
+Returns: 201 { webhook: { ...WebhookObject, secret }, hint }   — secret shown once, save it now
+
+GET    /api/public/v1/webhooks           ?limit=100&offset=0
+Returns: { webhooks: WebhookObject[], limit, offset }
+
+DELETE /api/public/v1/webhooks/{id}
+Returns: { success: true }
+
+POST   /api/public/v1/webhooks/{id}/test
+Returns: { success: true }               — delivers a `webhook.test` event in the background
+```
+- `url` must pass SSRF validation (no localhost/private ranges) — 400 `validation_error` on failure
+- `eventTypes`: non-empty array of strings, deduplicated
+- `secret`: auto-generated if omitted; used to sign delivery payloads
+- WebhookObject: `{ id, url, eventTypes, enabled, lastTriggeredAt, lastStatus, failureCount, createdAt }` — never includes `secret` after creation
 
 ---
 
@@ -410,9 +545,12 @@ Returns: binary ZIP file (Content-Type: application/zip)
 | 401 | `invalid_token` | Invalid bearer token |
 | 401 | `invalid_access_token` | Share access token expired or invalid |
 | 403 | `wrong_password` | Share password incorrect |
+| 403 | `invalid_scope` | Bearer token's scope or path prefix doesn't cover the request |
 | 404 | `file_not_found` | File or folder not found |
 | 404 | `share_not_found` | Share link not found or deleted |
 | 404 | `upload_not_found` | File not in R2 (upload incomplete) |
+| 404 | `bundle_not_found` | No bundle committed at this prefix |
+| 404 | `webhook_not_found` | Webhook id not found |
 | 404 | `intent_not_found` | Registration intent token unknown, expired, or already consumed |
 | 403 | `identity_required` | Spaces call with no resolvable user identity |
 | 403 | `space_forbidden` | Caller's role in the space is below what the operation requires |
@@ -422,12 +560,15 @@ Returns: binary ZIP file (Content-Type: application/zip)
 | 404 | `member_not_found` | Target user isn't a member of the space |
 | 404 | `item_not_found` | Item id isn't in this space |
 | 409 | `path_conflict` | Path already exists |
+| 409 | `upload_pending` | File preview requested before upload finished |
 | 410 | `share_expired` | Share link expired |
+| 412 | `version_conflict` | Bundle's `currentVersionId` moved since you last saw it (see response `currentVersionId`) |
 | 413 | `zip_file_count_exceeded` | Folder ZIP has more than 400 files |
 | 413 | `zip_too_large` | Folder ZIP exceeds 30MB |
 | 429 | `share_exhausted` | Download limit reached |
 | 429 | `too_many_attempts` | Too many `/register/start` calls from one IP within an hour |
 | 500 | `internal_error` | Server error |
+| 500 | `storage_error` | File preview's stored object reference is invalid |
 
 All errors return:
 ```json
