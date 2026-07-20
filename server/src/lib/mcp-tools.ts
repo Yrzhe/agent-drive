@@ -205,7 +205,7 @@ export const MCP_TOOLS: McpToolDefinition[] = [
   },
   {
     name: "list_spaces",
-    description: "List the Shared Spaces you can reach (spaces you created plus spaces you were invited into), with your role and item/member counts.",
+    description: "List the Shared Spaces you can reach (spaces you created plus spaces you were invited into), plus the public commons if you're an active user, with your role and item/member counts. The commons has memberCount: null (everyone on this drive).",
     requiredScope: "read:drive",
     inputSchema: { type: "object", properties: {} },
   },
@@ -224,7 +224,7 @@ export const MCP_TOOLS: McpToolDefinition[] = [
   },
   {
     name: "add_to_space",
-    description: "Contribute one of YOUR OWN resources to a space by reference (no copy). You must be a contributor+ in the space and must own the resource. Editors who later edit a shared file change your real file.",
+    description: "Contribute one of YOUR OWN resources to a space by reference (no copy). You must be a contributor+ in the space and must own the resource. On an invite space, editors who later edit a shared file change your real file. On the public commons: folders are rejected (folders_not_allowed_in_public — files/memory only), and contributing publishes the resource to EVERY active user of this deployment immediately — never do this on a human's behalf without their explicit intent.",
     requiredScope: "write:drive",
     inputSchema: {
       type: "object",
@@ -239,7 +239,7 @@ export const MCP_TOOLS: McpToolDefinition[] = [
   },
   {
     name: "remove_from_space",
-    description: "Remove an item reference from a space (never deletes the underlying file/memory). You may remove your own items; removing another member's item requires the editor role.",
+    description: "Remove an item reference from a space (never deletes the underlying file/memory). You may remove your own items; removing another member's item requires the editor role. On the public commons that means the commons creator (the deployment owner) or a user they explicitly promoted — an ordinary implicit contributor can only withdraw their own item.",
     requiredScope: "write:drive",
     inputSchema: {
       type: "object",
@@ -252,7 +252,7 @@ export const MCP_TOOLS: McpToolDefinition[] = [
   },
   {
     name: "create_space",
-    description: "Create a new invite-only Shared Space. You become its creator and can invite members with manage_space_members.",
+    description: "Create a new invite-only Shared Space. You become its creator and can invite members with manage_space_members. This always creates an invite space -- you cannot create a public one; there is exactly one instance-wide public commons, and it's system-bootstrapped, not user-created.",
     requiredScope: "write:drive",
     inputSchema: {
       type: "object",
@@ -264,7 +264,7 @@ export const MCP_TOOLS: McpToolDefinition[] = [
   },
   {
     name: "manage_space_members",
-    description: "Invite, re-role, or remove a member of a space by email. Creator only. Pass role (viewer|contributor|editor) to add/update, or remove:true to remove.",
+    description: "Invite, re-role, or remove a member of a space by email. Creator only. Pass role (viewer|contributor|editor) to add/update, or remove:true to remove. On the public commons this overrides an already-implicit member instead of inviting a stranger: viewer demotes to read-only, editor delegates item moderation only (never file-write). remove:true clears the override AND retracts that user's commons contributions -- to un-demote someone without wiping their items, re-role them to contributor instead.",
     requiredScope: "write:drive",
     inputSchema: {
       type: "object",

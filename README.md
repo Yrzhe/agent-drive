@@ -190,14 +190,14 @@ Use `/api/public/mcp` as the remote MCP URL. OAuth/MCP discovery is served from 
 | GET | `/api/public/v1/memory/index-status` | Check FTS index consistency |
 | POST | `/api/public/v1/memory/rebuild-index` | Rebuild the memory FTS index |
 | DELETE | `/api/public/v1/memory/:idOrKey` | Delete a memory |
-| POST | `/api/public/v1/spaces` | Create an invite-only Shared Space |
-| GET | `/api/public/v1/spaces` | List spaces you created or belong to |
+| POST | `/api/public/v1/spaces` | Create an invite-only Shared Space (you can't create a public one) |
+| GET | `/api/public/v1/spaces` | List spaces you created or belong to, plus the public commons every active user implicitly belongs to |
 | DELETE | `/api/public/v1/spaces/:id` | Delete a space (creator only) |
-| POST | `/api/public/v1/spaces/:id/members` | Invite/re-role a member by email (creator only) |
+| POST | `/api/public/v1/spaces/:id/members` | Invite/re-role a member by email (creator only); on the commons, overrides the implicit role instead |
 | DELETE | `/api/public/v1/spaces/:id/members/:userId` | Remove a member (creator only; retracts their items) |
-| POST | `/api/public/v1/spaces/:id/items` | Contribute one of your own files/folders/memory to a space |
+| POST | `/api/public/v1/spaces/:id/items` | Contribute one of your own files/folders/memory to a space (folders rejected on the public commons) |
 | GET | `/api/public/v1/spaces/:id/items` | List a space's items (flat, attributed) |
-| DELETE | `/api/public/v1/spaces/:id/items/:itemId` | Remove an item reference (never deletes the resource) |
+| DELETE | `/api/public/v1/spaces/:id/items/:itemId` | Remove an item reference (never deletes the resource); own items only, unless creator/moderator |
 | POST | `/api/public/v1/tokens` | Mint a scoped drive token (session-only) |
 | GET | `/api/public/v1/tokens` | List minted tokens (session-only) |
 | DELETE | `/api/public/v1/tokens/:id` | Revoke a minted token (session-only) |
