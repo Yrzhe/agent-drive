@@ -3,8 +3,11 @@ import { and, eq, inArray, isNull, or, sql, type SQL } from "drizzle-orm";
 import { esSystemAuthUser, files, memories, spaceItems, spaceMembers, spaces } from "@defs";
 
 import type { AppDb } from "../types";
+import { resolveAccessStatus } from "./access";
 import { ApiError } from "./errors";
+import { nowIso } from "./files";
 import { getMemory } from "./memory";
+import { resolveOwnerUserId } from "./owner";
 import { escapedDescendantPattern, normalizePath } from "./paths";
 
 /**
@@ -28,20 +31,82 @@ const ROLE_RANK: Record<SpaceRole, number> = {
 export type SpaceItemRow = typeof spaceItems.$inferSelect;
 
 /**
- * Resolve a user's role in a space. The creator always resolves 'creator' — no
- * `space_members` row is required or expected for the creator (see the `spaces` table
- * doc comment in db_schema.ts). Otherwise falls back to the stored `space_members.role`.
- * Returns null when the space doesn't exist or the user is neither creator nor member.
+ * Shared Spaces P2 (D3): the public commons.
  *
- * Public-space implicit membership (P2, D3/D4) is out of scope here — P1 spaces are
- * `'invite'` only, so a user with no explicit relationship to the space is simply not a
- * member.
+ * Exactly ONE instance-wide `visibility='public'` space exists. Its id is a fixed constant
+ * rather than a nanoid so the primary key itself is the uniqueness guard — two concurrent
+ * bootstraps cannot produce two commons rows, they collide on the PK.
  */
-export async function resolveSpaceRole(db: AppDb, spaceId: string, userId: string): Promise<SpaceRole | null> {
-  const [space] = await db.select({ creatorId: spaces.creatorId }).from(spaces).where(eq(spaces.id, spaceId)).limit(1);
-  if (!space) return null;
-  if (space.creatorId === userId) return "creator";
+export const PUBLIC_COMMONS_ID = "public-commons";
+const PUBLIC_COMMONS_NAME = "Public Commons";
 
+/** The implicit role every ACTIVE user holds in the commons (D3: contributor, never editor). */
+const PUBLIC_IMPLICIT_ROLE: SpaceRole = "contributor";
+
+/**
+ * The single public space's id, or `null` when none has been bootstrapped. READ-ONLY —
+ * unlike `ensurePublicCommons` this never writes, because it sits on the hot read path
+ * (`userSpaceIds` → `accessibleFileIds`/`accessibleMemoryIds` → every list/recall query)
+ * and a read must never materialize a row.
+ */
+async function findPublicCommonsId(db: AppDb): Promise<string | null> {
+  const [row] = await db.select({ id: spaces.id }).from(spaces).where(eq(spaces.visibility, "public")).limit(1);
+  return row?.id ?? null;
+}
+
+/**
+ * Resolve — and materialize if absent — the public commons, returning its space id.
+ *
+ * `creatorId` is the deployment owner (`resolveOwnerUserId`), which makes the owner the
+ * commons `creator` → its sole moderator. **Fails closed**: when the owner cannot be
+ * resolved (`OWNER_EMAIL` unset, no matching row, or a case-only-duplicate ambiguity) this
+ * returns `null` and creates NOTHING. A misconfigured deployment gets no commons at all
+ * rather than one owned by an arbitrarily-picked account — the same null policy
+ * `resolveOwnerUserId` and `resolveAccessStatus` already encode.
+ *
+ * Race-safe by construction, mirroring `resolveAccessStatus`'s materialization: two
+ * near-simultaneous first calls may both reach the "missing" branch, so the insert uses a
+ * FIXED primary key plus `onConflictDoNothing()` (the loser no-ops instead of throwing),
+ * and the id returned always comes from a re-select — never assumed from the possibly-lost
+ * insert. A pre-existing public row under some other id (e.g. seeded) is returned as-is, so
+ * a second `visibility='public'` row is never created either way.
+ */
+export async function ensurePublicCommons(db: AppDb): Promise<string | null> {
+  const existing = await findPublicCommonsId(db);
+  if (existing) return existing;
+
+  const ownerId = await resolveOwnerUserId(db);
+  if (ownerId === null) return null; // fail closed — no owner, no commons.
+
+  await db
+    .insert(spaces)
+    .values({
+      id: PUBLIC_COMMONS_ID,
+      name: PUBLIC_COMMONS_NAME,
+      creatorId: ownerId,
+      visibility: "public",
+      createdAt: nowIso(),
+    } as never)
+    .onConflictDoNothing();
+
+  return findPublicCommonsId(db);
+}
+
+/**
+ * Whether implicit public membership may be granted to `userId`.
+ *
+ * Deliberately reuses `resolveAccessStatus` — the ONE notion of "active" the #30 access
+ * gate already enforces — instead of inventing a second one, so a user suspended by the
+ * admin loses commons access through exactly the same switch that denies their requests.
+ * A bearer principal carries no email; `resolveAccessStatus` resolves it by id internally,
+ * so passing `email: null` is correct here.
+ */
+async function isActiveUser(db: AppDb, userId: string): Promise<boolean> {
+  return (await resolveAccessStatus(db, { id: userId, email: null })) === "active";
+}
+
+/** The stored `space_members.role`, or null when there is no row / the value is unknown. */
+async function storedMemberRole(db: AppDb, spaceId: string, userId: string): Promise<SpaceRole | null> {
   const [member] = await db
     .select({ role: spaceMembers.role })
     .from(spaceMembers)
@@ -55,10 +120,48 @@ export async function resolveSpaceRole(db: AppDb, spaceId: string, userId: strin
 }
 
 /**
+ * Resolve a user's role in a space. The creator always resolves 'creator' — no
+ * `space_members` row is required or expected for the creator (see the `spaces` table
+ * doc comment in db_schema.ts). Otherwise falls back to the stored `space_members.role`.
+ * Returns null when the space doesn't exist or the user is neither creator nor member.
+ *
+ * P2 (D3) adds implicit membership for the public commons ONLY: in a `visibility='public'`
+ * space an **active** user with no row resolves `'contributor'`. A pending/suspended user
+ * resolves null — implicit membership is granted on confirmed-active status, never on the
+ * mere absence of a denial. An explicit `space_members` row still applies and wins when it
+ * grants MORE (editor); it never downgrades the implicit floor, since anyone could reach
+ * `contributor` with no row at all. Invite spaces are untouched: no active user ever gains
+ * implicit access to one.
+ */
+export async function resolveSpaceRole(db: AppDb, spaceId: string, userId: string): Promise<SpaceRole | null> {
+  const [space] = await db
+    .select({ creatorId: spaces.creatorId, visibility: spaces.visibility })
+    .from(spaces)
+    .where(eq(spaces.id, spaceId))
+    .limit(1);
+  if (!space) return null;
+  if (space.creatorId === userId) return "creator";
+
+  const stored = await storedMemberRole(db, spaceId, userId);
+  if (space.visibility !== "public") return stored;
+
+  if (!(await isActiveUser(db, userId))) return null;
+  if (stored === null) return PUBLIC_IMPLICIT_ROLE;
+  return ROLE_RANK[stored] > ROLE_RANK[PUBLIC_IMPLICIT_ROLE] ? stored : PUBLIC_IMPLICIT_ROLE;
+}
+
+/**
  * Every space id a user can reach: spaces they created, union spaces they were invited
- * into as a member. Returns `[]` for a user with no spaces at all — callers use this to
- * build `inArray(...)` filters, and an empty array there correctly adds nothing (never
- * matches everything, which an unfiltered/undefined condition would).
+ * into as a member, union the public commons when the user is active (P2 implicit
+ * membership — no `space_members` row exists for it). Returns `[]` for a user with no
+ * spaces at all — callers use this to build `inArray(...)` filters, and an empty array
+ * there correctly adds nothing (never matches everything, which an unfiltered/undefined
+ * condition would).
+ *
+ * Adding the commons here is the ONLY change the read path needs: `accessibleFileIds`/
+ * `accessibleMemoryIds` fan out from these ids, so an EMPTY commons still yields `[]` and
+ * `fileReadableFilter`/`memoryReadableFilter` still collapse to the strict owner filter —
+ * which is what keeps #30 isolation intact.
  */
 export async function userSpaceIds(db: AppDb, userId: string): Promise<string[]> {
   const created = await db.select({ id: spaces.id }).from(spaces).where(eq(spaces.creatorId, userId));
@@ -70,6 +173,10 @@ export async function userSpaceIds(db: AppDb, userId: string): Promise<string[]>
   const ids = new Set<string>();
   for (const row of created) ids.add(row.id);
   for (const row of memberOf) ids.add(row.spaceId);
+
+  const commonsId = await findPublicCommonsId(db);
+  if (commonsId && !ids.has(commonsId) && (await isActiveUser(db, userId))) ids.add(commonsId);
+
   return [...ids];
 }
 
@@ -265,13 +372,37 @@ export type SpaceItemType = "file" | "folder" | "memory";
  * live resource owned by `callerId` — deliberately the SAME error for "no such resource"
  * and "exists but belongs to someone else", so this endpoint never leaks whether a given
  * path/id exists under another owner.
+ *
+ * Also enforces P2's D4 restriction: a `'folder'` may never be contributed to a
+ * `visibility='public'` space, because a folder item expands to its whole live subtree on
+ * read (`expandFolderItemToFileIds`) — every file added under it later would silently
+ * become world-readable. Files and memory are contributed one explicit item at a time, so
+ * they carry no such open-ended exposure. Invite spaces still accept folders. The guard
+ * lives HERE, not in the route, so the REST and MCP contribute paths (which both funnel
+ * through this function) are covered by one check.
  */
 export async function resolveOwnedContributionRef(
   db: AppDb,
+  spaceId: string,
   itemType: SpaceItemType,
   ref: string,
   callerId: string
 ): Promise<string> {
+  if (itemType === "folder") {
+    const [space] = await db
+      .select({ visibility: spaces.visibility })
+      .from(spaces)
+      .where(eq(spaces.id, spaceId))
+      .limit(1);
+    if (space?.visibility === "public") {
+      throw new ApiError(
+        400,
+        "folders_not_allowed_in_public",
+        "Public spaces accept files and memory only — contribute individual files instead of a folder."
+      );
+    }
+  }
+
   if (itemType === "memory") {
     const memory = await getMemory(db, ref, callerId);
     if (!memory) throw new ApiError(403, "not_your_resource", "You do not own a memory matching that ref");

@@ -647,9 +647,10 @@ export async function callMcpTool(db: AppDb, origin: string, scopes: readonly st
     const itemType = requireSpaceItemType(input);
     const ref = itemType === "memory" ? stringArg(input, "memory_key")! : stringArg(input, "path")!;
 
-    // contributor+ to add; ownership of the resource is re-verified by resolveOwnedContributionRef.
+    // contributor+ to add; ownership of the resource is re-verified by resolveOwnedContributionRef,
+    // which also enforces D4 (no folders into a public space).
     await assertSpaceRole(db, spaceId, callerId, "contributor");
-    const itemRef = await resolveOwnedContributionRef(db, itemType, ref, callerId);
+    const itemRef = await resolveOwnedContributionRef(db, spaceId, itemType, ref, callerId);
 
     await db
       .insert(spaceItems)

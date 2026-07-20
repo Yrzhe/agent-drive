@@ -349,8 +349,9 @@ spacesRoutes.post(
     const ref = validateItemRef(body.ref);
 
     // Security spine (design §Security #2): only the resource's owner may contribute it.
-    // Throws ApiError(403, 'not_your_resource') if `ref` isn't a live resource callerId owns.
-    const itemRef = await resolveOwnedContributionRef(db, itemType, ref, callerId);
+    // Throws ApiError(403, 'not_your_resource') if `ref` isn't a live resource callerId owns,
+    // and ApiError(400, 'folders_not_allowed_in_public') for a folder into a public space (D4).
+    const itemRef = await resolveOwnedContributionRef(db, spaceId, itemType, ref, callerId);
 
     await db
       .insert(spaceItems)
