@@ -44,10 +44,18 @@ export async function buildShareObject(db: AppDb, share: ShareRow, origin: strin
   } else {
     type = "folder";
     const folderPath = normalizePath(share.folderPath ?? "/");
+    // Owner-scoped (#65 audit): paths are per-owner unique since #30, so an unscoped
+    // lookup can surface another owner's folder name as this share's display name.
     const [folder] = await db
       .select()
       .from(files)
-      .where(and(eq(files.path, folderPath), eq(files.isFolder, 1)))
+      .where(
+        and(
+          eq(files.path, folderPath),
+          eq(files.isFolder, 1),
+          share.ownerId ? eq(files.ownerId, share.ownerId) : undefined
+        )
+      )
       .limit(1);
     targetName = folder?.name ?? folderPath.split("/").filter(Boolean).pop() ?? "/";
   }
