@@ -123,7 +123,12 @@ export default function SpaceViewPage() {
 
   const handleRemoveItem = async (item: SpaceItemDisplay) => {
     if (!spaceId) return;
-    if (!window.confirm(`Remove "${item.name ?? item.itemRef}" from this space? This does not delete the underlying ${itemTypeLabel(item.itemType).toLowerCase()}.`)) return;
+    const isModerating = item.contributedBy !== user?.id;
+    const confirmMessage =
+      isModerating
+        ? `Remove "${item.name ?? item.itemRef}" as a moderator? This only removes the reference from this space — it does not delete the contributor's underlying ${itemTypeLabel(item.itemType).toLowerCase()}.`
+        : `Remove "${item.name ?? item.itemRef}" from this space? This does not delete the underlying ${itemTypeLabel(item.itemType).toLowerCase()}.`;
+    if (!window.confirm(confirmMessage)) return;
     markItemBusy(item.id, true);
     setItemActionErrors((current) => ({ ...current, [item.id]: undefined }));
     try {
@@ -196,7 +201,11 @@ export default function SpaceViewPage() {
 
   const handleDeleteSpace = async () => {
     if (!spaceId || !space) return;
-    if (!window.confirm(`Delete space "${space.name}"? Members lose access; contributed files and memory are not deleted.`)) return;
+    const confirmMessage =
+      space.visibility === "public"
+        ? `Clear the public commons? Every contributed reference and role override is removed for ALL users — the underlying files and memory are not deleted, and an empty commons is recreated automatically the next time anyone visits.`
+        : `Delete space "${space.name}"? Members lose access; contributed files and memory are not deleted.`;
+    if (!window.confirm(confirmMessage)) return;
     setDeletingSpace(true);
     try {
       await spacesApi.deleteSpace(spaceId);
@@ -233,10 +242,18 @@ export default function SpaceViewPage() {
       <div className="mx-auto max-w-6xl space-y-6">
         <header className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-4">
           <div>
-            <h1 className="text-xl font-semibold text-slate-900">{spaceLoading ? "Loading space..." : space?.name ?? "Space"}</h1>
+            <div className="flex items-center gap-2">
+              <h1 className="text-xl font-semibold text-slate-900">{spaceLoading ? "Loading space..." : space?.name ?? "Space"}</h1>
+              {space?.visibility === "public" ? (
+                <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">Public</span>
+              ) : null}
+            </div>
             <p className="text-sm text-slate-600">
               {space ? `Your role: ${space.role} · ${describeAudience(space.memberCount)} · ${space.itemCount} item${space.itemCount === 1 ? "" : "s"}` : ""}
             </p>
+            {space?.visibility === "public" ? (
+              <p className="mt-0.5 text-xs text-slate-500">Everyone on this drive can see what's contributed here.</p>
+            ) : null}
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Link className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-700" to="/spaces">← All spaces</Link>
@@ -248,7 +265,13 @@ export default function SpaceViewPage() {
                 onClick={() => { void handleDeleteSpace(); }}
                 type="button"
               >
-                {deletingSpace ? "Deleting..." : "Delete space"}
+                {space?.visibility === "public"
+                  ? deletingSpace
+                    ? "Clearing..."
+                    : "Clear commons"
+                  : deletingSpace
+                    ? "Deleting..."
+                    : "Delete space"}
               </button>
             ) : null}
             <button className="rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-medium text-white" onClick={() => { void signOut(); }} type="button">Sign out</button>
@@ -405,6 +428,7 @@ export default function SpaceViewPage() {
         {space?.role === "creator" ? (
           <MemberManagementSection
             creatorId={space.creatorId}
+            isPublic={space.visibility === "public"}
             onChanged={() => { void refreshSpace(); }}
             spaceId={spaceId}
           />

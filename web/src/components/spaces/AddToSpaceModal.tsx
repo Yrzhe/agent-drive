@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { spacesApi } from "@/hooks/useSpaces";
+import { DriveApiError } from "@/lib/api-client";
 import type { DriveFile } from "@/types/drive";
 import type { SpaceSummary } from "@/types/spaces";
 
@@ -15,6 +16,7 @@ export function AddToSpaceModal({ target, onCancel, onAdded }: { target: DriveFi
   const [spaces, setSpaces] = useState<SpaceSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedSpaceId, setSelectedSpaceId] = useState<string | null>(null);
+  const [confirmPublish, setConfirmPublish] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -25,7 +27,12 @@ export function AddToSpaceModal({ target, onCancel, onAdded }: { target: DriveFi
       .listSpaces()
       .then((result) => {
         if (cancelled) return;
-        const eligible = result.spaces.filter((space) => CAN_CONTRIBUTE.has(space.role));
+        // D4: the public commons never accepts folders (a folder expands to its whole live
+        // subtree on read) — it's excluded from the picker outright when the target is a
+        // folder, rather than offered and rejected by the server.
+        const eligible = result.spaces.filter(
+          (space) => CAN_CONTRIBUTE.has(space.role) && !(target.isFolder && space.visibility === "public"),
+        );
         setSpaces(eligible);
         setSelectedSpaceId(eligible[0]?.id ?? null);
         setError(null);
@@ -40,7 +47,10 @@ export function AddToSpaceModal({ target, onCancel, onAdded }: { target: DriveFi
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [target.isFolder]);
+
+  const selectedSpace = spaces.find((space) => space.id === selectedSpaceId) ?? null;
+  const isPublicTarget = selectedSpace?.visibility === "public";
 
   const submit = async () => {
     if (!selectedSpaceId) return;
@@ -50,7 +60,11 @@ export function AddToSpaceModal({ target, onCancel, onAdded }: { target: DriveFi
       await spacesApi.addItem(selectedSpaceId, target.isFolder ? "folder" : "file", target.path);
       onAdded();
     } catch (err) {
-      setError(getErrorMessage(err));
+      if (err instanceof DriveApiError && err.code === "folders_not_allowed_in_public") {
+        setError("The public commons only accepts files and memory, not folders — add individual files instead.");
+      } else {
+        setError(getErrorMessage(err));
+      }
     } finally {
       setSubmitting(false);
     }
@@ -64,10 +78,11 @@ export function AddToSpaceModal({ target, onCancel, onAdded }: { target: DriveFi
           {target.isFolder ? "Folder" : "File"}: {target.path}
         </p>
 
-        <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-          This is a reference, not a copy. Anyone with an <span className="font-medium">editor</span> role in the space can modify
-          this real {target.isFolder ? "folder's" : "file's"} contents — changes reflect back here.
-        </div>
+        {target.isFolder ? (
+          <p className="mt-2 text-xs text-slate-500">
+            The public commons isn't shown below — it only accepts files and memory, not folders.
+          </p>
+        ) : null}
 
         {loading ? (
           <p className="mt-4 text-sm text-slate-600">Loading your spaces...</p>
@@ -86,16 +101,48 @@ export function AddToSpaceModal({ target, onCancel, onAdded }: { target: DriveFi
                 <input
                   checked={selectedSpaceId === space.id}
                   name="add-to-space-target"
-                  onChange={() => setSelectedSpaceId(space.id)}
+                  onChange={() => {
+                    setSelectedSpaceId(space.id);
+                    setConfirmPublish(false);
+                  }}
                   type="radio"
                   value={space.id}
                 />
                 <span className="text-slate-800">{space.name}</span>
+                {space.visibility === "public" ? (
+                  <span className="rounded-full bg-emerald-100 px-1.5 py-0.5 text-xs font-medium text-emerald-800">Public</span>
+                ) : null}
                 <span className="text-xs text-slate-500">({space.role})</span>
               </label>
             ))}
           </div>
         )}
+
+        {selectedSpace ? (
+          isPublicTarget ? (
+            <div className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
+              <p className="font-medium">This is the public commons.</p>
+              <p className="mt-1">
+                Publishing this {target.isFolder ? "folder" : "file"} here makes it readable by EVERY active user of this
+                drive — not just people you invite. It's a reference, not a copy, and you can withdraw it later, but until you
+                do it's world-readable within this deployment.
+              </p>
+              <label className="mt-2 flex items-start gap-2">
+                <input
+                  checked={confirmPublish}
+                  onChange={(event) => setConfirmPublish(event.target.checked)}
+                  type="checkbox"
+                />
+                <span>I understand this becomes readable by everyone on this drive.</span>
+              </label>
+            </div>
+          ) : (
+            <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              This is a reference, not a copy. Anyone with an <span className="font-medium">editor</span> role in the space can
+              modify this real {target.isFolder ? "folder's" : "file's"} contents — changes reflect back here.
+            </div>
+          )
+        ) : null}
 
         {error ? <p className="mt-3 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p> : null}
 
@@ -105,13 +152,13 @@ export function AddToSpaceModal({ target, onCancel, onAdded }: { target: DriveFi
           </button>
           <button
             className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-            disabled={submitting || !selectedSpaceId}
+            disabled={submitting || !selectedSpaceId || (isPublicTarget && !confirmPublish)}
             onClick={() => {
               void submit();
             }}
             type="button"
           >
-            {submitting ? "Adding..." : "Add"}
+            {submitting ? "Adding..." : isPublicTarget ? "Publish" : "Add"}
           </button>
         </div>
       </div>
