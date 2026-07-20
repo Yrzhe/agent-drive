@@ -15,7 +15,7 @@ describe("buildAgentCard", () => {
     expect(card.protocolVersion).toBe("1.0");
     expect(card.name).toBe("Agent Drive @ drive.example.com");
     expect(card.url).toBe("https://drive.example.com");
-    expect(card.skills.map((s) => s.id)).toEqual(["file-exchange", "memory", "bundles"]);
+    expect(card.skills.map((s) => s.id)).toEqual(["file-exchange", "memory", "bundles", "spaces"]);
     expect(card.securitySchemes.oauth2.type).toBe("oauth2");
     expect(card.securitySchemes.oauth2.flows.authorizationCode.tokenUrl).toBe("https://drive.example.com/api/public/oauth/token");
     expect(card.securitySchemes.oauth2.description).toContain("/.well-known/oauth-authorization-server");
