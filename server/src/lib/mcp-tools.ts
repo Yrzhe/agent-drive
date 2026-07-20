@@ -385,15 +385,19 @@ export async function callMcpTool(db: AppDb, origin: string, scopes: readonly st
   if (name === "read_file") {
     const path = normalizePath(stringArg(input, "path")!);
     requirePathAllowed(scopes, path);
-    // Read path: widen to space-reachable files. A space file lives in the contributor's path
-    // namespace; `.limit(1)` may pick the caller's own row first on a rare cross-owner path
-    // collision — acceptable in P1 (the space endpoints are the collision-free access path).
+    // Read path: widen to space-reachable files, but OWN-ROW-FIRST (P2). A space file lives
+    // in the contributor's own path namespace, so paths collide across owners — and with the
+    // public commons every active user collides with every other. A bare `.limit(1)` over the
+    // widened scope would let the query plan decide whose `/notes/deploy-target.md` you get,
+    // so a hostile contributor could feed their content to an agent that asked for its OWN
+    // file. Resolve the caller's own row first and fall back to the widened scope only for
+    // paths they do not own — the same precedence `write_file` below already enforces.
     const readable = await fileReadableFilter(db, ownerId);
-    const [file] = await db
-      .select()
-      .from(files)
-      .where(and(eq(files.path, path), eq(files.isFolder, 0), isNull(files.deletedAt), readable))
-      .limit(1);
+    const livePathFile = and(eq(files.path, path), eq(files.isFolder, 0), isNull(files.deletedAt));
+    const findLiveFile = async (extra: ReturnType<typeof eq> | undefined) =>
+      (await db.select().from(files).where(and(livePathFile, extra)).limit(1))[0];
+    // `??` short-circuits, so the widened query only runs when the caller owns nothing here.
+    const file = (ownerId ? await findLiveFile(eq(files.ownerId, ownerId)) : undefined) ?? (await findLiveFile(readable));
     if (!file?.s3Uri) throw new Error("file_not_found");
     const { storage } = await import("edgespark");
     const parsed = storage.tryParseS3Uri(file.s3Uri);

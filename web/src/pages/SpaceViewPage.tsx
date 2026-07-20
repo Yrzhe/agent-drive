@@ -12,6 +12,9 @@ import type { DriveFile } from "@/types/drive";
 import { describeAudience } from "@/types/spaces";
 import type { SpaceItemDisplay, SpaceMemoryHit, SpaceSummary } from "@/types/spaces";
 
+/** Type-to-confirm phrase guarding the instance-wide `Clear commons` action (public space only). */
+const CLEAR_COMMONS_PHRASE = "CLEAR";
+
 const getErrorMessage = (error: unknown) => (error instanceof Error ? error.message : "Request failed. Please try again.");
 const formatDate = (value: string) => new Date(value).toLocaleString();
 const itemTypeLabel = (type: SpaceItemDisplay["itemType"]) => (type === "file" ? "File" : type === "folder" ? "Folder" : "Memory");
@@ -63,6 +66,8 @@ export default function SpaceViewPage() {
   const [memoryScopedToSpace, setMemoryScopedToSpace] = useState(false);
 
   const [deletingSpace, setDeletingSpace] = useState(false);
+  const [clearCommonsOpen, setClearCommonsOpen] = useState(false);
+  const [clearCommonsText, setClearCommonsText] = useState("");
 
   const refreshSpace = useCallback(async () => {
     if (!spaceId) return;
@@ -199,13 +204,8 @@ export default function SpaceViewPage() {
     }
   };
 
-  const handleDeleteSpace = async () => {
-    if (!spaceId || !space) return;
-    const confirmMessage =
-      space.visibility === "public"
-        ? `Clear the public commons? Every contributed reference and role override is removed for ALL users — the underlying files and memory are not deleted, and an empty commons is recreated automatically the next time anyone visits.`
-        : `Delete space "${space.name}"? Members lose access; contributed files and memory are not deleted.`;
-    if (!window.confirm(confirmMessage)) return;
+  const runDeleteSpace = async () => {
+    if (!spaceId) return;
     setDeletingSpace(true);
     try {
       await spacesApi.deleteSpace(spaceId);
@@ -213,7 +213,25 @@ export default function SpaceViewPage() {
     } catch (error) {
       setSpaceError(getErrorMessage(error));
       setDeletingSpace(false);
+      setClearCommonsOpen(false);
     }
+  };
+
+  /**
+   * Deleting an INVITE space affects only its own members, so a plain confirm is
+   * proportionate. Clearing the COMMONS wipes every user's contributed references
+   * instance-wide, so it gets a type-to-confirm panel instead (below) — the destructive
+   * blast radius, not the wording, is what differs.
+   */
+  const handleDeleteSpace = () => {
+    if (!spaceId || !space) return;
+    if (space.visibility === "public") {
+      setClearCommonsText("");
+      setClearCommonsOpen(true);
+      return;
+    }
+    if (!window.confirm(`Delete space "${space.name}"? Members lose access; contributed files and memory are not deleted.`)) return;
+    void runDeleteSpace();
   };
 
   const fileItems = useMemo(() => items.filter((item) => item.itemType !== "memory"), [items]);
@@ -262,7 +280,7 @@ export default function SpaceViewPage() {
               <button
                 className="rounded-lg border border-red-300 px-3 py-1.5 text-sm text-red-700 hover:bg-red-50 disabled:opacity-50"
                 disabled={deletingSpace}
-                onClick={() => { void handleDeleteSpace(); }}
+                onClick={handleDeleteSpace}
                 type="button"
               >
                 {space?.visibility === "public"
@@ -277,6 +295,49 @@ export default function SpaceViewPage() {
             <button className="rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-medium text-white" onClick={() => { void signOut(); }} type="button">Sign out</button>
           </div>
         </header>
+
+        {clearCommonsOpen ? (
+          <div className="rounded-2xl border border-red-300 bg-red-50 p-4">
+            <h2 className="text-base font-semibold text-red-900">Clear the public commons?</h2>
+            <p className="mt-1 text-sm text-red-800">
+              This removes <strong>every contributed reference and role override, for every user on this drive</strong> — not
+              just yours. The underlying files and memory are <strong>not</strong> deleted, and an empty commons is recreated
+              automatically the next time anyone visits.
+            </p>
+            <label className="mt-3 block text-sm font-medium text-red-900" htmlFor="clear-commons-confirm">
+              Type <code className="rounded bg-white px-1 py-0.5 font-mono text-xs text-red-900">{CLEAR_COMMONS_PHRASE}</code> to confirm:
+            </label>
+            <input
+              autoComplete="off"
+              autoFocus
+              className="mt-1.5 w-48 rounded-lg border border-red-300 bg-white px-3 py-1.5 text-sm text-slate-900 focus:border-red-500 focus:outline-none"
+              disabled={deletingSpace}
+              id="clear-commons-confirm"
+              onChange={(event) => setClearCommonsText(event.target.value)}
+              placeholder={CLEAR_COMMONS_PHRASE}
+              type="text"
+              value={clearCommonsText}
+            />
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <button
+                className="rounded-lg bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
+                disabled={deletingSpace || clearCommonsText !== CLEAR_COMMONS_PHRASE}
+                onClick={() => { void runDeleteSpace(); }}
+                type="button"
+              >
+                {deletingSpace ? "Clearing..." : "Clear commons"}
+              </button>
+              <button
+                className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                disabled={deletingSpace}
+                onClick={() => { setClearCommonsOpen(false); setClearCommonsText(""); }}
+                type="button"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : null}
 
         {spaceError ? <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{spaceError}</div> : null}
 

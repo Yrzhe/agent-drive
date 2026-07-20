@@ -1,12 +1,12 @@
 import { eq } from "drizzle-orm";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 
-import { files, spaces, userAccess } from "../../src/defs";
+import { files, memories, spaceItems, spaces, userAccess } from "../../src/defs";
 import app from "../../src/index";
 import type { AccessStatus } from "../../src/lib/access";
 import { nowIso } from "../../src/lib/files";
 import { callMcpTool } from "../../src/lib/mcp-tools";
-import { accessibleFileIds, ensurePublicCommons, userSpaceIds } from "../../src/lib/spaces";
+import { PUBLIC_COMMONS_ID, accessibleFileIds, ensurePublicCommons, userSpaceIds } from "../../src/lib/spaces";
 import {
   getViaPresignedUrl,
   jsonHeaders,
@@ -16,6 +16,7 @@ import {
   seedMemory,
   seedOwner,
   seedSpace,
+  seedSpaceItem,
   seedSpaceMember,
   useSession,
 } from "./edge-runtime";
@@ -822,6 +823,209 @@ describe("public commons access + moderation (P2 Task 2)", () => {
       });
       expect(patch.status).toBe(404);
       expect(await errorCode(patch)).toBe("member_not_found");
+    });
+  });
+
+  /**
+   * The commons makes cross-owner key/path collisions UNIVERSAL: keys and paths are unique
+   * per owner, never globally, so once everyone shares one space every user's namespace
+   * overlaps every other's. A widened read resolved with a bare `.limit(1)` lets the QUERY
+   * PLAN decide whose row you get — so a hostile contributor can publish under a guessable
+   * key (`deploy-target`) and have their content handed to an agent that asked for its OWN.
+   * That is memory POISONING (integrity), not disclosure.
+   *
+   * Here A is the ATTACKER (publishes into the commons) and B is the VICTIM (owns a row
+   * under the same key/path and reads it back).
+   */
+  describe("key/path collision — the caller's OWN row always wins", () => {
+    /**
+     * Pin the adversarial-but-entirely-legal query plan.
+     *
+     * `WHERE key = ? AND (owner_id = me OR id IN (...))` has two shapes available to SQLite:
+     * a `MULTI-INDEX OR` that happens to probe the owner branch first (accidentally
+     * returning the right row), or a `SCAN`/skip-scan that returns whichever colliding row
+     * it reaches first (returning the ATTACKER's). Which one it picks depends on optimizer
+     * statistics, so on a pristine test DB the lucky plan hides the bug and a broken
+     * implementation still passes. `ANALYZE` selects the unlucky plan — one D1 is equally
+     * free to choose in production as tables grow — so these tests exercise the real
+     * collision rather than trusting the planner. Verified: without own-row-first, every
+     * assertion below returns A's row to B.
+     */
+    function pinCollisionProneQueryPlan(): void {
+      runtime.sqlite!.prepare("ANALYZE").run();
+    }
+
+    it("GET /v1/memory/<key> returns B's OWN row even though A published a colliding key", async () => {
+      await seedCast();
+      const commonsId = await commons();
+      await seedMemory({ id: "atk-mem", key: "deploy-target", content: "A's poisoned deploy target", ownerId: A.id });
+      await seedMemory({ id: "own-mem", key: "deploy-target", content: "B's real deploy target", ownerId: B.id });
+
+      useSession(A);
+      expect((await contribute(commonsId, "memory", "deploy-target")).status).toBe(201);
+      pinCollisionProneQueryPlan();
+
+      // B asked for B's key. B must get B's row, never A's published collision.
+      useSession(B);
+      const res = await app.request(`/api/public/v1/memory/deploy-target`, { headers: jsonHeaders() });
+      expect(res.status).toBe(200);
+      const { memory } = (await res.json()) as { memory: { id: string; content: string } };
+      expect(memory.id).toBe("own-mem");
+      expect(memory.content).toBe("B's real deploy target");
+    });
+
+    it("a reader with NO own row at that key still legitimately gets A's published one", async () => {
+      await seedCast();
+      const commonsId = await commons();
+      await seedMemory({ id: "atk-mem", key: "deploy-target", content: "A's published deploy target", ownerId: A.id });
+
+      useSession(A);
+      expect((await contribute(commonsId, "memory", "deploy-target")).status).toBe(201);
+      pinCollisionProneQueryPlan();
+
+      // B owns nothing under this key — the widened fallback is what serves them, so
+      // own-row-first must not have broken legitimate commons reads.
+      useSession(B);
+      const res = await app.request(`/api/public/v1/memory/deploy-target`, { headers: jsonHeaders() });
+      expect(res.status).toBe(200);
+      expect(((await res.json()) as { memory: { id: string } }).memory.id).toBe("atk-mem");
+    });
+
+    it("addressing either row by its unique id stays unambiguous", async () => {
+      await seedCast();
+      const commonsId = await commons();
+      await seedMemory({ id: "atk-mem", key: "deploy-target", content: "A's poisoned deploy target", ownerId: A.id });
+      await seedMemory({ id: "own-mem", key: "deploy-target", content: "B's real deploy target", ownerId: B.id });
+
+      useSession(A);
+      expect((await contribute(commonsId, "memory", "deploy-target")).status).toBe(201);
+      pinCollisionProneQueryPlan();
+
+      useSession(B);
+      const own = await app.request(`/api/public/v1/memory/own-mem`, { headers: jsonHeaders() });
+      expect(((await own.json()) as { memory: { id: string } }).memory.id).toBe("own-mem");
+
+      // Own-row-first must not hide A's published row from an explicit, unambiguous id.
+      const published = await app.request(`/api/public/v1/memory/atk-mem`, { headers: jsonHeaders() });
+      expect(published.status).toBe(200);
+      expect(((await published.json()) as { memory: { id: string } }).memory.id).toBe("atk-mem");
+    });
+
+    it("recall still surfaces B's own row when A published a colliding key", async () => {
+      await seedCast();
+      const commonsId = await commons();
+      await seedMemory({ id: "atk-mem", key: "deploy-target", content: "collidetoken A published", ownerId: A.id });
+      await seedMemory({ id: "own-mem", key: "deploy-target", content: "collidetoken B private", ownerId: B.id });
+
+      useSession(A);
+      expect((await contribute(commonsId, "memory", "deploy-target")).status).toBe(201);
+      pinCollisionProneQueryPlan();
+
+      const result = await callMcpTool(runtime.db as never, "https://x", ["read:memory", "path:/"], "recall", { query: "collidetoken" }, B.id);
+      const ids = (mcpJson(result) as { memories: Array<{ id: string }> }).memories.map((m) => m.id);
+      expect(ids).toContain("own-mem");
+    });
+
+    it("MCP read_file at a colliding path returns B's OWN bytes, not A's published file", async () => {
+      await seedCast();
+      const commonsId = await commons();
+      await seedDriveFile({ id: "atk-file", path: "/notes/deploy.md", body: "A's poisoned bytes", ownerId: A.id });
+      await seedDriveFile({ id: "own-file", path: "/notes/deploy.md", body: "B's own bytes", ownerId: B.id });
+
+      useSession(A);
+      expect((await contribute(commonsId, "file", "/notes/deploy.md")).status).toBe(201);
+      pinCollisionProneQueryPlan();
+
+      const asB = await callMcpTool(runtime.db as never, "https://x", ["read:drive", "path:/"], "read_file", { path: "/notes/deploy.md" }, B.id);
+      expect((mcpJson(asB) as { content: string }).content).toBe("B's own bytes");
+
+      // The owner has no file there, so the widened scope legitimately serves A's.
+      const asOwner = await callMcpTool(runtime.db as never, "https://x", ["read:drive", "path:/"], "read_file", { path: "/notes/deploy.md" }, OWNER.id);
+      expect((mcpJson(asOwner) as { content: string }).content).toBe("A's poisoned bytes");
+    });
+  });
+
+  /**
+   * `Clear commons` is `DELETE /v1/spaces/:commonsId`. It is references-only and
+   * creator-only, and because `PUBLIC_COMMONS_ID` is a FIXED constant with no FK from
+   * `space_items`, the re-bootstrap after it must actively guarantee an empty commons.
+   */
+  describe("clearing the commons (DELETE /v1/spaces/:commonsId)", () => {
+    it("refuses a non-creator with 403 even when they contributed items", async () => {
+      await seedCast();
+      const commonsId = await commons();
+      await seedDriveFile({ id: "a-file", path: "/mine.txt", body: "mine", ownerId: A.id });
+
+      useSession(A);
+      expect((await contribute(commonsId, "file", "/mine.txt")).status).toBe(201);
+
+      const res = await app.request(`/api/public/v1/spaces/${commonsId}`, { method: "DELETE", headers: jsonHeaders() });
+      expect(res.status).toBe(403);
+      expect(await errorCode(res)).toBe("space_forbidden");
+
+      // Nothing was removed.
+      expect(await runtime.db.select().from(spaceItems).where(eq(spaceItems.spaceId, commonsId))).toHaveLength(1);
+    });
+
+    it("the creator clears it: every space_item goes, the underlying files and memory survive", async () => {
+      await seedCast();
+      const commonsId = await commons();
+      await seedDriveFile({ id: "a-file", path: "/a.txt", body: "a bytes", ownerId: A.id });
+      await seedMemory({ id: "b-mem", key: "b-note", content: "b content", ownerId: B.id });
+
+      useSession(A);
+      expect((await contribute(commonsId, "file", "/a.txt")).status).toBe(201);
+      useSession(B);
+      expect((await contribute(commonsId, "memory", "b-note")).status).toBe(201);
+      expect(await runtime.db.select().from(spaceItems).where(eq(spaceItems.spaceId, commonsId))).toHaveLength(2);
+
+      useSession(OWNER);
+      const res = await app.request(`/api/public/v1/spaces/${commonsId}`, { method: "DELETE", headers: jsonHeaders() });
+      expect(res.status).toBe(200);
+      expect((await res.json()) as { deleted: boolean }).toMatchObject({ deleted: true });
+
+      // References only: the space and its items are gone...
+      expect(await runtime.db.select().from(spaceItems).where(eq(spaceItems.spaceId, commonsId))).toHaveLength(0);
+      expect(await runtime.db.select().from(spaces).where(eq(spaces.id, commonsId))).toHaveLength(0);
+      // ...but the contributors' actual resources are untouched.
+      expect(await runtime.db.select().from(files).where(eq(files.id, "a-file"))).toHaveLength(1);
+      expect(await runtime.db.select().from(memories).where(eq(memories.id, "b-mem"))).toHaveLength(1);
+
+      // And the cross-owner read it granted is revoked with it.
+      useSession(B);
+      expect((await app.request(`/api/public/v1/files/a-file`, { headers: jsonHeaders() })).status).toBe(404);
+    });
+
+    it("the next spaces request re-bootstraps an EMPTY commons under the same fixed id", async () => {
+      await seedCast();
+      const commonsId = await commons();
+      expect(commonsId).toBe(PUBLIC_COMMONS_ID);
+      await seedDriveFile({ id: "a-file", path: "/a.txt", body: "a bytes", ownerId: A.id });
+
+      useSession(A);
+      expect((await contribute(commonsId, "file", "/a.txt")).status).toBe(201);
+
+      useSession(OWNER);
+      expect((await app.request(`/api/public/v1/spaces/${commonsId}`, { method: "DELETE", headers: jsonHeaders() })).status).toBe(200);
+
+      // A stale contribute that passed its role check just before the clear lands AFTER it:
+      // `space_items` has no FK to `spaces`, so this orphan would otherwise be resurrected
+      // live by the next bootstrap reusing the same fixed id.
+      await seedSpaceItem({ spaceId: PUBLIC_COMMONS_ID, itemType: "file", itemRef: "a-file", contributedBy: A.id });
+
+      useSession(A);
+      const res = await app.request(`/api/public/v1/spaces`, { headers: jsonHeaders() });
+      expect(res.status).toBe(200);
+      const { spaces: listed } = (await res.json()) as { spaces: Array<{ id: string; visibility: string; itemCount: number }> };
+      const fresh = listed.find((space) => space.visibility === "public");
+      expect(fresh).toBeDefined();
+      expect(fresh!.id).toBe(PUBLIC_COMMONS_ID);
+      expect(fresh!.itemCount).toBe(0);
+      expect(await runtime.db.select().from(spaceItems).where(eq(spaceItems.spaceId, PUBLIC_COMMONS_ID))).toHaveLength(0);
+
+      // The orphan is not readable cross-owner either.
+      useSession(B);
+      expect((await app.request(`/api/public/v1/files/a-file`, { headers: jsonHeaders() })).status).toBe(404);
     });
   });
 });

@@ -296,6 +296,24 @@ export async function getMemory(db: AppDb, idOrKey: string, ownerId: string | nu
   // callers (forgetMemory, resolveOwnedContributionRef) never pass `readable`, so contribute/
   // delete stay strictly owner-scoped even when the caller is a space member.
   const scope = readable ?? (ownerId ? eq(memories.ownerId, ownerId) : undefined);
+
+  // OWN-ROW-FIRST (P2). `readable` widens this lookup past the caller's own rows, and keys
+  // are unique per owner but NOT globally — so with the public commons every user's key
+  // space collides with every other's. Resolving a bare `.limit(1)` over the widened scope
+  // would let the query plan decide whose row you get: a hostile user publishing a memory
+  // under a guessable key (`deploy-target`) could have their content returned to an agent
+  // that asked for ITS OWN key. That is memory poisoning, not just disclosure. So when the
+  // scope is widened, the caller's own row always wins; the widened scope is only a
+  // fallback for refs the caller does not own. Skipped entirely when `scope` already IS the
+  // strict owner filter (write paths), where these two queries would be redundant.
+  if (readable && ownerId) {
+    const own = eq(memories.ownerId, ownerId);
+    const [ownById] = await db.select().from(memories).where(and(eq(memories.id, idOrKey), own)).limit(1);
+    if (ownById) return ownById;
+    const [ownByKey] = await db.select().from(memories).where(and(eq(memories.key, idOrKey), own)).limit(1);
+    if (ownByKey) return ownByKey;
+  }
+
   // id wins over key so a user-chosen key can never shadow another row's id.
   const [byId] = await db
     .select()

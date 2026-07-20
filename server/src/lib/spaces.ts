@@ -83,7 +83,7 @@ export async function ensurePublicCommons(db: AppDb): Promise<string | null> {
   const ownerId = await resolveOwnerUserId(db);
   if (ownerId === null) return null; // fail closed — no owner, no commons.
 
-  await db
+  const inserted = await db
     .insert(spaces)
     .values({
       id: PUBLIC_COMMONS_ID,
@@ -92,7 +92,23 @@ export async function ensurePublicCommons(db: AppDb): Promise<string | null> {
       visibility: "public",
       createdAt: nowIso(),
     } as never)
-    .onConflictDoNothing();
+    .onConflictDoNothing()
+    .returning({ id: spaces.id });
+
+  // Defensive orphan sweep. `space_items` has NO foreign key to `spaces` and
+  // `PUBLIC_COMMONS_ID` is a fixed constant, so item rows can outlive the space row they
+  // point at: a contribute that passes its role check just before `Clear commons` deletes
+  // the space can land its item afterwards, and the next bootstrap would reuse the same id
+  // and silently make that orphan live in the supposedly-fresh commons. A re-bootstrapped
+  // commons must always start EMPTY, so sweep any leftovers here.
+  //
+  // Gated on `returning()` being non-empty — i.e. THIS call actually created the row. A
+  // concurrent bootstrap that lost the `onConflictDoNothing` race gets no rows back and so
+  // never sweeps, which is what keeps it from wiping items contributed to the winner's
+  // commons in the moments after it was created.
+  if (inserted.length > 0) {
+    await db.delete(spaceItems).where(eq(spaceItems.spaceId, PUBLIC_COMMONS_ID));
+  }
 
   return findPublicCommonsId(db);
 }

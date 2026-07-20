@@ -95,6 +95,20 @@ calls it.
   at all means the implicit `contributor` floor. A stored row on the commons
   is authoritative in **both** directions — it can promote above, or demote
   below, the implicit floor.
+- **⚠️ Rotating `OWNER_EMAIL` does NOT move commons moderation.** `creatorId`
+  is stamped **once**, at bootstrap, and is never re-bound to the current
+  `OWNER_EMAIL` afterwards. Point `OWNER_EMAIL` at a different account and
+  the commons keeps the OLD account as its creator/moderator, while the new
+  owner drops to an ordinary implicit `contributor` — unable to moderate
+  items, manage commons roles, or clear the commons. Nothing in the deploy
+  path warns about this. To hand moderation over, do it deliberately from
+  the OLD owner account before (or after) the rotation: either
+  `DELETE /spaces/<commonsId>` so the next spaces request re-bootstraps a
+  fresh, **empty** commons under the new owner — this drops every
+  contributed reference instance-wide, though no underlying files or memory
+  — or `POST /spaces/<commonsId>/members` granting the new owner an
+  explicit `editor` row, which delegates item moderation without transferring
+  creator-only powers (member management and clearing the commons).
 - **`memberCount` is `null`, never a number.** The commons materializes no
   `space_members` rows, so counting them would report `1` — the smallest
   number in the list — for the one space every active user can actually

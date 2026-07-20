@@ -171,6 +171,13 @@ spaces surface — you don't create it, and you can't create a second one
 - **`memberCount` reads as `null`** in `list_spaces`/`read_space` — that
   means "everyone on this drive," not a real count. Don't report it as `0`
   or `1`.
+- **Commons moderation doesn't follow an owner change.** The commons'
+  creator is stamped once, when it's first bootstrapped, and is never
+  re-bound if the deployment's `OWNER_EMAIL` is later pointed at a different
+  account. After such a rotation the new owner is just an ordinary implicit
+  `contributor` there and gets `space_forbidden` on moderation calls. If a
+  human asks why they can't moderate the commons "even though they're the
+  owner", this is why — tell them, don't retry the call.
 - **The member roster is owner-only.** You can't list who's implicitly a
   member (everyone active is); you can still see who contributed a given
   item via `contributedBy` on that item.
