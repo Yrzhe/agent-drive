@@ -116,10 +116,19 @@ async function snapshotCurrentManifestToHistory(
   storage: StorageClientLike,
   prefix: string,
   previousVersionId: string,
-  pushedAt: string
+  pushedAt: string,
+  ownerId: string | null
 ): Promise<{ filesRow: typeof files.$inferInsert; existingId: string | null; bytes: Uint8Array } | null> {
+  // Owner-scoped for the same reason as #65: paths are per-owner unique since #30, so an
+  // unscoped lookup can resolve ANOTHER owner's manifest — snapshotting their bytes (file
+  // list, hashes, machineId) into this caller's readable `.history/`.
+  const filesOwnerFilter = ownerId ? eq(files.ownerId, ownerId) : undefined;
   const manifestPath = joinPath(prefix, "manifest.json");
-  const [currentManifestRow] = await db.select().from(files).where(and(eq(files.path, manifestPath), isNull(files.deletedAt))).limit(1);
+  const [currentManifestRow] = await db
+    .select()
+    .from(files)
+    .where(and(eq(files.path, manifestPath), isNull(files.deletedAt), filesOwnerFilter))
+    .limit(1);
   if (!currentManifestRow?.s3Uri) return null;
 
   const parsed = storage.tryParseS3Uri(currentManifestRow.s3Uri);
@@ -136,8 +145,12 @@ async function snapshotCurrentManifestToHistory(
   const historyPath = joinPath(historyDir, `${previousVersionId}.json`);
   const historyName = `${previousVersionId}.json`;
 
-  await purgeConflictingTrashAtPath(db, storage, historyPath);
-  const [existingHistoryRow] = await db.select().from(files).where(and(eq(files.path, historyPath), isNull(files.deletedAt))).limit(1);
+  await purgeConflictingTrashAtPath(db, storage, historyPath, ownerId);
+  const [existingHistoryRow] = await db
+    .select()
+    .from(files)
+    .where(and(eq(files.path, historyPath), isNull(files.deletedAt), filesOwnerFilter))
+    .limit(1);
   const historyFileId = existingHistoryRow?.id ?? nanoid();
   const historyR2Path = driveObjectKey(historyFileId, historyName);
   await storage.from(buckets.drive).put(historyR2Path, bytes, { contentType: "application/json" });
@@ -289,18 +302,21 @@ bundlesRoutes.post(
 
     let historySnapshot: Awaited<ReturnType<typeof snapshotCurrentManifestToHistory>> = null;
     if (current && previousVersionId) {
-      historySnapshot = await snapshotCurrentManifestToHistory(db, storage, prefix, previousVersionId, pushedAt);
+      historySnapshot = await snapshotCurrentManifestToHistory(db, storage, prefix, previousVersionId, pushedAt, ownerId);
       if (historySnapshot) {
         await ensureFolderChain(db, joinPath(prefix, ".history"), ownerId);
       }
     }
 
-    await purgeConflictingTrashAtPath(db, storage, manifestPath);
+    await purgeConflictingTrashAtPath(db, storage, manifestPath, ownerId);
 
+    // MUST be owner-scoped (#65 audit). This row drives both the R2 object key and the
+    // `db.update(files)` below, so an unscoped match would PUT this caller's manifest
+    // bytes over another owner's R2 object and overwrite their row in place.
     const [existingManifestRow] = await db
       .select()
       .from(files)
-      .where(and(eq(files.path, manifestPath), isNull(files.deletedAt)))
+      .where(and(eq(files.path, manifestPath), isNull(files.deletedAt), ownerId ? eq(files.ownerId, ownerId) : undefined))
       .limit(1);
 
     if (existingManifestRow?.isFolder === 1) {

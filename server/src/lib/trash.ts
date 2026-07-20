@@ -127,11 +127,14 @@ export async function softDeleteSubtree(
   };
 }
 
-export async function restoreSubtree(db: AppDb, root: FileRow): Promise<number> {
+export async function restoreSubtree(db: AppDb, root: FileRow, ownerId: string | null = null): Promise<number> {
   const timestamp = nowIso();
   const originalPath = originalTrashPath(root);
   if (root.isFolder === 1) {
-    const rows = await expandSubtree(db, root);
+    // Owner-scoped for the same reason as the purge helpers (#65): a LEGACY trashed
+    // folder still sits at its plain path, so an unscoped subtree expand would also
+    // un-trash another owner's trashed descendants at that path and rewrite them.
+    const rows = await expandSubtree(db, root, ownerId);
     const ops = rows
       .filter((row) => row.deletedAt !== null)
       .map((row) => {
@@ -164,9 +167,20 @@ export async function hardPurgeSubtree(
   root: FileRow,
   ownerId: string | null = null
 ): Promise<{ rowCount: number; objectCount: number }> {
-  const rows = await expandSubtree(db, root);
+  // Subtree expansion and the path-pattern deletes below must be owner-scoped for the
+  // same reason as purgeConflictingTrashAtPath (#65): paths are per-owner unique since
+  // #30, so an unscoped `path LIKE '<root>/%'` sweeps another owner's live descendants.
+  const expanded = await expandSubtree(db, root, ownerId);
+  // A purge must NEVER take a LIVE row (#65 audit). When `ownerId` is null — a LEGACY
+  // pre-#30 trashed root — the subtree expand and the path-pattern delete below are
+  // unscoped, so another owner's LIVE `/notes/*` rows sit inside the same pattern.
+  // Dropping live rows here (and the matching `isNotNull` in the delete) makes that
+  // impossible regardless of scoping.
+  const rows = expanded.filter((row) => row.deletedAt !== null || row.id === root.id);
   const fileIds = rows.filter((x) => x.isFolder === 0).map((x) => x.id);
   const storagePaths = s3PathsFor(rows, storage);
+  const fileOwnerFilter = ownerId ? eq(files.ownerId, ownerId) : undefined;
+  const shareOwnerFilter = ownerId ? eq(shares.ownerId, ownerId) : undefined;
 
   if (root.isFolder === 1) {
     const originalBundleRoot = originalTrashPath(root);
@@ -174,12 +188,35 @@ export async function hardPurgeSubtree(
       deleteBundlePrefixesInSubtree(db, originalBundleRoot, ownerId),
       db
         .delete(shares)
-        .where(or(eq(shares.folderPath, root.path), sql`${shares.folderPath} LIKE ${escapedDescendantPattern(root.path)} ESCAPE '\\'`)),
+        .where(
+          and(
+            or(eq(shares.folderPath, root.path), sql`${shares.folderPath} LIKE ${escapedDescendantPattern(root.path)} ESCAPE '\\'`),
+            shareOwnerFilter
+          )
+        ),
     ];
     if (originalBundleRoot !== root.path) ops.push(deleteBundlePrefixesInSubtree(db, root.path, ownerId));
-    if (fileIds.length > 0) ops.push(db.delete(shares).where(inArray(shares.fileId, fileIds)));
+    if (fileIds.length > 0) ops.push(db.delete(shares).where(and(inArray(shares.fileId, fileIds), shareOwnerFilter)));
     ops.push(
-      db.delete(files).where(or(eq(files.path, root.path), sql`${files.path} LIKE ${escapedDescendantPattern(root.path)} ESCAPE '\\'`))
+      db
+        .delete(files)
+        .where(
+          and(
+            or(
+              // The root is matched by ID, not path: a path match could also take another
+              // owner's row at the same path when this purge is unscoped.
+              eq(files.id, root.id),
+              and(
+                sql`${files.path} LIKE ${escapedDescendantPattern(root.path)} ESCAPE '\\'`,
+                // Hard floor: a descendant must be TRASHED to be purgeable. Without this,
+                // an unscoped legacy purge destroys other owners' LIVE rows under the
+                // same path prefix (#65 audit).
+                isNotNull(files.deletedAt)
+              )
+            ),
+            fileOwnerFilter
+          )
+        )
     );
     await db.batch(ops as [any, ...any[]]);
   } else {
@@ -211,24 +248,53 @@ export async function hardPurgeSubtree(
  * Legacy fallback only: rows trashed before the tombstone-rename scheme still
  * occupy their original path and must be purged before that path can be
  * reused. Rows trashed after the scheme never collide, so this is a no-op.
+ *
+ * MUST be owner-scoped (#65). Paths are per-owner unique since #30, so an
+ * unscoped lookup could match ANOTHER owner's trashed row at the same path and
+ * hard-purge it — row and R2 bytes — during the caller's ordinary write. Pass
+ * the caller's owner; `null` (legacy trust-any deployment) keeps prior behavior.
  */
 export async function purgeConflictingTrashAtPath(
   db: AppDb,
   storage: StorageClient,
-  path: string
+  path: string,
+  ownerId: string | null = null
 ): Promise<boolean> {
   const [trashed] = await db
     .select()
     .from(files)
-    .where(and(eq(files.path, path), isNotNull(files.deletedAt)))
+    .where(and(eq(files.path, path), isNotNull(files.deletedAt), ownerId ? eq(files.ownerId, ownerId) : undefined))
     .limit(1);
   if (!trashed) return false;
-  await hardPurgeSubtree(db, storage, trashed, trashed.ownerId ?? null);
+  // Scoped lookup guarantees `trashed.ownerId === ownerId` whenever ownerId is set;
+  // pass the caller's owner explicitly so the subtree purge is coherently scoped.
+  await hardPurgeSubtree(db, storage, trashed, ownerId ?? trashed.ownerId ?? null);
   return true;
 }
 
 function cutoffIso(retentionDays: number): string {
   return new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000).toISOString();
+}
+
+/**
+ * True when an UNSCOPED purge of this root would reach across owners. A null-owner root
+ * makes `hardPurgeSubtree` run with no owner filter, and paths are per-owner unique since
+ * #30 — so if any owned row shares the root's path prefix, the sweep must refuse rather
+ * than sweep another owner's subtree (#65 audit).
+ */
+async function subtreeCrossesOwners(db: AppDb, root: FileRow): Promise<boolean> {
+  if (root.isFolder !== 1) return false;
+  const [conflict] = await db
+    .select({ id: files.id })
+    .from(files)
+    .where(
+      and(
+        or(eq(files.path, root.path), sql`${files.path} LIKE ${escapedDescendantPattern(root.path)} ESCAPE '\\'`),
+        isNotNull(files.ownerId)
+      )
+    )
+    .limit(1);
+  return conflict !== undefined;
 }
 
 export async function maybePurgeStaleTrash(db: AppDb, storage: StorageClient): Promise<void> {
@@ -240,7 +306,12 @@ export async function maybePurgeStaleTrash(db: AppDb, storage: StorageClient): P
     .where(and(isNotNull(files.deletedAt), lt(files.deletedAt, cutoff)));
   for (const row of stale) {
     try {
-      await hardPurgeSubtree(db, storage, row, row.ownerId ?? null);
+      const ownerId = row.ownerId ?? null;
+      // A legacy null-owner root purges UNSCOPED; skip it entirely once any owned row
+      // shares its path prefix. Single-owner legacy deployments (no owned rows) and all
+      // owner-scoped roots keep purging exactly as before.
+      if (ownerId === null && (await subtreeCrossesOwners(db, row))) continue;
+      await hardPurgeSubtree(db, storage, row, ownerId);
     } catch {
       // best-effort; one bad row shouldn't stop the rest
     }

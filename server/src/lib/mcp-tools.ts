@@ -464,7 +464,7 @@ export async function callMcpTool(db: AppDb, origin: string, scopes: readonly st
     // or touch the contributor's trash.
     if (!editingViaSpace) {
       await ensureFolderChain(db, parentPath, ownerId);
-      await purgeConflictingTrashAtPath(db, storage, path);
+      await purgeConflictingTrashAtPath(db, storage, path, ownerId);
     }
 
     if (bytes.byteLength > MCP_WRITE_FILE_MAX_BYTES) {
