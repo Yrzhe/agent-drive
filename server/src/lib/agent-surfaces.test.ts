@@ -46,6 +46,29 @@ const surfaces: { path: string; extract: (content: string) => string }[] = [
   },
 ];
 
+/**
+ * REST areas mounted under /api/public/v1/, from the authoritative mount table.
+ * The bare `/api/public/v1` mount (shares, which sit at the version root) is
+ * normalized to "shares".
+ */
+const mountedRestAreas = [
+  ...read("server/src/index.ts").matchAll(/app\.route\("\/api\/public\/v1\/?([a-z-]*)"/gu),
+].map((m) => m[1] || "shares");
+
+/**
+ * Areas that are mounted but deliberately absent from the restApi summary line,
+ * each with the reason. Adding an entry here is a decision to hide a surface from
+ * agents — do not add one just to make this test pass.
+ */
+const restAreasDocumentedElsewhere: Record<string, string> = {
+  // Has its own `accountAccess` section in the same guide, with more detail than
+  // a summary line could carry.
+  account: "guide.accountAccess",
+  // Owner-only tooling, intentionally not an agent surface. The guide says so in
+  // its own words — see the `note` field in the spaces section.
+  admin: "deliberately not an agent surface",
+};
+
 describe("agent-facing surface drift", () => {
   it("finds the registered MCP tools", () => {
     // Guards the regex above: a refactor that changes the registration shape
@@ -62,5 +85,26 @@ describe("agent-facing surface drift", () => {
       (tool) => !new RegExp(`\\b${tool}\\b`, "u").test(passage)
     );
     expect(missing, `${path} omits tools an agent would never discover`).toEqual([]);
+  });
+
+  it("finds the mounted REST areas", () => {
+    // Same guard as above: a change to the mount syntax must not quietly empty
+    // this list and turn the next assertion into a no-op.
+    expect(mountedRestAreas.length).toBeGreaterThanOrEqual(12);
+    expect(mountedRestAreas).toContain("shares");
+    expect(new Set(mountedRestAreas).size).toBe(mountedRestAreas.length);
+  });
+
+  it("the guide's restApi line names every mounted REST area", () => {
+    const line = read("server/src/routes/guide.ts").match(/^\s*restApi: `[^`]*`/mu)?.[0] ?? "";
+    expect(line, "could not locate the agentSurfaces.restApi line").not.toBe("");
+
+    const missing = mountedRestAreas
+      .filter((area) => !(area in restAreasDocumentedElsewhere))
+      .filter((area) => !new RegExp(`\\b${area}\\b`, "u").test(line));
+    expect(
+      missing,
+      "mounted REST areas an agent reading the guide summary would never discover"
+    ).toEqual([]);
   });
 });

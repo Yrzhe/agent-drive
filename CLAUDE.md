@@ -24,10 +24,18 @@ This product's primary users are agents. Every feature change that adds, removes
 | README | `README.md` endpoint tables | Human + agent quick reference |
 | CHANGELOG | `CHANGELOG.md` | Keep a Changelog format, every feature |
 
-**Verifying the sync — don't eyeball it.** `server/src/lib/agent-surfaces.test.ts` mechanically diffs the MCP tool set registered in `mcp-tools.ts` against every surface that claims to enumerate it, and runs as part of `npm run test:unit`. Add a new tool and the suite goes red until each surface lists it. Two rules learned from real drift:
+**Verifying the sync — don't eyeball it.** `server/src/lib/agent-surfaces.test.ts` runs as part of `npm run test:unit` and mechanically diffs two registries against the surfaces that claim to enumerate them:
+
+- the MCP tool set in `mcp-tools.ts` → the guide's `agentSurfaces.mcp` line, `llms.txt`'s `Tools:` block, and `skill/references/mcp.md`;
+- the `/api/public/v1/*` mounts in `index.ts` → the guide's `agentSurfaces.restApi` line.
+
+Add a tool or mount a route without updating the surface and the suite goes red. A mounted area may be omitted from `restApi` only by adding it to `restAreasDocumentedElsewhere` **with a reason** (today: `account`, which has its own guide section, and `admin`, which is owner tooling and deliberately not an agent surface). That map is a decision to hide something from agents — never add an entry just to get to green.
+
+Three rules learned from real drift:
 
 - **Scope each check to the passage that makes the claim**, never the whole file. The drift this test was written for was a stale *summary line* in `guide.ts` whose own `spaces` section mentioned the missing tools further down — a file-wide grep passes it happily.
-- **Never trust a green you have not seen fail.** After extending this test, break each surface on purpose and confirm it goes red before believing it. The first version of this very test passed a deliberately reverted `guide.ts`.
+- **Never trust a green you have not seen fail.** After extending this test, break each surface on purpose and confirm it goes red before believing it. The first version of this very test passed a deliberately reverted `guide.ts`. Verify both directions: regress the doc, *and* add a registry entry (a new tool, a new mount) without documenting it.
+- **A green deploy is not a deployed change.** `edgespark deploy` has reported success while shipping a stale bundle — the fix only landed on a second run, visible as a jump in bundle size. Always `curl` the production surface with a cache-busting query param and read the value back before calling a deploy done.
 
 Surfaces that carry prose rather than an enumerable list (the skill's feature modules, API docs, README tables) still need a human read — the test covers the tool-set drift, not whether the prose is true.
 
