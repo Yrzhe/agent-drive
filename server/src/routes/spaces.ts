@@ -10,6 +10,7 @@ import { nowIso } from "../lib/files";
 import { parseListPagination } from "../lib/pagination";
 import {
   assertSpaceRole,
+  ensurePublicCommons,
   resolveOwnedContributionRef,
   resolveSpaceRole,
   resolveUserIdByEmail,
@@ -33,9 +34,31 @@ import type { AppDb, AppEnv } from "../types";
  * (read:drive for GET, write:drive otherwise) already covers this path with no changes
  * needed there: spaces have no path-scoped semantics like files/folders.
  *
- * P1 spaces are `visibility: 'invite'` only (D3) — the public commons is P2, out of scope.
+ * P1 spaces are `visibility: 'invite'` only (D3). P2 adds the ONE `visibility: 'public'`
+ * commons — still not user-creatable: `POST /` below keeps hardcoding `visibility: 'invite'`,
+ * and the commons is system-bootstrapped by the middleware right below.
  */
 export const spacesRoutes = new Hono<AppEnv>();
+
+/**
+ * Shared Spaces P2 (D3) — bootstrap the public commons on any spaces request.
+ *
+ * This is the ONLY place the commons comes into existence. `userSpaceIds` deliberately uses a
+ * READ-ONLY commons lookup (a read path must never materialize a row), so if no surface ever
+ * called `ensurePublicCommons` the commons would never exist and no user could reach it.
+ * Doing it here — the route layer, not the read filters — keeps every spaces surface
+ * (list, detail, items, members) consistent, at the cost of one indexed SELECT per request
+ * once the row exists.
+ *
+ * `ensurePublicCommons` fails closed (returns null, creates nothing) when the deployment
+ * owner cannot be resolved, so an unarmed/misconfigured install simply has no commons and
+ * every handler below behaves exactly as it did in P1.
+ */
+spacesRoutes.use("*", async (c, next) => {
+  const { db } = await import("edgespark");
+  await ensurePublicCommons(db);
+  await next();
+});
 
 type SpaceRow = typeof spaces.$inferSelect;
 type MemberRole = Exclude<SpaceRole, "creator">;

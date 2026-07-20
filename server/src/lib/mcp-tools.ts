@@ -13,6 +13,7 @@ import { extractPathPrefixes, hasScope, pathAllowed, requirePathAllowed, type Mc
 import {
   assertSpaceRole,
   canEditFileViaSpace,
+  ensurePublicCommons,
   fileReadableFilter,
   memoryReadableFilter,
   resolveOwnedContributionRef,
@@ -279,6 +280,16 @@ export const MCP_TOOLS: McpToolDefinition[] = [
 ];
 
 const SPACE_ITEM_TYPES: readonly SpaceItemType[] = ["file", "folder", "memory"];
+
+/** Tools that operate on Spaces — they bootstrap the public commons before dispatch (P2 D3). */
+const SPACE_TOOL_NAMES: ReadonlySet<string> = new Set([
+  "list_spaces",
+  "read_space",
+  "add_to_space",
+  "remove_from_space",
+  "create_space",
+  "manage_space_members",
+]);
 const SPACE_MEMBER_ROLES = ["viewer", "contributor", "editor"] as const;
 type SpaceMemberRole = (typeof SPACE_MEMBER_ROLES)[number];
 
@@ -602,6 +613,15 @@ export async function callMcpTool(db: AppDb, origin: string, scopes: readonly st
     const forgotten = await forgetMemory(db, idOrKey, ownerId);
     if (!forgotten) throw new Error("memory_not_found");
     return textResult({ forgotten });
+  }
+
+  // Shared Spaces P2 (D3): bootstrap the public commons before any Spaces tool runs — the
+  // MCP twin of the middleware in routes/spaces.ts. `userSpaceIds`' commons lookup is
+  // read-only by design, so without this an agent-only deployment would never materialize
+  // the commons and `list_spaces` would never surface it. Fails closed to a no-op when the
+  // deployment owner cannot be resolved.
+  if (SPACE_TOOL_NAMES.has(name)) {
+    await ensurePublicCommons(db);
   }
 
   if (name === "list_spaces") {
