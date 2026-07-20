@@ -6,7 +6,7 @@ import app from "../../src/index";
 import type { AccessStatus } from "../../src/lib/access";
 import { nowIso } from "../../src/lib/files";
 import { callMcpTool } from "../../src/lib/mcp-tools";
-import { ensurePublicCommons } from "../../src/lib/spaces";
+import { accessibleFileIds, ensurePublicCommons, userSpaceIds } from "../../src/lib/spaces";
 import {
   getViaPresignedUrl,
   jsonHeaders,
@@ -16,6 +16,7 @@ import {
   seedMemory,
   seedOwner,
   seedSpace,
+  seedSpaceMember,
   useSession,
 } from "./edge-runtime";
 
@@ -535,6 +536,239 @@ describe("public commons access + moderation (P2 Task 2)", () => {
       const res = await contribute(commonsId, "file", "/b-secret.txt");
       expect(res.status).toBe(403);
       expect(await errorCode(res)).toBe("not_your_resource");
+    });
+  });
+
+  /**
+   * Adversarial-review regressions. Each block below pins a hole the review found in the
+   * first cut of P2 — they are the cases the original six scenarios did NOT cover.
+   */
+  describe("review regression — moderation removes the REFERENCE, never the bytes", () => {
+    /** The bytes currently stored for `fileId`, read back through the caller's own preview. */
+    async function readBytes(fileId: string): Promise<string | null> {
+      const preview = await app.request(`/api/public/v1/files/${fileId}/preview`, { headers: jsonHeaders() });
+      if (preview.status !== 200) return null;
+      const { downloadUrl } = (await preview.json()) as { downloadUrl: string };
+      const bytes = await getViaPresignedUrl(downloadUrl);
+      return bytes ? new TextDecoder().decode(bytes) : null;
+    }
+
+    it("the OWNER cannot write_file into a contributor's commons file — but can still moderate it", async () => {
+      await seedCast();
+      const commonsId = await commons();
+      await seedDriveFile({ id: "a-commons", path: "/a-commons.txt", body: "alice bytes", ownerId: A.id });
+
+      useSession(A);
+      expect((await contribute(commonsId, "file", "/a-commons.txt")).status).toBe(201);
+      const [item] = await listItems(commonsId);
+
+      // The commons' creator IS the deployment owner, so a `creatorId`-based editor set would
+      // make every file anyone publishes to the commons owner-writable in place. Publishing
+      // is consent to be READ, never consent to have your bytes replaced at your own key.
+      await expectMcpError(
+        callMcpTool(
+          runtime.db as never,
+          "https://x",
+          ["write:drive", "path:/"],
+          "write_file",
+          { path: "/a-commons.txt", content: "owner overwrote this", overwrite: true },
+          OWNER.id
+        ),
+        "space_forbidden"
+      );
+
+      const [row] = await runtime.db.select().from(files).where(eq(files.id, "a-commons")).limit(1);
+      expect(row.ownerId).toBe(A.id);
+      expect(row.size).toBe("alice bytes".length);
+      useSession(A);
+      expect(await readBytes("a-commons")).toBe("alice bytes");
+
+      // Moderation still works — it removes the REFERENCE row, not the resource.
+      useSession(OWNER);
+      const removed = await app.request(`/api/public/v1/spaces/${commonsId}/items/${item.id}`, {
+        method: "DELETE",
+        headers: jsonHeaders(),
+      });
+      expect(removed.status).toBe(200);
+      expect(await listItems(commonsId)).toHaveLength(0);
+
+      useSession(A);
+      expect(await readBytes("a-commons")).toBe("alice bytes");
+    });
+
+    it("an owner-granted `editor` row on the commons still cannot write bytes (it moderates only)", async () => {
+      await seedCast();
+      const commonsId = await commons();
+      await seedDriveFile({ id: "a-modded", path: "/a-modded.txt", body: "alice bytes", ownerId: A.id });
+
+      useSession(A);
+      await contribute(commonsId, "file", "/a-modded.txt");
+      const [item] = await listItems(commonsId);
+
+      // The owner deputizes B as a commons moderator.
+      await seedSpaceMember({ spaceId: commonsId, userId: B.id, role: "editor", addedBy: OWNER.id });
+
+      await expectMcpError(
+        callMcpTool(
+          runtime.db as never,
+          "https://x",
+          ["write:drive", "path:/"],
+          "write_file",
+          { path: "/a-modded.txt", content: "moderator overwrote this", overwrite: true },
+          B.id
+        ),
+        "space_forbidden"
+      );
+      useSession(A);
+      expect(await readBytes("a-modded")).toBe("alice bytes");
+
+      // …but B CAN remove the item, which is what the editor grant is for on a public space.
+      useSession(B);
+      const res = await app.request(`/api/public/v1/spaces/${commonsId}/items/${item.id}`, {
+        method: "DELETE",
+        headers: jsonHeaders(),
+      });
+      expect(res.status).toBe(200);
+    });
+
+    it("live-reference byte editing still works in an INVITE space (the power P2 did not remove)", async () => {
+      await seedCast();
+      const inviteSpace = await seedSpace({ creatorId: A.id, name: "Invite" });
+      await seedDriveFile({ id: "a-invite", path: "/invite.txt", body: "original", ownerId: A.id });
+      await seedSpaceMember({ spaceId: inviteSpace, userId: B.id, role: "editor", addedBy: A.id });
+
+      useSession(A);
+      expect((await contribute(inviteSpace, "file", "/invite.txt")).status).toBe(201);
+
+      await callMcpTool(
+        runtime.db as never,
+        "https://x",
+        ["write:drive", "path:/"],
+        "write_file",
+        { path: "/invite.txt", content: "edited by editor", overwrite: true },
+        B.id
+      );
+
+      const [row] = await runtime.db.select().from(files).where(eq(files.id, "a-invite")).limit(1);
+      expect(row.ownerId).toBe(A.id); // still A's file, edited in place
+      useSession(A);
+      expect(await readBytes("a-invite")).toBe("edited by editor");
+    });
+  });
+
+  describe("review regression — the active check gates the commons uniformly", () => {
+    it("a SUSPENDED user holding an explicit commons row still gets nothing", async () => {
+      await seedCast();
+      const commonsId = await commons();
+      await seedDriveFile({ id: "a-pub", path: "/pub.txt", body: "x", ownerId: A.id });
+
+      useSession(A);
+      expect((await contribute(commonsId, "file", "/pub.txt")).status).toBe(201);
+
+      // C is suspended but somebody left an explicit membership row behind.
+      await seedSpaceMember({ spaceId: commonsId, userId: C.id, role: "contributor", addedBy: OWNER.id });
+
+      // `userSpaceIds` must agree with `resolveSpaceRole` (which returns null for C) — an
+      // explicit row must not smuggle the commons past the active check.
+      expect(await userSpaceIds(runtime.db as never, C.id)).not.toContain(commonsId);
+      expect(await accessibleFileIds(runtime.db as never, C.id)).toEqual([]);
+
+      // A is active with no row — unchanged.
+      expect(await userSpaceIds(runtime.db as never, A.id)).toContain(commonsId);
+    });
+  });
+
+  describe("review regression — the owner can demote a commons user without suspending them", () => {
+    it("a stored `viewer` row makes A read-only in the commons; removing it restores contribute", async () => {
+      await seedCast();
+      const commonsId = await commons();
+      await seedDriveFile({ id: "a-spam", path: "/spam.txt", body: "x", ownerId: A.id });
+
+      useSession(OWNER);
+      const demote = await app.request(`/api/public/v1/spaces/${commonsId}/members`, {
+        method: "POST",
+        headers: jsonHeaders(),
+        body: JSON.stringify({ email: A.email, role: "viewer" }),
+      });
+      expect(demote.status).toBe(201);
+
+      // A still READS the commons…
+      useSession(A);
+      expect((await app.request(`/api/public/v1/spaces/${commonsId}`, { headers: jsonHeaders() })).status).toBe(200);
+      expect((await app.request(`/api/public/v1/spaces/${commonsId}/items`, { headers: jsonHeaders() })).status).toBe(200);
+
+      // …but can no longer contribute.
+      const blocked = await contribute(commonsId, "file", "/spam.txt");
+      expect(blocked.status).toBe(403);
+      expect(await errorCode(blocked)).toBe("space_forbidden");
+
+      // Demotion is reversible: dropping the row restores the implicit contributor floor.
+      useSession(OWNER);
+      const restore = await app.request(`/api/public/v1/spaces/${commonsId}/members/${A.id}`, {
+        method: "DELETE",
+        headers: jsonHeaders(),
+      });
+      expect(restore.status).toBe(200);
+
+      useSession(A);
+      expect((await contribute(commonsId, "file", "/spam.txt")).status).toBe(201);
+    });
+  });
+
+  describe("review regression — the commons member list is creator-only", () => {
+    it("a non-creator active user is refused; the creator still sees it", async () => {
+      await seedCast();
+      const commonsId = await commons();
+
+      // Implicit membership satisfies `viewer` for everyone, so a plain role check would hand
+      // the handler's email join — including the owner's login email — to the whole drive.
+      useSession(B);
+      const res = await app.request(`/api/public/v1/spaces/${commonsId}/members`, { headers: jsonHeaders() });
+      expect(res.status).toBe(403);
+      expect(await errorCode(res)).toBe("space_forbidden");
+
+      useSession(OWNER);
+      const ok = await app.request(`/api/public/v1/spaces/${commonsId}/members`, { headers: jsonHeaders() });
+      expect(ok.status).toBe(200);
+    });
+
+    it("invite spaces are unchanged: a viewer member still lists members", async () => {
+      await seedCast();
+      const inviteSpace = await seedSpace({ creatorId: A.id, name: "Invite" });
+      await seedSpaceMember({ spaceId: inviteSpace, userId: B.id, role: "viewer", addedBy: A.id });
+
+      useSession(B);
+      const res = await app.request(`/api/public/v1/spaces/${inviteSpace}/members`, { headers: jsonHeaders() });
+      expect(res.status).toBe(200);
+      const { members } = (await res.json()) as { members: Array<{ userId: string }> };
+      expect(members.map((m) => m.userId).sort()).toEqual([A.id, B.id].sort());
+    });
+  });
+
+  describe("review regression — memberCount does not understate the commons audience", () => {
+    it("the commons reports memberCount null; an invite space still reports a number", async () => {
+      await seedCast();
+      const commonsId = await commons();
+      await seedSpace({ id: "invite-1", creatorId: A.id, name: "Invite" });
+      await seedSpaceMember({ spaceId: "invite-1", userId: B.id, role: "viewer", addedBy: A.id });
+
+      useSession(A);
+      const res = await app.request(`/api/public/v1/spaces`, { headers: jsonHeaders() });
+      const { spaces: listed } = (await res.json()) as {
+        spaces: Array<{ id: string; visibility: string; memberCount: number | null }>;
+      };
+
+      // The commons is the space EVERYONE can read; `1` (its zero member rows + the creator)
+      // would read as the smallest audience at exactly the publish decision point.
+      expect(listed.find((space) => space.id === commonsId)!.memberCount).toBeNull();
+      expect(listed.find((space) => space.id === "invite-1")!.memberCount).toBe(2);
+
+      const detail = await app.request(`/api/public/v1/spaces/${commonsId}`, { headers: jsonHeaders() });
+      expect(((await detail.json()) as { space: { memberCount: number | null } }).space.memberCount).toBeNull();
+
+      // MCP parity.
+      const mcp = await callMcpTool(runtime.db as never, "https://x", ["read:drive", "path:/"], "read_space", { space: commonsId }, A.id);
+      expect((mcpJson(mcp) as { space: { memberCount: number | null } }).space.memberCount).toBeNull();
     });
   });
 

@@ -10,8 +10,15 @@ export interface SpaceSummary {
   creatorId: string;
   createdAt: string;
   role: SpaceRole;
-  memberCount: number;
+  /** `null` on the public commons — its audience is everyone on this drive, not a count. */
+  memberCount: number | null;
   itemCount: number;
+}
+
+/** How a space's audience reads in the UI: a member count, or "everyone" for the commons. */
+export function describeAudience(memberCount: number | null): string {
+  if (memberCount === null) return "Everyone on this drive";
+  return `${memberCount} member${memberCount === 1 ? "" : "s"}`;
 }
 
 export interface SpaceMember {

@@ -9,6 +9,7 @@ import { spacesApi } from "@/hooks/useSpaces";
 import { DriveApiError } from "@/lib/api-client";
 import { driveApi } from "@/lib/drive-api";
 import type { DriveFile } from "@/types/drive";
+import { describeAudience } from "@/types/spaces";
 import type { SpaceItemDisplay, SpaceMemoryHit, SpaceSummary } from "@/types/spaces";
 
 const getErrorMessage = (error: unknown) => (error instanceof Error ? error.message : "Request failed. Please try again.");
@@ -234,7 +235,7 @@ export default function SpaceViewPage() {
           <div>
             <h1 className="text-xl font-semibold text-slate-900">{spaceLoading ? "Loading space..." : space?.name ?? "Space"}</h1>
             <p className="text-sm text-slate-600">
-              {space ? `Your role: ${space.role} · ${space.memberCount} member${space.memberCount === 1 ? "" : "s"} · ${space.itemCount} item${space.itemCount === 1 ? "" : "s"}` : ""}
+              {space ? `Your role: ${space.role} · ${describeAudience(space.memberCount)} · ${space.itemCount} item${space.itemCount === 1 ? "" : "s"}` : ""}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">

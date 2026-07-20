@@ -160,17 +160,22 @@ describe("public commons (P2 Task 1)", () => {
       expect(await resolveSpaceRole(runtime.db as never, commonsId, OWNER.id)).toBe("creator");
     });
 
-    it("an explicit member row that grants MORE wins (editor); one that grants LESS does not downgrade", async () => {
+    it("an explicit member row on the commons is authoritative in BOTH directions", async () => {
       armOwner();
       await setAccess(USER_A.id, "active");
       await setAccess(USER_B.id, "active");
       const commonsId = (await ensurePublicCommons(runtime.db as never))!;
 
+      // A stored row on the commons is a deliberate act by its creator (the deployment
+      // owner / moderator), so it overrides the implicit `contributor` floor UP *and* DOWN.
+      // Without the downward direction the only remedy for commons spam would be globally
+      // suspending the account — disproportionate. `editor` here means ITEM moderation only;
+      // `canEditFileViaSpace` excludes public spaces, so it is never a byte-level write.
       await seedSpaceMember({ spaceId: commonsId, userId: USER_A.id, role: "editor", addedBy: OWNER.id });
       await seedSpaceMember({ spaceId: commonsId, userId: USER_B.id, role: "viewer", addedBy: OWNER.id });
 
       expect(await resolveSpaceRole(runtime.db as never, commonsId, USER_A.id)).toBe("editor");
-      expect(await resolveSpaceRole(runtime.db as never, commonsId, USER_B.id)).toBe("contributor");
+      expect(await resolveSpaceRole(runtime.db as never, commonsId, USER_B.id)).toBe("viewer");
     });
 
     it("implicit membership never applies to an invite space, however active the caller is", async () => {

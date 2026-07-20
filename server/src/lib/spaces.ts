@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull, or, sql, type SQL } from "drizzle-orm";
+import { and, eq, inArray, isNull, ne, or, sql, type SQL } from "drizzle-orm";
 
 import { esSystemAuthUser, files, memories, spaceItems, spaceMembers, spaces } from "@defs";
 
@@ -36,6 +36,11 @@ export type SpaceItemRow = typeof spaceItems.$inferSelect;
  * Exactly ONE instance-wide `visibility='public'` space exists. Its id is a fixed constant
  * rather than a nanoid so the primary key itself is the uniqueness guard — two concurrent
  * bootstraps cannot produce two commons rows, they collide on the PK.
+ *
+ * NOTE: `"public-commons"` is a RESERVED space id. A pre-existing NON-public row under this
+ * id would permanently block bootstrap (the insert conflicts, and `findPublicCommonsId`
+ * still finds nothing). Unreachable in practice — user-created space ids come from
+ * `nanoid()`, which never produces this string.
  */
 export const PUBLIC_COMMONS_ID = "public-commons";
 const PUBLIC_COMMONS_NAME = "Public Commons";
@@ -126,12 +131,18 @@ async function storedMemberRole(db: AppDb, spaceId: string, userId: string): Pro
  * Returns null when the space doesn't exist or the user is neither creator nor member.
  *
  * P2 (D3) adds implicit membership for the public commons ONLY: in a `visibility='public'`
- * space an **active** user with no row resolves `'contributor'`. A pending/suspended user
+ * space an **active** user with NO row resolves `'contributor'`. A pending/suspended user
  * resolves null — implicit membership is granted on confirmed-active status, never on the
- * mere absence of a denial. An explicit `space_members` row still applies and wins when it
- * grants MORE (editor); it never downgrades the implicit floor, since anyone could reach
- * `contributor` with no row at all. Invite spaces are untouched: no active user ever gains
- * implicit access to one.
+ * mere absence of a denial. Invite spaces are untouched: no active user ever gains implicit
+ * access to one.
+ *
+ * An explicit `space_members` row on the commons is AUTHORITATIVE in **both** directions: it
+ * is a deliberate act by the commons creator (the deployment owner, its moderator), so a
+ * stored `viewer` demotes that user to read-only — the proportionate remedy for commons spam,
+ * without globally suspending the account — and a stored `editor` promotes them. Only the
+ * absence of a row falls back to the implicit `contributor` floor. Note that `editor` on a
+ * public space grants ITEM moderation only: `canEditFileViaSpace` excludes public spaces
+ * outright, so it never becomes a byte-level write into a contributor's file.
  */
 export async function resolveSpaceRole(db: AppDb, spaceId: string, userId: string): Promise<SpaceRole | null> {
   const [space] = await db
@@ -146,8 +157,7 @@ export async function resolveSpaceRole(db: AppDb, spaceId: string, userId: strin
   if (space.visibility !== "public") return stored;
 
   if (!(await isActiveUser(db, userId))) return null;
-  if (stored === null) return PUBLIC_IMPLICIT_ROLE;
-  return ROLE_RANK[stored] > ROLE_RANK[PUBLIC_IMPLICIT_ROLE] ? stored : PUBLIC_IMPLICIT_ROLE;
+  return stored ?? PUBLIC_IMPLICIT_ROLE;
 }
 
 /**
@@ -162,6 +172,14 @@ export async function resolveSpaceRole(db: AppDb, spaceId: string, userId: strin
  * `accessibleMemoryIds` fan out from these ids, so an EMPTY commons still yields `[]` and
  * `fileReadableFilter`/`memoryReadableFilter` still collapse to the strict owner filter —
  * which is what keeps #30 isolation intact.
+ *
+ * The active check gates the commons UNIFORMLY — including when an explicit `space_members`
+ * row already put it in the set. Checking it only on the "not already present" branch would
+ * let a suspended user holding an explicit commons row keep the commons here while
+ * `resolveSpaceRole` correctly returned null for them, so the "role is never null for an id
+ * from `userSpaceIds`" assumption its callers rely on would silently be false. The commons
+ * CREATOR is exempt: `resolveSpaceRole` returns `'creator'` from `spaces.creatorId` before
+ * any status check, so dropping it for them would reintroduce the same disagreement.
  */
 export async function userSpaceIds(db: AppDb, userId: string): Promise<string[]> {
   const created = await db.select({ id: spaces.id }).from(spaces).where(eq(spaces.creatorId, userId));
@@ -175,7 +193,11 @@ export async function userSpaceIds(db: AppDb, userId: string): Promise<string[]>
   for (const row of memberOf) ids.add(row.spaceId);
 
   const commonsId = await findPublicCommonsId(db);
-  if (commonsId && !ids.has(commonsId) && (await isActiveUser(db, userId))) ids.add(commonsId);
+  const isCommonsCreator = commonsId !== null && created.some((row) => row.id === commonsId);
+  if (commonsId && !isCommonsCreator) {
+    if (await isActiveUser(db, userId)) ids.add(commonsId);
+    else ids.delete(commonsId);
+  }
 
   return [...ids];
 }
@@ -284,13 +306,27 @@ export async function fileReadableFilter(db: AppDb, userId: string | null): Prom
  * editor+, so a file the caller merely *reads* through a viewer/contributor membership is
  * not writable. Callers use this only AFTER establishing that `userId` does not own
  * `fileId` (owners take the normal owner-scoped write path unchanged).
+ *
+ * **`visibility='public'` spaces are excluded from the editor set entirely — both branches.**
+ * Live-reference byte editing is an INVITE-space power only. The commons' `creatorId` is the
+ * deployment owner, so without the `creatorId`-branch exclusion every file ANY user
+ * contributes to the commons would become owner-writable in place (their S3 key, their
+ * `ownerId`, their bytes replaced) — a byte-level write into a private file that its owner
+ * only ever consented to *publish*. The `space_members`-branch exclusion closes the same hole
+ * from the other side: an owner-granted `editor` row on the commons (which P2 uses for ITEM
+ * moderation, see `resolveSpaceRole`) must not resurrect that write grant. Moderation means
+ * removing the REFERENCE — never rewriting the bytes.
  */
 export async function canEditFileViaSpace(db: AppDb, userId: string, fileId: string): Promise<boolean> {
-  const created = await db.select({ id: spaces.id }).from(spaces).where(eq(spaces.creatorId, userId));
+  const created = await db
+    .select({ id: spaces.id })
+    .from(spaces)
+    .where(and(eq(spaces.creatorId, userId), ne(spaces.visibility, "public")));
   const editorOf = await db
     .select({ spaceId: spaceMembers.spaceId })
     .from(spaceMembers)
-    .where(and(eq(spaceMembers.userId, userId), eq(spaceMembers.role, "editor")));
+    .innerJoin(spaces, eq(spaces.id, spaceMembers.spaceId))
+    .where(and(eq(spaceMembers.userId, userId), eq(spaceMembers.role, "editor"), ne(spaces.visibility, "public")));
 
   const editorSpaceIds = new Set<string>();
   for (const row of created) editorSpaceIds.add(row.id);
@@ -479,21 +515,45 @@ export interface SpaceSummary {
   creatorId: string;
   createdAt: string;
   role: SpaceRole;
-  memberCount: number;
+  /** `null` on the public commons — its audience is "everyone on this drive", not a count. */
+  memberCount: number | null;
   itemCount: number;
 }
 
-/** memberCount includes the creator (who never has a `space_members` row of their own). */
-export async function spaceCounts(db: AppDb, spaceId: string): Promise<{ memberCount: number; itemCount: number }> {
+export interface SpaceCounts {
+  memberCount: number | null;
+  itemCount: number;
+}
+
+/**
+ * memberCount includes the creator (who never has a `space_members` row of their own).
+ *
+ * For a `visibility='public'` space it is `null`, NOT a number: the commons materializes no
+ * `space_members` rows, so counting them would report `1` — making the one space EVERY active
+ * user can read look like the smallest, least-exposed space at exactly the moment a user is
+ * deciding whether to publish into it. `null` means "everyone on this drive"; surfaces render
+ * that phrase rather than a digit. Invite spaces are unchanged.
+ */
+export async function spaceCounts(db: AppDb, spaceId: string, visibility?: string): Promise<SpaceCounts> {
   const [[memberRow], [itemRow]] = await Promise.all([
     db.select({ n: sql<number>`count(*)` }).from(spaceMembers).where(eq(spaceMembers.spaceId, spaceId)),
     db.select({ n: sql<number>`count(*)` }).from(spaceItems).where(eq(spaceItems.spaceId, spaceId)),
   ]);
-  return { memberCount: (memberRow?.n ?? 0) + 1, itemCount: itemRow?.n ?? 0 };
+  const resolvedVisibility = visibility ?? (await spaceVisibility(db, spaceId));
+  return {
+    memberCount: resolvedVisibility === "public" ? null : (memberRow?.n ?? 0) + 1,
+    itemCount: itemRow?.n ?? 0,
+  };
+}
+
+/** The stored `spaces.visibility`, or null when the space doesn't exist. */
+async function spaceVisibility(db: AppDb, spaceId: string): Promise<string | null> {
+  const [row] = await db.select({ visibility: spaces.visibility }).from(spaces).where(eq(spaces.id, spaceId)).limit(1);
+  return row?.visibility ?? null;
 }
 
 /** The `{ …, role, memberCount, itemCount }` shape shared by the REST and MCP space surfaces. */
-export function toSpaceSummary(space: SpaceRow, role: SpaceRole, counts: { memberCount: number; itemCount: number }): SpaceSummary {
+export function toSpaceSummary(space: SpaceRow, role: SpaceRole, counts: SpaceCounts): SpaceSummary {
   return {
     id: space.id,
     name: space.name,

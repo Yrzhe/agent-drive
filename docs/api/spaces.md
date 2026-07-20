@@ -120,7 +120,9 @@ DELETE /spaces/:id                (creator only)               → { deleted: tr
 ```
 `role` is the CALLER's resolved role in this space (not a fixed property of
 the space). `memberCount` includes the creator, who has no `space_members` row
-of their own.
+of their own — except on a `visibility: "public"` space, where it is **`null`**
+("everyone on this drive"): the public commons materializes no membership rows,
+so a count there would report `1` for the space every user can read.
 
 ### Members
 
@@ -133,7 +135,11 @@ PATCH  /spaces/:id/members/:userId Body { role }  (creator only) → { member }
 
 - `GET /members` requires `viewer`+ (any member can see the roster). The
   creator is synthesized into the list (`role: "creator"`, `addedBy: null`)
-  since they have no stored row.
+  since they have no stored row. On a `visibility: "public"` space it is
+  **creator-only** (`403 space_forbidden` for anyone else): implicit membership
+  satisfies `viewer` for every active user, and the roster exposes member email
+  addresses. Item attribution is still available to everyone via each item's
+  `contributedBy`.
 - `POST /members` invites by **email of an existing user only** — v1 has no
   accept/decline step; the invited user is added directly and the space
   appears for them immediately (design D2). `404 user_not_found` if the email

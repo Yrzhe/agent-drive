@@ -54,7 +54,7 @@ export const spacesRoutes = new Hono<AppEnv>();
  * owner cannot be resolved, so an unarmed/misconfigured install simply has no commons and
  * every handler below behaves exactly as it did in P1.
  */
-spacesRoutes.use("*", async (c, next) => {
+spacesRoutes.use("*", async (_c, next) => {
   const { db } = await import("edgespark");
   await ensurePublicCommons(db);
   await next();
@@ -163,7 +163,7 @@ spacesRoutes.get(
         // Role is never null here — `space.id` came from `userSpaceIds(callerId)`, which
         // only returns spaces the caller created or is a member of.
         const role = (await resolveSpaceRole(db, space.id, callerId)) as SpaceRole;
-        const counts = await spaceCounts(db, space.id);
+        const counts = await spaceCounts(db, space.id, space.visibility);
         return toSpaceSummary(space, role, counts);
       })
     );
@@ -185,7 +185,7 @@ spacesRoutes.get(
     if (role === null) throw new ApiError(404, "space_not_found", "Space not found");
 
     const space = await requireSpaceRow(db, spaceId);
-    const counts = await spaceCounts(db, spaceId);
+    const counts = await spaceCounts(db, spaceId, space.visibility);
     return c.json({ space: toSpaceSummary(space, role, counts) });
   })
 );
@@ -220,6 +220,15 @@ spacesRoutes.get(
 
     await assertSpaceRole(db, spaceId, callerId, "viewer");
     const space = await requireSpaceRow(db, spaceId);
+
+    // On the public commons, `viewer` is satisfied by EVERY active user (implicit
+    // membership), so the plain role check would hand this handler's `esSystemAuthUser.email`
+    // join — including the deployment owner's login email — to the whole deployment. Member
+    // listing there is creator-only. Item attribution still flows to everyone via each
+    // item's `contributedBy`. Invite spaces keep the P1 viewer+ behavior.
+    if (space.visibility === "public" && space.creatorId !== callerId) {
+      throw new ApiError(403, "space_forbidden", "Member listing on the public commons is restricted to its creator.");
+    }
 
     const memberRows = await db
       .select({

@@ -633,7 +633,7 @@ export async function callMcpTool(db: AppDb, origin: string, scopes: readonly st
       rows.map(async (space) => {
         // Role is never null: space.id came from userSpaceIds(callerId).
         const role = (await resolveSpaceRole(db, space.id, callerId))!;
-        const counts = await spaceCounts(db, space.id);
+        const counts = await spaceCounts(db, space.id, space.visibility);
         return toSpaceSummary(space, role, counts);
       })
     );
@@ -651,7 +651,7 @@ export async function callMcpTool(db: AppDb, origin: string, scopes: readonly st
     if (role === null) throw new Error("space_not_found:space not found");
 
     const [space] = await db.select().from(spaces).where(eq(spaces.id, spaceId)).limit(1);
-    const counts = await spaceCounts(db, spaceId);
+    const counts = await spaceCounts(db, spaceId, space?.visibility);
     const rows = await db
       .select()
       .from(spaceItems)
