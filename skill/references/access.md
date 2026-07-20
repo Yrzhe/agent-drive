@@ -21,10 +21,20 @@ Every session (browser-authenticated) caller has an access status:
 | `pending` | Signed up, not yet approved — everything except `/account/*` is blocked |
 | `suspended` | Access revoked by the owner — everything except `/account/*` is blocked |
 
-**Bearer/agent tokens are never gated.** An `AGENT_TOKEN` or OAuth bearer token is
-already an owner-scoped credential, so this status check only applies to browser
-session callers. If you're calling the API with `Authorization: Bearer <token>`, none
-of this affects you.
+**Bearer tokens ARE gated — the status check is not session-only.** Any user-bound
+token (OAuth, or a minted drive token) is checked against its principal's status on
+every request, REST and MCP alike. If the owner suspends that user, their existing
+tokens start failing immediately with `403 access_suspended` — a token issued before
+the suspension does not keep working.
+
+So if a bearer call suddenly returns `403 access_pending` / `403 access_suspended`,
+that is the documented behavior, not a bug and not a transient error: **do not retry
+it**. Report to the human that the account needs owner approval or has been suspended.
+
+The one exception is the legacy install-wide `AGENT_TOKEN` on a deployment with no
+`OWNER_EMAIL` set — it resolves to no user, so there is no principal to gate. An
+`OWNER_EMAIL`-bound `AGENT_TOKEN` is gated like anything else; it passes because the
+owner resolves to `active`, not because bearers are exempt.
 
 A new signup starts `pending`, unless its email is on the owner's allowlist, in which
 case it starts `active` immediately. There is no self-service way to become `active`

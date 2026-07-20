@@ -28,7 +28,7 @@ guideRoutes.get(
         note: `Only /api/* paths return honest status. Any other path (e.g. bare /skill/manifest.json, /.well-known/agent.json) falls through the SPA static layer and returns 200 + index.html even when nothing exists — a platform limitation. Machines must probe the /api/public/* canonicals above, where 200 means it exists and 404 means it does not.`,
       },
       accountAccess: {
-        description: "Session (browser) callers are gated by their app-level access status; bearer/agent tokens are already owner-scoped credentials and are never gated.",
+        description: "Callers are gated by their app-level access status — BOTH browser sessions and user-bound bearer tokens (OAuth or minted drive tokens). Suspending a user immediately breaks their already-issued tokens; a bearer is not immune. The only ungated bearer is the legacy install-wide AGENT_TOKEN on an OWNER_EMAIL-unset deployment, which has no principal to gate.",
         status: `GET ${origin}/api/public/v1/account/status — session auth only. Returns { status: "active"|"pending"|"suspended", email, isAdmin }.`,
         apply: `POST ${origin}/api/public/v1/account/apply { message?, ref? } — session auth only. Attaches an optional waitlist message/referral to the caller's pending row. NEVER grants access by itself — only admin approval does.`,
         gate: "A session request to any /api/public/v1/* route other than /account/* and /admin/* is rejected unless status is \"active\": pending -> 403 access_pending, suspended -> 403 access_suspended. The two exempt prefixes let a pending/suspended session always check its status and apply to the waitlist.",

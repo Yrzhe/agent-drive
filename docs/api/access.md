@@ -26,9 +26,14 @@ is no self-service or agent-facing path to change your own status.
 `requireActiveAccess` (`server/src/middleware/access-gate.ts`) runs on every
 `/api/public/v1/*` request, after auth resolution:
 
-- **Bearer/agent token callers are never gated.** A bearer token (`AGENT_TOKEN` or a
-  minted/OAuth drive token) is already an owner-scoped credential — there is no
-  per-status check to apply to it.
+- **Bearer callers are gated too.** A user-bound token (OAuth or a minted drive token)
+  resolves to a real `userId`, and that principal's `user_access.status` is checked on
+  every request — REST (`access-gate.ts`) and MCP (`routes/mcp.ts`) alike. Suspending a
+  user therefore kills their already-issued tokens immediately; the token does not
+  outlive the suspension. Only the legacy install-wide `AGENT_TOKEN` on an
+  `OWNER_EMAIL`-unset deployment skips the check (`restAuth.ownerId === null` — no
+  principal exists to gate). An owner-bound `AGENT_TOKEN` is checked and passes because
+  the owner resolves to `active`.
 - **Session callers** are checked against their access status: `active` passes
   through; `pending` and `suspended` are rejected on every route **except**
   `/account/*` and `/admin/*`, which stay reachable so a pending/suspended user can

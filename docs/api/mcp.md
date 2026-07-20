@@ -77,10 +77,12 @@ Response:
     "protocolVersion": "2024-11-05",
     "capabilities": { "tools": {} },
     "serverInfo": { "name": "agent-drive", "version": "0.1.0" },
-    "instructions": "Agent Drive MCP server. auth_mode: agent_token | oauth_bearer."
+    "instructions": "Agent Drive MCP at <YOUR_AGENT_DRIVE_URL> — an agent-native private cloud drive (files, shares, cross-session memory, drive-to-drive send).\nAuth mode: oauth. Your granted scopes: read:drive write:drive. Call tools/list for schemas.\n\nTools -> required scope:\n- ... (a full tool -> scope table) ...\n\nRules:\n- Paths are absolute and must start with \"/\".\n- ... (path-scope rules) ...\n\nErrors: error.message is a colon-delimited code. ... (error-format guidance) ...\nSetup and full machine guide: <YOUR_AGENT_DRIVE_URL>/connect and <YOUR_AGENT_DRIVE_URL>/api/public/guide."
   }
 }
 ```
+
+`instructions` is one long multi-paragraph string, not structured data — there is no separate `auth_mode` field. The auth mode is embedded as prose (`Auth mode: ${auth.kind}.`), and `auth.kind` is only ever `"oauth"` or `"agent_token"` — never `"oauth_bearer"`. The full string (source: `initializeResult` in `server/src/routes/mcp.ts`) also includes a tool→scope table, path-scope rules, and error-format guidance; read it directly from a live `initialize` call rather than relying on this abbreviated example.
 
 ### `tools/list`
 
@@ -265,13 +267,40 @@ Output:
 {
   "shareId": "abc123",
   "shareUrl": "<YOUR_AGENT_DRIVE_URL>/s/abc123",
+  "guideUrl": "<YOUR_AGENT_DRIVE_URL>/api/public/guide",
   "hasPassword": false,
   "maxDownloads": null,
   "expiresAt": "2026-05-08T08:40:31.778Z"
 }
 ```
 
+`guideUrl` always points at this deployment's `/api/public/guide`. The server's own `initialize` instructions tell agents to include it in any hand-off message, so the receiving agent has a self-service path to learn how to fetch the share.
+
 Errors: `file_not_found`, `folder_not_found`, `invalid_params:exactly one of file_path or folder_path is required`.
+
+### `send_file`
+
+Required scope: `share:create`
+
+Sends a drive file directly to a peer contact's Drive inbox, signed with this Drive's identity. The owner must have added the contact first (contacts are managed outside MCP).
+
+Input:
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `contact` | string | yes | Contact name from the owner's contact list |
+| `path` | string | yes | Drive path of the file to send. Max 5 MB |
+| `message` | string | no | Optional note delivered with the file |
+
+Output:
+
+```json
+{ "contact": "alice", "peerStatus": 200, "peerResponse": { ... } }
+```
+
+`peerResponse` is whatever JSON the peer's inbox endpoint returned (or `null` if it wasn't valid JSON).
+
+Errors: `contact_not_found`, `file_not_found`, `file_too_large:...` (over 5 MB), `upload_pending` (file has no stored bytes yet), `storage_error`, `peer_unreachable:...` (the peer URL failed webhook-delivery validation), `peer_rejected:...` (the peer's inbox responded with a non-2xx status).
 
 ## Errors
 

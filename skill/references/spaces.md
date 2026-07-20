@@ -199,6 +199,14 @@ spaces surface — you don't create it, and you can't create a second one
 | `space_not_found` | The space doesn't exist, or you aren't a member (same error for both — no existence leak) |
 | `member_not_found` | That email isn't currently a member of the space |
 | `item_not_found` | That item id isn't in this space |
+| `user_not_found` | `manage_space_members` — the email you tried to invite doesn't match an existing account. Invites only work for someone who already has one. |
+
+`manage_space_members` on the space creator (adding, re-roling, or removing
+them as if they were a regular member) throws `invalid_params:the space
+creator cannot be added, changed, or removed as a member` — note that this
+one comes back as JSON-RPC **-32602**, not the -32000 tool-error style every
+other space error above uses. The REST equivalent for the same mistake is a
+plain `400 validation_error`.
 
 ## REST equivalents
 

@@ -351,6 +351,16 @@ used elsewhere in this API (e.g. `space_forbidden:...`).
 | 404 | `item_not_found` | Item id doesn't belong to this space |
 | 404 | `user_not_found` | `POST /spaces/:id/members` — no existing user with that email |
 
+**REST vs MCP divergence on the creator-protection error.** REST always uses
+`400 validation_error` for an attempt to touch the space creator as a regular
+member (see the rows above). The MCP `manage_space_members` tool throws
+`Error("invalid_params:the space creator cannot be added, changed, or
+removed as a member")` instead — the JSON-RPC dispatcher maps any
+`invalid_params:` message to code **-32602**, not the `-32000`
+tool-error style used by every other space error on MCP. A caller
+distinguishing error styles by convention (REST: `validation_error`; MCP:
+`-32000` unless scope/params) needs to special-case this one.
+
 ## What's still out of scope
 
 - Users creating additional public/instance-wide spaces — there is exactly

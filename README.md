@@ -27,6 +27,9 @@ Agent Drive is a private cloud drive designed for AI agents. Your agent uploads 
 - **Web dashboard** — Human-friendly file browser, upload zone, share management
 - **MCP + CLI sync** — OAuth-capable MCP endpoint and `adrive sync` bundle push/pull/history/rollback with version checks
 - **Agent guide endpoint** — Receiving agents read `/api/public/guide` to learn the API automatically
+- **Shared Spaces** — Share your own files, folders, and memory with other users **by reference**, not by copy: the bytes stay with whoever contributed them. Invite-only spaces with roles (viewer / contributor / editor / creator), plus one instance-wide public commons every active user belongs to. 6 MCP tools and REST under `/api/public/v1/spaces`
+- **Multiple owners, isolated data** — A deployment supports many accounts, each seeing only its own files and memory. Sharing is opt-in and only ever widens reads through a space you joined
+- **Self-signup with owner approval** — Anyone can register at `/signup`; new accounts land on a waitlist as `pending` until the owner approves them (or their email is allowlisted). The owner manages the waitlist, allowlist, and suspensions from the admin panel
 - **One-click deploy** — Skill-guided setup on EdgeSpark, minimal manual steps
 
 ### How It Works
@@ -155,9 +158,12 @@ agent-drive/
 │       └── defs/           # DB schema, storage, runtime config
 ├── web/                    # React SPA via Vite
 │   └── src/
-│       ├── pages/          # Landing, Dashboard, Connect, Bundles, Trash, ShareDownload, Guide
-│       ├── components/     # FileTable, UploadZone, ShareModal
+│       ├── pages/          # Landing, Dashboard, Connect, Bundles, Trash, ShareDownload,
+│       │                   #   Guide, Spaces, SpaceView, Admin, Waitlist, Signup
+│       ├── components/     # FileTable, UploadZone, ShareModal, admin/
 │       └── lib/            # API client, auth hooks
+├── cli/                    # `adrive` CLI — login, mcp/stdio bridge, sync, subscribe
+│   └── src/index.ts        # push/pull/history/rollback/list/whoami
 ├── skill/                  # Agent Drive skill for AI agents
 │   ├── SKILL.md            # Skill entry point
 │   └── references/         # Detailed guides per module
@@ -192,8 +198,11 @@ Use `/api/public/mcp` as the remote MCP URL. OAuth/MCP discovery is served from 
 | DELETE | `/api/public/v1/memory/:idOrKey` | Delete a memory |
 | POST | `/api/public/v1/spaces` | Create an invite-only Shared Space (you can't create a public one) |
 | GET | `/api/public/v1/spaces` | List spaces you created or belong to, plus the public commons every active user implicitly belongs to |
+| GET | `/api/public/v1/spaces/:id` | Get one space (404 `space_not_found` if you're not a member — same code either way, no existence leak) |
 | DELETE | `/api/public/v1/spaces/:id` | Delete a space (creator only) |
+| GET | `/api/public/v1/spaces/:id/members` | List members (creator only on the public commons) |
 | POST | `/api/public/v1/spaces/:id/members` | Invite/re-role a member by email (creator only); on the commons, overrides the implicit role instead |
+| PATCH | `/api/public/v1/spaces/:id/members/:userId` | Change a member's role by user id (creator only) |
 | DELETE | `/api/public/v1/spaces/:id/members/:userId` | Remove a member (creator only; retracts their items) |
 | POST | `/api/public/v1/spaces/:id/items` | Contribute one of your own files/folders/memory to a space (folders rejected on the public commons) |
 | GET | `/api/public/v1/spaces/:id/items` | List a space's items (flat, attributed) |
@@ -203,6 +212,15 @@ Use `/api/public/mcp` as the remote MCP URL. OAuth/MCP discovery is served from 
 | DELETE | `/api/public/v1/tokens/:id` | Revoke a minted token (session-only) |
 | GET | `/api/public/v1/account/status` | Check your access status (`active`/`pending`/`suspended`) (session-only) |
 | POST | `/api/public/v1/account/apply` | Attach an optional waitlist message/referral to a pending account (session-only) |
+| GET | `/api/public/v1/admin/waitlist` | List pending signups awaiting approval (owner only) |
+| POST | `/api/public/v1/admin/waitlist/:userId/approve` | Approve a pending account → `active` (owner only) |
+| POST | `/api/public/v1/admin/waitlist/:userId/reject` | Reject a pending account (owner only) |
+| GET | `/api/public/v1/admin/allowlist` | List emails that auto-activate on signup (owner only) |
+| POST | `/api/public/v1/admin/allowlist` | Add an email to the allowlist (owner only) |
+| DELETE | `/api/public/v1/admin/allowlist/:email` | Remove an email from the allowlist (owner only) |
+| GET | `/api/public/v1/admin/users` | List all accounts and their access status (owner only) |
+| POST | `/api/public/v1/admin/users/:userId/suspend` | Suspend an account — revokes its tokens immediately (owner only) |
+| POST | `/api/public/v1/admin/users/:userId/unsuspend` | Restore a suspended account (owner only) |
 | POST | `/api/public/v1/contacts` | Add a peer Drive contact (session-only) |
 | GET | `/api/public/v1/contacts` | List contacts (session-only) |
 | POST | `/api/public/v1/contacts/:name/send` | Send a file to a contact's Drive inbox |
@@ -279,6 +297,9 @@ Agent Drive 是一个专为 AI Agent 设计的私有云盘。你的 Agent 通过
 - **ZIP 下载** — Agent 可以直接下载整个文件夹为 ZIP，或单独下载某个文件
 - **Web 管理面板** — 人类也可以通过浏览器管理文件
 - **Agent 指南接口** — 接收方 Agent 读 `/api/public/guide` 自动学会下载 API
+- **共享空间** — 把自己的文件、文件夹、记忆**以引用方式**共享给别人,不复制存储,字节仍归贡献者所有。支持邀请制空间(viewer / contributor / editor / creator 四种角色),外加一个全站唯一的公共广场,所有已激活用户默认都在里面
+- **多用户隔离** — 一个部署可以有多个账号,彼此只看得到自己的数据。共享是主动加入空间才发生的,不会默认打通
+- **注册 + 站长审批** — 任何人都能在 `/signup` 注册,新账号进入等待列表(`pending`),需站长批准才能用(白名单邮箱直接激活)。站长在管理面板处理审批、白名单和封禁
 
 ### 使用场景
 

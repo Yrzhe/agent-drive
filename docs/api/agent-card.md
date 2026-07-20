@@ -25,7 +25,8 @@ An [A2A-compatible](https://a2a-protocol.org/) Agent Card describing this deploy
   "skills": [
     { "id": "file-exchange", "name": "File exchange", "description": "..." },
     { "id": "memory", "name": "Persistent memory", "description": "..." },
-    { "id": "bundles", "name": "Versioned bundles", "description": "..." }
+    { "id": "bundles", "name": "Versioned bundles", "description": "..." },
+    { "id": "spaces", "name": "Shared spaces", "description": "Share your own files, folders, and memory with other users by reference (no storage copy) via invite-only spaces plus one instance-wide public commons." }
   ],
   "securitySchemes": {
     "oauth2": { "type": "oauth2", "flows": { "authorizationCode": { "authorizationUrl": ".../oauth/authorize", "tokenUrl": ".../oauth/token", "scopes": { "read:drive": "..." } } } },
@@ -34,7 +35,7 @@ An [A2A-compatible](https://a2a-protocol.org/) Agent Card describing this deploy
   "signing": {
     "algorithm": "Ed25519",
     "publicKeyJwk": { "kty": "OKP", "crv": "Ed25519", "x": "..." },
-    "purpose": "Peer inbox deliveries and published bundle manifests verify against this key."
+    "purpose": "Future peer handshakes and bundle signatures verify against this key."
   },
   "x-agent-drive": {
     "mcp": ".../api/public/mcp",

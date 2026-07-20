@@ -37,4 +37,7 @@ Owner-minted bearer tokens with narrowed capabilities and an optional path prefi
 
 ## Activity events
 
-`token.minted` and `token.revoked` are logged (metadata: label, scopes, expiry — never the secret).
+`token.minted` and `token.revoked` are logged (never the secret), with different metadata shapes:
+
+- `token.minted`: `{ label, scopes, expiresAt }`
+- `token.revoked`: `{ label }`
