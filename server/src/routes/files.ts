@@ -74,7 +74,7 @@ filesRoutes.post(
     await ensureFolderChain(db, parentPath, c.get("ownerId") ?? null);
 
     const ownerId = c.get("ownerId") ?? null;
-    await purgeConflictingTrashAtPath(db, storage, targetPath);
+    await purgeConflictingTrashAtPath(db, storage, targetPath, ownerId);
     const [conflict] = await db
       .select()
       .from(files)
@@ -438,7 +438,7 @@ filesRoutes.patch(
         }
 
         const nextPath = joinPath(nextParentPath, existing.name);
-        await purgeConflictingTrashAtPath(db, storage, nextPath);
+        await purgeConflictingTrashAtPath(db, storage, nextPath, ownerId);
         const [conflict] = await db
           .select()
           .from(files)
@@ -625,7 +625,7 @@ filesRoutes.patch(
     await ensureFolderChain(db, nextParentPath, c.get("ownerId") ?? null);
 
     if (nextPath !== existing.path) {
-      await purgeConflictingTrashAtPath(db, storage, nextPath);
+      await purgeConflictingTrashAtPath(db, storage, nextPath, ownerId);
       const [conflict] = await db
         .select()
         .from(files)
@@ -783,7 +783,7 @@ filesRoutes.post(
     await ensureFolderChain(db, target.parentPath, c.get("ownerId") ?? null);
     let restored: number;
     try {
-      restored = await restoreSubtree(db, target);
+      restored = await restoreSubtree(db, target, ownerId);
     } catch (error) {
       if (isPathUniqueConflict(error)) throw new ApiError(409, "path_conflict", "Path already exists");
       throw error;

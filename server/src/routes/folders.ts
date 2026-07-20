@@ -28,7 +28,7 @@ foldersRoutes.post(
     const ownerId = c.get("ownerId") ?? null;
     await ensureFolderChain(db, parentPath, ownerId);
 
-    await purgeConflictingTrashAtPath(db, storage, folderPath);
+    await purgeConflictingTrashAtPath(db, storage, folderPath, ownerId);
     const [conflict] = await db
       .select()
       .from(files)

@@ -127,11 +127,14 @@ export async function softDeleteSubtree(
   };
 }
 
-export async function restoreSubtree(db: AppDb, root: FileRow): Promise<number> {
+export async function restoreSubtree(db: AppDb, root: FileRow, ownerId: string | null = null): Promise<number> {
   const timestamp = nowIso();
   const originalPath = originalTrashPath(root);
   if (root.isFolder === 1) {
-    const rows = await expandSubtree(db, root);
+    // Owner-scoped for the same reason as the purge helpers (#65): a LEGACY trashed
+    // folder still sits at its plain path, so an unscoped subtree expand would also
+    // un-trash another owner's trashed descendants at that path and rewrite them.
+    const rows = await expandSubtree(db, root, ownerId);
     const ops = rows
       .filter((row) => row.deletedAt !== null)
       .map((row) => {
@@ -164,9 +167,14 @@ export async function hardPurgeSubtree(
   root: FileRow,
   ownerId: string | null = null
 ): Promise<{ rowCount: number; objectCount: number }> {
-  const rows = await expandSubtree(db, root);
+  // Subtree expansion and the path-pattern deletes below must be owner-scoped for the
+  // same reason as purgeConflictingTrashAtPath (#65): paths are per-owner unique since
+  // #30, so an unscoped `path LIKE '<root>/%'` sweeps another owner's live descendants.
+  const rows = await expandSubtree(db, root, ownerId);
   const fileIds = rows.filter((x) => x.isFolder === 0).map((x) => x.id);
   const storagePaths = s3PathsFor(rows, storage);
+  const fileOwnerFilter = ownerId ? eq(files.ownerId, ownerId) : undefined;
+  const shareOwnerFilter = ownerId ? eq(shares.ownerId, ownerId) : undefined;
 
   if (root.isFolder === 1) {
     const originalBundleRoot = originalTrashPath(root);
@@ -174,12 +182,24 @@ export async function hardPurgeSubtree(
       deleteBundlePrefixesInSubtree(db, originalBundleRoot, ownerId),
       db
         .delete(shares)
-        .where(or(eq(shares.folderPath, root.path), sql`${shares.folderPath} LIKE ${escapedDescendantPattern(root.path)} ESCAPE '\\'`)),
+        .where(
+          and(
+            or(eq(shares.folderPath, root.path), sql`${shares.folderPath} LIKE ${escapedDescendantPattern(root.path)} ESCAPE '\\'`),
+            shareOwnerFilter
+          )
+        ),
     ];
     if (originalBundleRoot !== root.path) ops.push(deleteBundlePrefixesInSubtree(db, root.path, ownerId));
-    if (fileIds.length > 0) ops.push(db.delete(shares).where(inArray(shares.fileId, fileIds)));
+    if (fileIds.length > 0) ops.push(db.delete(shares).where(and(inArray(shares.fileId, fileIds), shareOwnerFilter)));
     ops.push(
-      db.delete(files).where(or(eq(files.path, root.path), sql`${files.path} LIKE ${escapedDescendantPattern(root.path)} ESCAPE '\\'`))
+      db
+        .delete(files)
+        .where(
+          and(
+            or(eq(files.path, root.path), sql`${files.path} LIKE ${escapedDescendantPattern(root.path)} ESCAPE '\\'`),
+            fileOwnerFilter
+          )
+        )
     );
     await db.batch(ops as [any, ...any[]]);
   } else {
@@ -211,19 +231,27 @@ export async function hardPurgeSubtree(
  * Legacy fallback only: rows trashed before the tombstone-rename scheme still
  * occupy their original path and must be purged before that path can be
  * reused. Rows trashed after the scheme never collide, so this is a no-op.
+ *
+ * MUST be owner-scoped (#65). Paths are per-owner unique since #30, so an
+ * unscoped lookup could match ANOTHER owner's trashed row at the same path and
+ * hard-purge it — row and R2 bytes — during the caller's ordinary write. Pass
+ * the caller's owner; `null` (legacy trust-any deployment) keeps prior behavior.
  */
 export async function purgeConflictingTrashAtPath(
   db: AppDb,
   storage: StorageClient,
-  path: string
+  path: string,
+  ownerId: string | null = null
 ): Promise<boolean> {
   const [trashed] = await db
     .select()
     .from(files)
-    .where(and(eq(files.path, path), isNotNull(files.deletedAt)))
+    .where(and(eq(files.path, path), isNotNull(files.deletedAt), ownerId ? eq(files.ownerId, ownerId) : undefined))
     .limit(1);
   if (!trashed) return false;
-  await hardPurgeSubtree(db, storage, trashed, trashed.ownerId ?? null);
+  // Scoped lookup guarantees `trashed.ownerId === ownerId` whenever ownerId is set;
+  // pass the caller's owner explicitly so the subtree purge is coherently scoped.
+  await hardPurgeSubtree(db, storage, trashed, ownerId ?? trashed.ownerId ?? null);
   return true;
 }
 

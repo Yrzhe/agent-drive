@@ -1,6 +1,6 @@
 import { and, eq, isNull } from "drizzle-orm";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
-import { files, memories, contacts, bundleVersions } from "../../src/defs";
+import { buckets, files, memories, contacts, bundleVersions } from "../../src/defs";
 import {
   jsonHeaders,
   putViaPresignedUrl,
@@ -324,5 +324,158 @@ describe("Part ①b — per-owner uniqueness (#30)", () => {
     const { memories: memoriesB } = (await listB.json()) as { memories: Array<{ content: string }> };
     expect(memoriesB).toHaveLength(1);
     expect(memoriesB[0]?.content).toBe("B's profile");
+  });
+});
+
+/**
+ * #65 — `purgeConflictingTrashAtPath` looked a row up by `path` alone and hard-purged it
+ * (row + R2 bytes). Since #30 made paths per-owner unique, owner A writing at a path in
+ * A's OWN drive could destroy owner B's soft-deleted file at the same path.
+ *
+ * The helper only ever matches LEGACY trash (rows trashed before the tombstone-rename
+ * scheme still occupy their original path), so these tests trash rows the legacy way:
+ * set `deletedAt` without rewriting `path`.
+ */
+describe("Part ①c — cross-owner trash purge (#65)", () => {
+  beforeEach(() => resetRuntime());
+  afterAll(() => runtime.sqlite?.close());
+
+  /** Trash a row the pre-tombstone way: deletedAt set, path left at its original value. */
+  async function legacyTrash(id: string): Promise<void> {
+    await runtime.db
+      .update(files)
+      .set({ deletedAt: new Date("2026-01-01T00:00:00.000Z").toISOString() })
+      .where(eq(files.id, id));
+  }
+
+  async function driveObjectExists(fileId: string): Promise<boolean> {
+    const [row] = await runtime.db.select().from(files).where(eq(files.id, fileId)).limit(1);
+    if (!row?.s3Uri) return false;
+    const parsed = runtime.storage.tryParseS3Uri(row.s3Uri);
+    return parsed !== null && (await runtime.storage.from(buckets.drive).get(parsed.path)) !== null;
+  }
+
+  /** Snapshot the R2 key before the write, so it can be probed after the row may be gone. */
+  async function driveObjectKeyOf(fileId: string): Promise<string> {
+    const [row] = await runtime.db.select().from(files).where(eq(files.id, fileId)).limit(1);
+    return runtime.storage.tryParseS3Uri(row!.s3Uri!)!.path;
+  }
+
+  it("owner A's upload at /notes/x.md does NOT purge owner B's trashed /notes/x.md", async () => {
+    const { default: app } = await import("../../src/index");
+    await seedDriveFile({ id: "fb", path: "/notes/x.md", body: "B's recoverable draft", ownerId: "B" });
+    await legacyTrash("fb");
+    const bKey = await driveObjectKeyOf("fb");
+
+    useSession({ id: "A" });
+    const res = await app.request("/api/public/v1/files/upload", {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ filename: "x.md", path: "/notes", size: 4, contentType: "text/plain" }),
+    });
+    expect(res.status).toBe(200);
+
+    const [bRow] = await runtime.db.select().from(files).where(eq(files.id, "fb")).limit(1);
+    expect(bRow).toBeDefined(); // B's trashed row survived A's unrelated write
+    expect(bRow.deletedAt).not.toBeNull();
+    expect(await runtime.storage.from(buckets.drive).get(bKey)).not.toBeNull(); // bytes survived
+
+    // ...and B can still restore it.
+    const { restoreSubtree } = await import("../../src/lib/trash");
+    expect(await restoreSubtree(runtime.db as never, bRow)).toBe(1);
+    const [restored] = await runtime.db.select().from(files).where(eq(files.id, "fb")).limit(1);
+    expect(restored.deletedAt).toBeNull();
+    expect(restored.path).toBe("/notes/x.md");
+  });
+
+  it("owner A's own trashed /notes/x.md IS still purged when A uploads there (unchanged)", async () => {
+    const { default: app } = await import("../../src/index");
+    await seedDriveFile({ id: "fa", path: "/notes/x.md", body: "A's old draft", ownerId: "A" });
+    await legacyTrash("fa");
+    const aKey = await driveObjectKeyOf("fa");
+
+    useSession({ id: "A" });
+    const res = await app.request("/api/public/v1/files/upload", {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ filename: "x.md", path: "/notes", size: 4, contentType: "text/plain" }),
+    });
+    expect(res.status).toBe(200);
+
+    const rows = await runtime.db.select().from(files).where(eq(files.id, "fa"));
+    expect(rows).toHaveLength(0); // same-owner conflicting trash is still hard-purged
+    expect(await runtime.storage.from(buckets.drive).get(aKey)).toBeNull();
+  });
+
+  it("owner A's folder create at /notes does NOT purge owner B's trashed /notes folder", async () => {
+    const { default: app } = await import("../../src/index");
+    await seedDriveFile({ id: "fb", path: "/notes/deep.md", body: "B's file", ownerId: "B" });
+    const [bFolder] = await runtime.db
+      .select()
+      .from(files)
+      .where(and(eq(files.path, "/notes"), eq(files.ownerId, "B")))
+      .limit(1);
+    await legacyTrash(bFolder.id);
+    await legacyTrash("fb");
+
+    useSession({ id: "A" });
+    const res = await app.request("/api/public/v1/folders", {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ name: "notes", path: "/" }),
+    });
+    expect(res.status).toBe(200);
+
+    expect(await driveObjectExists("fb")).toBe(true); // B's whole trashed subtree survived
+    const survivors = await runtime.db.select().from(files).where(eq(files.ownerId, "B"));
+    expect(survivors.map((r: FileRow) => r.path).sort()).toEqual(["/notes", "/notes/deep.md"]);
+  });
+
+  it("owner A restoring their legacy-trashed /notes does NOT un-trash owner B's /notes/deep.md", async () => {
+    const { default: app } = await import("../../src/index");
+    // A first: seedFolder dedups by path alone, so whoever seeds first owns /notes.
+    await seedDriveFile({ id: "fa", path: "/notes/mine.md", body: "A's file", ownerId: "A" });
+    await seedDriveFile({ id: "fb", path: "/notes/deep.md", body: "B's file", ownerId: "B" });
+    const [aFolder] = await runtime.db
+      .select()
+      .from(files)
+      .where(and(eq(files.path, "/notes"), eq(files.ownerId, "A")))
+      .limit(1);
+    await legacyTrash(aFolder.id);
+    await legacyTrash("fa");
+    await legacyTrash("fb");
+
+    useSession({ id: "A" });
+    const res = await app.request(`/api/public/v1/files/${aFolder.id}/restore`, {
+      method: "POST",
+      headers: jsonHeaders(),
+    });
+    expect(res.status).toBe(200);
+
+    const [bRow] = await runtime.db.select().from(files).where(eq(files.id, "fb")).limit(1);
+    expect(bRow.deletedAt).not.toBeNull(); // B's row stayed in B's trash
+    const [aRow] = await runtime.db.select().from(files).where(eq(files.id, "fa")).limit(1);
+    expect(aRow.deletedAt).toBeNull(); // A's own subtree restored as before
+  });
+
+  it("MCP write_file by owner A does NOT purge owner B's trashed file at the same path", async () => {
+    const { callMcpTool } = await import("../../src/lib/mcp-tools");
+    await seedDriveFile({ id: "fb", path: "/notes/x.md", body: "B's recoverable draft", ownerId: "B" });
+    await legacyTrash("fb");
+    const bKey = await driveObjectKeyOf("fb");
+
+    await callMcpTool(
+      runtime.db as never,
+      "https://x",
+      ["write:drive", "path:/"],
+      "write_file",
+      { path: "/notes/x.md", content: "A's content" },
+      "A"
+    );
+
+    const [bRow] = await runtime.db.select().from(files).where(eq(files.id, "fb")).limit(1);
+    expect(bRow).toBeDefined();
+    expect(bRow.deletedAt).not.toBeNull();
+    expect(await runtime.storage.from(buckets.drive).get(bKey)).not.toBeNull();
   });
 });

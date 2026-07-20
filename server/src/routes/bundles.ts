@@ -116,7 +116,8 @@ async function snapshotCurrentManifestToHistory(
   storage: StorageClientLike,
   prefix: string,
   previousVersionId: string,
-  pushedAt: string
+  pushedAt: string,
+  ownerId: string | null
 ): Promise<{ filesRow: typeof files.$inferInsert; existingId: string | null; bytes: Uint8Array } | null> {
   const manifestPath = joinPath(prefix, "manifest.json");
   const [currentManifestRow] = await db.select().from(files).where(and(eq(files.path, manifestPath), isNull(files.deletedAt))).limit(1);
@@ -136,7 +137,7 @@ async function snapshotCurrentManifestToHistory(
   const historyPath = joinPath(historyDir, `${previousVersionId}.json`);
   const historyName = `${previousVersionId}.json`;
 
-  await purgeConflictingTrashAtPath(db, storage, historyPath);
+  await purgeConflictingTrashAtPath(db, storage, historyPath, ownerId);
   const [existingHistoryRow] = await db.select().from(files).where(and(eq(files.path, historyPath), isNull(files.deletedAt))).limit(1);
   const historyFileId = existingHistoryRow?.id ?? nanoid();
   const historyR2Path = driveObjectKey(historyFileId, historyName);
@@ -289,13 +290,13 @@ bundlesRoutes.post(
 
     let historySnapshot: Awaited<ReturnType<typeof snapshotCurrentManifestToHistory>> = null;
     if (current && previousVersionId) {
-      historySnapshot = await snapshotCurrentManifestToHistory(db, storage, prefix, previousVersionId, pushedAt);
+      historySnapshot = await snapshotCurrentManifestToHistory(db, storage, prefix, previousVersionId, pushedAt, ownerId);
       if (historySnapshot) {
         await ensureFolderChain(db, joinPath(prefix, ".history"), ownerId);
       }
     }
 
-    await purgeConflictingTrashAtPath(db, storage, manifestPath);
+    await purgeConflictingTrashAtPath(db, storage, manifestPath, ownerId);
 
     const [existingManifestRow] = await db
       .select()
