@@ -171,6 +171,12 @@ export function buildAgentCard(identity: AgentIdentity, origin: string, appVersi
         name: "Versioned bundles",
         description: "Push/pull versioned directory bundles with history and rollback (adrive sync).",
       },
+      {
+        id: "spaces",
+        name: "Shared spaces",
+        description:
+          "Share your own files, folders, and memory with other users by reference (no storage copy) via invite-only spaces plus one instance-wide public commons.",
+      },
     ],
     securitySchemes: {
       oauth2: {
