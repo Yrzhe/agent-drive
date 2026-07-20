@@ -1,0 +1,1 @@
+CREATE INDEX `idx_spaces_visibility` ON `spaces` (`visibility`);

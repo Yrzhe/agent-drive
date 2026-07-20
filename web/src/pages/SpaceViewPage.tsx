@@ -9,7 +9,11 @@ import { spacesApi } from "@/hooks/useSpaces";
 import { DriveApiError } from "@/lib/api-client";
 import { driveApi } from "@/lib/drive-api";
 import type { DriveFile } from "@/types/drive";
+import { describeAudience } from "@/types/spaces";
 import type { SpaceItemDisplay, SpaceMemoryHit, SpaceSummary } from "@/types/spaces";
+
+/** Type-to-confirm phrase guarding the instance-wide `Clear commons` action (public space only). */
+const CLEAR_COMMONS_PHRASE = "CLEAR";
 
 const getErrorMessage = (error: unknown) => (error instanceof Error ? error.message : "Request failed. Please try again.");
 const formatDate = (value: string) => new Date(value).toLocaleString();
@@ -62,6 +66,8 @@ export default function SpaceViewPage() {
   const [memoryScopedToSpace, setMemoryScopedToSpace] = useState(false);
 
   const [deletingSpace, setDeletingSpace] = useState(false);
+  const [clearCommonsOpen, setClearCommonsOpen] = useState(false);
+  const [clearCommonsText, setClearCommonsText] = useState("");
 
   const refreshSpace = useCallback(async () => {
     if (!spaceId) return;
@@ -122,7 +128,12 @@ export default function SpaceViewPage() {
 
   const handleRemoveItem = async (item: SpaceItemDisplay) => {
     if (!spaceId) return;
-    if (!window.confirm(`Remove "${item.name ?? item.itemRef}" from this space? This does not delete the underlying ${itemTypeLabel(item.itemType).toLowerCase()}.`)) return;
+    const isModerating = item.contributedBy !== user?.id;
+    const confirmMessage =
+      isModerating
+        ? `Remove "${item.name ?? item.itemRef}" as a moderator? This only removes the reference from this space — it does not delete the contributor's underlying ${itemTypeLabel(item.itemType).toLowerCase()}.`
+        : `Remove "${item.name ?? item.itemRef}" from this space? This does not delete the underlying ${itemTypeLabel(item.itemType).toLowerCase()}.`;
+    if (!window.confirm(confirmMessage)) return;
     markItemBusy(item.id, true);
     setItemActionErrors((current) => ({ ...current, [item.id]: undefined }));
     try {
@@ -193,9 +204,8 @@ export default function SpaceViewPage() {
     }
   };
 
-  const handleDeleteSpace = async () => {
-    if (!spaceId || !space) return;
-    if (!window.confirm(`Delete space "${space.name}"? Members lose access; contributed files and memory are not deleted.`)) return;
+  const runDeleteSpace = async () => {
+    if (!spaceId) return;
     setDeletingSpace(true);
     try {
       await spacesApi.deleteSpace(spaceId);
@@ -203,7 +213,25 @@ export default function SpaceViewPage() {
     } catch (error) {
       setSpaceError(getErrorMessage(error));
       setDeletingSpace(false);
+      setClearCommonsOpen(false);
     }
+  };
+
+  /**
+   * Deleting an INVITE space affects only its own members, so a plain confirm is
+   * proportionate. Clearing the COMMONS wipes every user's contributed references
+   * instance-wide, so it gets a type-to-confirm panel instead (below) — the destructive
+   * blast radius, not the wording, is what differs.
+   */
+  const handleDeleteSpace = () => {
+    if (!spaceId || !space) return;
+    if (space.visibility === "public") {
+      setClearCommonsText("");
+      setClearCommonsOpen(true);
+      return;
+    }
+    if (!window.confirm(`Delete space "${space.name}"? Members lose access; contributed files and memory are not deleted.`)) return;
+    void runDeleteSpace();
   };
 
   const fileItems = useMemo(() => items.filter((item) => item.itemType !== "memory"), [items]);
@@ -232,10 +260,18 @@ export default function SpaceViewPage() {
       <div className="mx-auto max-w-6xl space-y-6">
         <header className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-4">
           <div>
-            <h1 className="text-xl font-semibold text-slate-900">{spaceLoading ? "Loading space..." : space?.name ?? "Space"}</h1>
+            <div className="flex items-center gap-2">
+              <h1 className="text-xl font-semibold text-slate-900">{spaceLoading ? "Loading space..." : space?.name ?? "Space"}</h1>
+              {space?.visibility === "public" ? (
+                <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">Public</span>
+              ) : null}
+            </div>
             <p className="text-sm text-slate-600">
-              {space ? `Your role: ${space.role} · ${space.memberCount} member${space.memberCount === 1 ? "" : "s"} · ${space.itemCount} item${space.itemCount === 1 ? "" : "s"}` : ""}
+              {space ? `Your role: ${space.role} · ${describeAudience(space.memberCount)} · ${space.itemCount} item${space.itemCount === 1 ? "" : "s"}` : ""}
             </p>
+            {space?.visibility === "public" ? (
+              <p className="mt-0.5 text-xs text-slate-500">Everyone on this drive can see what's contributed here.</p>
+            ) : null}
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Link className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-700" to="/spaces">← All spaces</Link>
@@ -244,15 +280,64 @@ export default function SpaceViewPage() {
               <button
                 className="rounded-lg border border-red-300 px-3 py-1.5 text-sm text-red-700 hover:bg-red-50 disabled:opacity-50"
                 disabled={deletingSpace}
-                onClick={() => { void handleDeleteSpace(); }}
+                onClick={handleDeleteSpace}
                 type="button"
               >
-                {deletingSpace ? "Deleting..." : "Delete space"}
+                {space?.visibility === "public"
+                  ? deletingSpace
+                    ? "Clearing..."
+                    : "Clear commons"
+                  : deletingSpace
+                    ? "Deleting..."
+                    : "Delete space"}
               </button>
             ) : null}
             <button className="rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-medium text-white" onClick={() => { void signOut(); }} type="button">Sign out</button>
           </div>
         </header>
+
+        {clearCommonsOpen ? (
+          <div className="rounded-2xl border border-red-300 bg-red-50 p-4">
+            <h2 className="text-base font-semibold text-red-900">Clear the public commons?</h2>
+            <p className="mt-1 text-sm text-red-800">
+              This removes <strong>every contributed reference and role override, for every user on this drive</strong> — not
+              just yours. The underlying files and memory are <strong>not</strong> deleted, and an empty commons is recreated
+              automatically the next time anyone visits.
+            </p>
+            <label className="mt-3 block text-sm font-medium text-red-900" htmlFor="clear-commons-confirm">
+              Type <code className="rounded bg-white px-1 py-0.5 font-mono text-xs text-red-900">{CLEAR_COMMONS_PHRASE}</code> to confirm:
+            </label>
+            <input
+              autoComplete="off"
+              autoFocus
+              className="mt-1.5 w-48 rounded-lg border border-red-300 bg-white px-3 py-1.5 text-sm text-slate-900 focus:border-red-500 focus:outline-none"
+              disabled={deletingSpace}
+              id="clear-commons-confirm"
+              onChange={(event) => setClearCommonsText(event.target.value)}
+              placeholder={CLEAR_COMMONS_PHRASE}
+              type="text"
+              value={clearCommonsText}
+            />
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <button
+                className="rounded-lg bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
+                disabled={deletingSpace || clearCommonsText !== CLEAR_COMMONS_PHRASE}
+                onClick={() => { void runDeleteSpace(); }}
+                type="button"
+              >
+                {deletingSpace ? "Clearing..." : "Clear commons"}
+              </button>
+              <button
+                className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                disabled={deletingSpace}
+                onClick={() => { setClearCommonsOpen(false); setClearCommonsText(""); }}
+                type="button"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : null}
 
         {spaceError ? <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{spaceError}</div> : null}
 
@@ -404,6 +489,7 @@ export default function SpaceViewPage() {
         {space?.role === "creator" ? (
           <MemberManagementSection
             creatorId={space.creatorId}
+            isPublic={space.visibility === "public"}
             onChanged={() => { void refreshSpace(); }}
             spaceId={spaceId}
           />

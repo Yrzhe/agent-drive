@@ -10,6 +10,7 @@ import { nowIso } from "../lib/files";
 import { parseListPagination } from "../lib/pagination";
 import {
   assertSpaceRole,
+  ensurePublicCommons,
   resolveOwnedContributionRef,
   resolveSpaceRole,
   resolveUserIdByEmail,
@@ -33,9 +34,31 @@ import type { AppDb, AppEnv } from "../types";
  * (read:drive for GET, write:drive otherwise) already covers this path with no changes
  * needed there: spaces have no path-scoped semantics like files/folders.
  *
- * P1 spaces are `visibility: 'invite'` only (D3) — the public commons is P2, out of scope.
+ * P1 spaces are `visibility: 'invite'` only (D3). P2 adds the ONE `visibility: 'public'`
+ * commons — still not user-creatable: `POST /` below keeps hardcoding `visibility: 'invite'`,
+ * and the commons is system-bootstrapped by the middleware right below.
  */
 export const spacesRoutes = new Hono<AppEnv>();
+
+/**
+ * Shared Spaces P2 (D3) — bootstrap the public commons on any spaces request.
+ *
+ * This is the ONLY place the commons comes into existence. `userSpaceIds` deliberately uses a
+ * READ-ONLY commons lookup (a read path must never materialize a row), so if no surface ever
+ * called `ensurePublicCommons` the commons would never exist and no user could reach it.
+ * Doing it here — the route layer, not the read filters — keeps every spaces surface
+ * (list, detail, items, members) consistent, at the cost of one indexed SELECT per request
+ * once the row exists.
+ *
+ * `ensurePublicCommons` fails closed (returns null, creates nothing) when the deployment
+ * owner cannot be resolved, so an unarmed/misconfigured install simply has no commons and
+ * every handler below behaves exactly as it did in P1.
+ */
+spacesRoutes.use("*", async (_c, next) => {
+  const { db } = await import("edgespark");
+  await ensurePublicCommons(db);
+  await next();
+});
 
 type SpaceRow = typeof spaces.$inferSelect;
 type MemberRole = Exclude<SpaceRole, "creator">;
@@ -140,7 +163,7 @@ spacesRoutes.get(
         // Role is never null here — `space.id` came from `userSpaceIds(callerId)`, which
         // only returns spaces the caller created or is a member of.
         const role = (await resolveSpaceRole(db, space.id, callerId)) as SpaceRole;
-        const counts = await spaceCounts(db, space.id);
+        const counts = await spaceCounts(db, space.id, space.visibility);
         return toSpaceSummary(space, role, counts);
       })
     );
@@ -162,7 +185,7 @@ spacesRoutes.get(
     if (role === null) throw new ApiError(404, "space_not_found", "Space not found");
 
     const space = await requireSpaceRow(db, spaceId);
-    const counts = await spaceCounts(db, spaceId);
+    const counts = await spaceCounts(db, spaceId, space.visibility);
     return c.json({ space: toSpaceSummary(space, role, counts) });
   })
 );
@@ -197,6 +220,15 @@ spacesRoutes.get(
 
     await assertSpaceRole(db, spaceId, callerId, "viewer");
     const space = await requireSpaceRow(db, spaceId);
+
+    // On the public commons, `viewer` is satisfied by EVERY active user (implicit
+    // membership), so the plain role check would hand this handler's `esSystemAuthUser.email`
+    // join — including the deployment owner's login email — to the whole deployment. Member
+    // listing there is creator-only. Item attribution still flows to everyone via each
+    // item's `contributedBy`. Invite spaces keep the P1 viewer+ behavior.
+    if (space.visibility === "public" && space.creatorId !== callerId) {
+      throw new ApiError(403, "space_forbidden", "Member listing on the public commons is restricted to its creator.");
+    }
 
     const memberRows = await db
       .select({
@@ -349,8 +381,9 @@ spacesRoutes.post(
     const ref = validateItemRef(body.ref);
 
     // Security spine (design §Security #2): only the resource's owner may contribute it.
-    // Throws ApiError(403, 'not_your_resource') if `ref` isn't a live resource callerId owns.
-    const itemRef = await resolveOwnedContributionRef(db, itemType, ref, callerId);
+    // Throws ApiError(403, 'not_your_resource') if `ref` isn't a live resource callerId owns,
+    // and ApiError(400, 'folders_not_allowed_in_public') for a folder into a public space (D4).
+    const itemRef = await resolveOwnedContributionRef(db, spaceId, itemType, ref, callerId);
 
     await db
       .insert(spaceItems)

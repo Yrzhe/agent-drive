@@ -243,13 +243,20 @@ export const registrationIntents = sqliteTable(
  * `'invite'` (creator-managed membership) in P1; `'public'` (the single built-in commons,
  * implicit membership for all active users) is P2.
  */
-export const spaces = sqliteTable("spaces", {
-  id: text("id").primaryKey(),
-  name: text("name").notNull(),
-  creatorId: text("creator_id").notNull(),
-  visibility: text("visibility").notNull().default("invite"), // 'invite' | 'public'
-  createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
-});
+export const spaces = sqliteTable(
+  "spaces",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    creatorId: text("creator_id").notNull(),
+    visibility: text("visibility").notNull().default("invite"), // 'invite' | 'public'
+    createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
+  },
+  // P2: the public-commons lookup (`WHERE visibility = 'public' LIMIT 1`) sits on the HOT
+  // read path — `fileReadableFilter`/`memoryReadableFilter` run it on every list/get/search/
+  // preview/recall. Without this index that is a full table scan per read.
+  (table) => [index("idx_spaces_visibility").on(table.visibility)]
+);
 
 /**
  * Explicit membership rows for a space. The creator is NOT required to have a row here —

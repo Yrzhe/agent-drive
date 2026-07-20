@@ -4,6 +4,7 @@ import { AuthLoginPanel } from "@/components/AuthLoginPanel";
 import { useAccessStatus } from "@/hooks/useAccessStatus";
 import { useAuth } from "@/hooks/useAuth";
 import { spacesApi } from "@/hooks/useSpaces";
+import { describeAudience } from "@/types/spaces";
 import type { SpaceSummary } from "@/types/spaces";
 
 const getErrorMessage = (error: unknown) => (error instanceof Error ? error.message : "Request failed. Please try again.");
@@ -121,9 +122,21 @@ export default function SpacesPage() {
                 ) : (
                   spaces.map((space) => (
                     <tr className="border-b border-slate-100" key={space.id}>
-                      <td className="px-3 py-2 font-medium text-slate-900">{space.name}</td>
+                      <td className="px-3 py-2 font-medium text-slate-900">
+                        <div className="flex items-center gap-2">
+                          <span>{space.name}</span>
+                          {space.visibility === "public" ? (
+                            <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">Public</span>
+                          ) : null}
+                        </div>
+                        {space.visibility === "public" ? (
+                          <p className="mt-0.5 text-xs font-normal text-slate-500">
+                            Everyone on this drive can see what you add here.
+                          </p>
+                        ) : null}
+                      </td>
                       <td className="px-3 py-2 text-slate-700">{space.role}</td>
-                      <td className="px-3 py-2 text-slate-700">{space.memberCount}</td>
+                      <td className="px-3 py-2 text-slate-700">{describeAudience(space.memberCount)}</td>
                       <td className="px-3 py-2 text-slate-700">{space.itemCount}</td>
                       <td className="px-3 py-2 text-slate-600">{new Date(space.createdAt).toLocaleString()}</td>
                       <td className="px-3 py-2">

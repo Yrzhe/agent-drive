@@ -11,8 +11,27 @@ const MEMBER_ROLES: readonly MemberRole[] = ["viewer", "contributor", "editor"];
  * on every mutation here (`assertSpaceRole(db, spaceId, callerId, "creator")`), so this
  * component never needs to re-derive permissions beyond hiding controls for the creator's
  * own row (the server rejects changing/removing the creator, see `space_members` routes).
+ *
+ * On the public commons (`isPublic`), membership is implicit — every active user already
+ * has read + contribute access with NO `space_members` row. This roster only lists
+ * EXPLICIT overrides the creator has set (a stored `viewer` role demotes someone to
+ * read-only; a stored `editor` role promotes them to co-moderator — item moderation only,
+ * never live-reference byte editing, see `canEditFileViaSpace` on the server). "Invite" here
+ * means "set an override", not "grant access" — copy and the role-change control (PATCH,
+ * never DELETE, per the server gotcha that DELETE also retracts the member's contributed
+ * items) reflect that.
  */
-export function MemberManagementSection({ spaceId, creatorId, onChanged }: { spaceId: string; creatorId: string; onChanged: () => void }) {
+export function MemberManagementSection({
+  spaceId,
+  creatorId,
+  isPublic = false,
+  onChanged,
+}: {
+  spaceId: string;
+  creatorId: string;
+  isPublic?: boolean;
+  onChanged: () => void;
+}) {
   const [members, setMembers] = useState<SpaceMember[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -80,7 +99,10 @@ export function MemberManagementSection({ spaceId, creatorId, onChanged }: { spa
   };
 
   const handleRemove = async (member: SpaceMember) => {
-    if (!window.confirm(`Remove ${member.email ?? member.userId} from this space? Their contributed items will also be removed from it.`)) return;
+    const confirmMessage = isPublic
+      ? `Clear the role override for ${member.email ?? member.userId}? They'll revert to default implicit contributor access — this does NOT revoke their access to the commons — but their contributed items will also be removed from it.`
+      : `Remove ${member.email ?? member.userId} from this space? Their contributed items will also be removed from it.`;
+    if (!window.confirm(confirmMessage)) return;
     markBusy(member.userId, true);
     setRowErrors((current) => ({ ...current, [member.userId]: undefined }));
     try {
@@ -96,13 +118,22 @@ export function MemberManagementSection({ spaceId, creatorId, onChanged }: { spa
 
   return (
     <section className="rounded-2xl border border-slate-200 bg-white p-4">
-      <h2 className="mb-3 text-lg font-semibold text-slate-900">Members</h2>
+      <h2 className="mb-3 text-lg font-semibold text-slate-900">{isPublic ? "Moderators & overrides" : "Members"}</h2>
 
-      <div className="mb-4 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-900">
-        ⚠ Items in this space are shared by reference, not copied. Anyone with the <span className="font-semibold">editor</span> role
-        can modify the files and notes you contribute to this space — those are your real files, and their edits apply directly to
-        them.
-      </div>
+      {isPublic ? (
+        <div className="mb-4 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-900">
+          ⚠ Every active user on this drive already has read + contribute access to the public commons — there's no separate
+          invite step. This list only shows people whose role you've explicitly overridden: a <span className="font-semibold">viewer</span>{" "}
+          override makes them read-only, and an <span className="font-semibold">editor</span> override makes them a co-moderator who
+          can remove any item's reference (never edit its bytes — that stays owner-only).
+        </div>
+      ) : (
+        <div className="mb-4 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-900">
+          ⚠ Items in this space are shared by reference, not copied. Anyone with the <span className="font-semibold">editor</span> role
+          can modify the files and notes you contribute to this space — those are your real files, and their edits apply directly to
+          them.
+        </div>
+      )}
 
       {error ? <div className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
 
@@ -120,7 +151,11 @@ export function MemberManagementSection({ spaceId, creatorId, onChanged }: { spa
             {loading ? (
               <tr><td className="px-3 py-4 text-slate-600" colSpan={4}>Loading...</td></tr>
             ) : members.length === 0 ? (
-              <tr><td className="px-3 py-4 text-slate-500" colSpan={4}>No members yet.</td></tr>
+              <tr>
+                <td className="px-3 py-4 text-slate-500" colSpan={4}>
+                  {isPublic ? "No role overrides yet — everyone else has the default implicit contributor access." : "No members yet."}
+                </td>
+              </tr>
             ) : (
               members.map((member) => {
                 const isCreator = member.userId === creatorId;
@@ -155,7 +190,7 @@ export function MemberManagementSection({ spaceId, creatorId, onChanged }: { spa
                             onClick={() => { void handleRemove(member); }}
                             type="button"
                           >
-                            Remove
+                            {isPublic ? "Clear override" : "Remove"}
                           </button>
                         ) : null}
                         {rowError ? <span className="text-xs text-red-600">{rowError}</span> : null}
@@ -170,7 +205,7 @@ export function MemberManagementSection({ spaceId, creatorId, onChanged }: { spa
       </div>
 
       <div className="mt-4 border-t border-slate-100 pt-4">
-        <h3 className="mb-2 text-sm font-medium text-slate-900">Invite a member</h3>
+        <h3 className="mb-2 text-sm font-medium text-slate-900">{isPublic ? "Set a role override" : "Invite a member"}</h3>
         <div className="flex flex-wrap items-center gap-2">
           <input
             className="w-64 rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-blue-500"
@@ -194,11 +229,13 @@ export function MemberManagementSection({ spaceId, creatorId, onChanged }: { spa
             onClick={() => { void handleInvite(); }}
             type="button"
           >
-            {inviting ? "Inviting..." : "Invite"}
+            {inviting ? "Saving..." : isPublic ? "Set override" : "Invite"}
           </button>
         </div>
         <p className="mt-2 text-xs text-slate-500">
-          Invites only work for an existing Agent Drive account — the invited user is added immediately, with no accept step.
+          {isPublic
+            ? "Only for an existing Agent Drive account. Pick viewer to make someone read-only, or editor to make them a co-moderator (item removal only, never byte-level edits)."
+            : "Invites only work for an existing Agent Drive account — the invited user is added immediately, with no accept step."}
         </p>
         {inviteError ? <p className="mt-2 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">{inviteError}</p> : null}
       </div>

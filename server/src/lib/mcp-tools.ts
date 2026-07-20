@@ -13,6 +13,7 @@ import { extractPathPrefixes, hasScope, pathAllowed, requirePathAllowed, type Mc
 import {
   assertSpaceRole,
   canEditFileViaSpace,
+  ensurePublicCommons,
   fileReadableFilter,
   memoryReadableFilter,
   resolveOwnedContributionRef,
@@ -204,7 +205,7 @@ export const MCP_TOOLS: McpToolDefinition[] = [
   },
   {
     name: "list_spaces",
-    description: "List the Shared Spaces you can reach (spaces you created plus spaces you were invited into), with your role and item/member counts.",
+    description: "List the Shared Spaces you can reach (spaces you created plus spaces you were invited into), plus the public commons if you're an active user, with your role and item/member counts. The commons has memberCount: null (everyone on this drive).",
     requiredScope: "read:drive",
     inputSchema: { type: "object", properties: {} },
   },
@@ -223,7 +224,7 @@ export const MCP_TOOLS: McpToolDefinition[] = [
   },
   {
     name: "add_to_space",
-    description: "Contribute one of YOUR OWN resources to a space by reference (no copy). You must be a contributor+ in the space and must own the resource. Editors who later edit a shared file change your real file.",
+    description: "Contribute one of YOUR OWN resources to a space by reference (no copy). You must be a contributor+ in the space and must own the resource. On an invite space, editors who later edit a shared file change your real file. On the public commons: folders are rejected (folders_not_allowed_in_public — files/memory only), and contributing publishes the resource to EVERY active user of this deployment immediately — never do this on a human's behalf without their explicit intent.",
     requiredScope: "write:drive",
     inputSchema: {
       type: "object",
@@ -238,7 +239,7 @@ export const MCP_TOOLS: McpToolDefinition[] = [
   },
   {
     name: "remove_from_space",
-    description: "Remove an item reference from a space (never deletes the underlying file/memory). You may remove your own items; removing another member's item requires the editor role.",
+    description: "Remove an item reference from a space (never deletes the underlying file/memory). You may remove your own items; removing another member's item requires the editor role. On the public commons that means the commons creator (the deployment owner) or a user they explicitly promoted — an ordinary implicit contributor can only withdraw their own item.",
     requiredScope: "write:drive",
     inputSchema: {
       type: "object",
@@ -251,7 +252,7 @@ export const MCP_TOOLS: McpToolDefinition[] = [
   },
   {
     name: "create_space",
-    description: "Create a new invite-only Shared Space. You become its creator and can invite members with manage_space_members.",
+    description: "Create a new invite-only Shared Space. You become its creator and can invite members with manage_space_members. This always creates an invite space -- you cannot create a public one; there is exactly one instance-wide public commons, and it's system-bootstrapped, not user-created.",
     requiredScope: "write:drive",
     inputSchema: {
       type: "object",
@@ -263,7 +264,7 @@ export const MCP_TOOLS: McpToolDefinition[] = [
   },
   {
     name: "manage_space_members",
-    description: "Invite, re-role, or remove a member of a space by email. Creator only. Pass role (viewer|contributor|editor) to add/update, or remove:true to remove.",
+    description: "Invite, re-role, or remove a member of a space by email. Creator only. Pass role (viewer|contributor|editor) to add/update, or remove:true to remove. On the public commons this overrides an already-implicit member instead of inviting a stranger: viewer demotes to read-only, editor delegates item moderation only (never file-write). remove:true clears the override AND retracts that user's commons contributions -- to un-demote someone without wiping their items, re-role them to contributor instead.",
     requiredScope: "write:drive",
     inputSchema: {
       type: "object",
@@ -279,6 +280,16 @@ export const MCP_TOOLS: McpToolDefinition[] = [
 ];
 
 const SPACE_ITEM_TYPES: readonly SpaceItemType[] = ["file", "folder", "memory"];
+
+/** Tools that operate on Spaces — they bootstrap the public commons before dispatch (P2 D3). */
+const SPACE_TOOL_NAMES: ReadonlySet<string> = new Set([
+  "list_spaces",
+  "read_space",
+  "add_to_space",
+  "remove_from_space",
+  "create_space",
+  "manage_space_members",
+]);
 const SPACE_MEMBER_ROLES = ["viewer", "contributor", "editor"] as const;
 type SpaceMemberRole = (typeof SPACE_MEMBER_ROLES)[number];
 
@@ -374,15 +385,19 @@ export async function callMcpTool(db: AppDb, origin: string, scopes: readonly st
   if (name === "read_file") {
     const path = normalizePath(stringArg(input, "path")!);
     requirePathAllowed(scopes, path);
-    // Read path: widen to space-reachable files. A space file lives in the contributor's path
-    // namespace; `.limit(1)` may pick the caller's own row first on a rare cross-owner path
-    // collision — acceptable in P1 (the space endpoints are the collision-free access path).
+    // Read path: widen to space-reachable files, but OWN-ROW-FIRST (P2). A space file lives
+    // in the contributor's own path namespace, so paths collide across owners — and with the
+    // public commons every active user collides with every other. A bare `.limit(1)` over the
+    // widened scope would let the query plan decide whose `/notes/deploy-target.md` you get,
+    // so a hostile contributor could feed their content to an agent that asked for its OWN
+    // file. Resolve the caller's own row first and fall back to the widened scope only for
+    // paths they do not own — the same precedence `write_file` below already enforces.
     const readable = await fileReadableFilter(db, ownerId);
-    const [file] = await db
-      .select()
-      .from(files)
-      .where(and(eq(files.path, path), eq(files.isFolder, 0), isNull(files.deletedAt), readable))
-      .limit(1);
+    const livePathFile = and(eq(files.path, path), eq(files.isFolder, 0), isNull(files.deletedAt));
+    const findLiveFile = async (extra: ReturnType<typeof eq> | undefined) =>
+      (await db.select().from(files).where(and(livePathFile, extra)).limit(1))[0];
+    // `??` short-circuits, so the widened query only runs when the caller owns nothing here.
+    const file = (ownerId ? await findLiveFile(eq(files.ownerId, ownerId)) : undefined) ?? (await findLiveFile(readable));
     if (!file?.s3Uri) throw new Error("file_not_found");
     const { storage } = await import("edgespark");
     const parsed = storage.tryParseS3Uri(file.s3Uri);
@@ -604,6 +619,15 @@ export async function callMcpTool(db: AppDb, origin: string, scopes: readonly st
     return textResult({ forgotten });
   }
 
+  // Shared Spaces P2 (D3): bootstrap the public commons before any Spaces tool runs — the
+  // MCP twin of the middleware in routes/spaces.ts. `userSpaceIds`' commons lookup is
+  // read-only by design, so without this an agent-only deployment would never materialize
+  // the commons and `list_spaces` would never surface it. Fails closed to a no-op when the
+  // deployment owner cannot be resolved.
+  if (SPACE_TOOL_NAMES.has(name)) {
+    await ensurePublicCommons(db);
+  }
+
   if (name === "list_spaces") {
     const callerId = requireUserId(ownerId);
     const spaceIds = await userSpaceIds(db, callerId);
@@ -613,7 +637,7 @@ export async function callMcpTool(db: AppDb, origin: string, scopes: readonly st
       rows.map(async (space) => {
         // Role is never null: space.id came from userSpaceIds(callerId).
         const role = (await resolveSpaceRole(db, space.id, callerId))!;
-        const counts = await spaceCounts(db, space.id);
+        const counts = await spaceCounts(db, space.id, space.visibility);
         return toSpaceSummary(space, role, counts);
       })
     );
@@ -631,7 +655,7 @@ export async function callMcpTool(db: AppDb, origin: string, scopes: readonly st
     if (role === null) throw new Error("space_not_found:space not found");
 
     const [space] = await db.select().from(spaces).where(eq(spaces.id, spaceId)).limit(1);
-    const counts = await spaceCounts(db, spaceId);
+    const counts = await spaceCounts(db, spaceId, space?.visibility);
     const rows = await db
       .select()
       .from(spaceItems)
@@ -647,9 +671,10 @@ export async function callMcpTool(db: AppDb, origin: string, scopes: readonly st
     const itemType = requireSpaceItemType(input);
     const ref = itemType === "memory" ? stringArg(input, "memory_key")! : stringArg(input, "path")!;
 
-    // contributor+ to add; ownership of the resource is re-verified by resolveOwnedContributionRef.
+    // contributor+ to add; ownership of the resource is re-verified by resolveOwnedContributionRef,
+    // which also enforces D4 (no folders into a public space).
     await assertSpaceRole(db, spaceId, callerId, "contributor");
-    const itemRef = await resolveOwnedContributionRef(db, itemType, ref, callerId);
+    const itemRef = await resolveOwnedContributionRef(db, spaceId, itemType, ref, callerId);
 
     await db
       .insert(spaceItems)

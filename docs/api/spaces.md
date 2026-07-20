@@ -2,9 +2,14 @@
 
 A **Space** shares *existing* files/folders/memory by reference — no storage
 duplication. Contributing an item never copies bytes; the underlying file stays
-in the contributor's own drive and the memory row stays under its owner. P1
-spaces are **invite-only** (`visibility: "invite"`); there is no public commons
-yet (P2).
+in the contributor's own drive and the memory row stays under its owner. Most
+spaces are **invite-only** (`visibility: "invite"`, P1) — someone with
+`write:drive` creates one and invites members by email. There is also exactly
+ONE **public commons** (`visibility: "public"`, P2): an instance-wide space
+every **active** user of this deployment implicitly belongs to. See
+[The public commons](#the-public-commons) below — read it before contributing
+anything there, since publishing to it is a one-way visibility change for
+every other user.
 
 ## Scopes
 
@@ -44,11 +49,88 @@ creator is whoever called `POST /spaces`; they never have their own
 `space_members` row (their role is derived from `spaces.creatorId`), and they
 cannot be added, re-roled, or removed as if they were a regular member.
 
+**On the public commons the table above still describes what each role can
+DO, but `editor` no longer means "can overwrite files" — see below.**
+
+### The public commons
+
+There is exactly **one** instance-wide `visibility: "public"` space per
+deployment — the **commons**. It is system-bootstrapped on first use (any
+spaces request materializes it if it doesn't exist yet); `creatorId` is
+always the deployment owner (`OWNER_EMAIL`), which makes the owner the
+commons' sole default moderator. **Users cannot create a public space** —
+`POST /spaces` always creates a `visibility: "invite"` space, no matter who
+calls it.
+
+- **Every ACTIVE user is implicitly a `contributor`.** There is no
+  `space_members` row to accept or manage — membership just follows account
+  status. A `pending`/`suspended` user gets nothing: the same access gate
+  that denies their other requests denies the commons too.
+- **You can read everything in the commons and contribute your OWN
+  files/memory.** Contributing is still owner-explicit (Security boundary #1
+  below) — you can never publish a resource you don't own.
+- **Folders are not accepted.** `POST /spaces/:id/items` with
+  `itemType: "folder"` on the commons fails `400
+  folders_not_allowed_in_public` — a folder item exposes its *entire live
+  subtree*, including files added to it later, which is too open-ended for
+  an instance-wide space. Contribute individual files instead. Invite spaces
+  are unaffected — they still accept folders.
+- **You can only withdraw your OWN item.** `DELETE
+  /spaces/:id/items/:itemId` on the commons succeeds for the contributor
+  removing their own item, or for the commons creator/an explicit
+  commons-editor moderating (see next point) — never for an ordinary
+  fellow contributor removing someone else's item (`403 space_forbidden`).
+- **Moderation is reference-removal ONLY — never rewriting bytes.** This is
+  the one place `editor` means something different from an invite space: an
+  explicit `editor` row on the commons lets that user remove *any* item
+  (moderation), but it grants **no write access to the underlying file**.
+  Compare to an invite space, where a live-reference `editor` genuinely
+  overwrites the contributor's real file (see the next section) — that power
+  is deliberately excluded on the commons. Publishing to the commons is
+  consent to be *read*, never consent to have your bytes replaced.
+- **The owner can demote or delegate moderation with an explicit row.** The
+  commons creator (owner) can `POST /spaces/:id/members` a specific user a
+  `viewer` row (read-only — that user can no longer contribute) or an
+  `editor` row (item-moderation delegate, still no file-write power). No row
+  at all means the implicit `contributor` floor. A stored row on the commons
+  is authoritative in **both** directions — it can promote above, or demote
+  below, the implicit floor.
+- **⚠️ Rotating `OWNER_EMAIL` does NOT move commons moderation.** `creatorId`
+  is stamped **once**, at bootstrap, and is never re-bound to the current
+  `OWNER_EMAIL` afterwards. Point `OWNER_EMAIL` at a different account and
+  the commons keeps the OLD account as its creator/moderator, while the new
+  owner drops to an ordinary implicit `contributor` — unable to moderate
+  items, manage commons roles, or clear the commons. Nothing in the deploy
+  path warns about this. To hand moderation over, do it deliberately from
+  the OLD owner account before (or after) the rotation: either
+  `DELETE /spaces/<commonsId>` so the next spaces request re-bootstraps a
+  fresh, **empty** commons under the new owner — this drops every
+  contributed reference instance-wide, though no underlying files or memory
+  — or `POST /spaces/<commonsId>/members` granting the new owner an
+  explicit `editor` row, which delegates item moderation without transferring
+  creator-only powers (member management and clearing the commons).
+- **`memberCount` is `null`, never a number.** The commons materializes no
+  `space_members` rows, so counting them would report `1` — the smallest
+  number in the list — for the one space every active user can actually
+  read. Render/describe it as **"everyone on this drive"**, not as a count.
+- **The member roster is creator-only.** `GET /spaces/:id/members` on the
+  commons returns `403 space_forbidden` to everyone except the creator — it
+  would otherwise hand every active user's email address (via implicit
+  `viewer`+) to the whole deployment. Item attribution still reaches
+  everyone through each item's `contributedBy`.
+
+> **Publishing consequence — read before contributing on someone's behalf.**
+> Contributing a file or memory to the commons makes it readable by **every
+> active user of this deployment**, immediately. An agent must never
+> contribute to the commons on a human's behalf without their explicit
+> intent — this is not the same action as saving a file to the drive, and
+> should never be a side effect of another task.
+
 ### The live-reference edit consequence (read this before inviting an editor)
 
 Space items are **references, not copies**. A file contributed to a space
 still lives in the contributor's own drive at their own path — nothing is
-duplicated. This has one important consequence:
+duplicated. This has one important consequence, **on invite spaces only**:
 
 > **An `editor` who overwrites a file you contributed is editing YOUR real
 > file, in your own drive.** There is no fork, no shadow copy — the bytes at
@@ -59,6 +141,10 @@ duplicated. This has one important consequence:
 Only grant `editor` to people you trust to co-edit your actual files. If you
 only want others to *read* what you share, keep them at `viewer` or
 `contributor`.
+
+**This write consequence does not exist on the public commons.** An `editor`
+row there is moderation-only (see [The public commons](#the-public-commons)
+above) — it can never overwrite another contributor's file, by design.
 
 ## Security boundaries
 
@@ -80,6 +166,16 @@ only want others to *read* what you share, keep them at `viewer` or
    /spaces/:id/items/:itemId` removes the `space_items` reference row only.
 5. `/api/public/v1/admin/*` stays completely outside the spaces model — no
    admin space endpoints exist, and none are documented here.
+6. **The commons never grants a byte-level write.** `editor` is excluded
+   outright on `visibility: "public"` spaces from the write-relaxation path
+   that lets an invite-space editor overwrite a contributor's file — an
+   owner-granted commons `editor` row can moderate (remove) items but can
+   never change what's inside them. See [The public
+   commons](#the-public-commons).
+7. **Folders are rejected on the commons (D4).** `POST /spaces/:id/items`
+   with `itemType: "folder"` against a `visibility: "public"` space fails
+   `400 folders_not_allowed_in_public` before the ownership check even runs
+   — a folder's live subtree is too open-ended to publish instance-wide.
 
 ## REST endpoints
 
@@ -96,9 +192,14 @@ DELETE /spaces/:id                (creator only)               → { deleted: tr
 ```
 
 - `name` required, 1–200 chars (trimmed).
-- Every space created here is `visibility: "invite"` (P1; the public commons
-  is P2, not yet built).
-- `GET /spaces` lists spaces you created plus spaces you're a member of.
+- `POST /spaces` always creates a `visibility: "invite"` space — users cannot
+  create a public space. There is exactly one commons, system-bootstrapped
+  (see [The public commons](#the-public-commons)); it is never created by
+  this endpoint.
+- `GET /spaces` lists spaces you created, plus spaces you're a member of,
+  **plus the commons** (`visibility: "public"`) when you're an active user
+  — it appears with `role: "contributor"` (or whatever explicit role the
+  owner set for you there) even though you never "joined" it.
 - `GET /spaces/:id` by a non-member (or an id that doesn't exist) returns
   `404 space_not_found` — it never confirms whether the id is real.
 - `DELETE /spaces/:id` removes the space's own `space_items` and
@@ -120,7 +221,9 @@ DELETE /spaces/:id                (creator only)               → { deleted: tr
 ```
 `role` is the CALLER's resolved role in this space (not a fixed property of
 the space). `memberCount` includes the creator, who has no `space_members` row
-of their own.
+of their own — except on a `visibility: "public"` space, where it is **`null`**
+("everyone on this drive"): the public commons materializes no membership rows,
+so a count there would report `1` for the space every user can read.
 
 ### Members
 
@@ -133,7 +236,11 @@ PATCH  /spaces/:id/members/:userId Body { role }  (creator only) → { member }
 
 - `GET /members` requires `viewer`+ (any member can see the roster). The
   creator is synthesized into the list (`role: "creator"`, `addedBy: null`)
-  since they have no stored row.
+  since they have no stored row. On a `visibility: "public"` space it is
+  **creator-only** (`403 space_forbidden` for anyone else): implicit membership
+  satisfies `viewer` for every active user, and the roster exposes member email
+  addresses. Item attribution is still available to everyone via each item's
+  `contributedBy`.
 - `POST /members` invites by **email of an existing user only** — v1 has no
   accept/decline step; the invited user is added directly and the space
   appears for them immediately (design D2). `404 user_not_found` if the email
@@ -142,9 +249,19 @@ PATCH  /spaces/:id/members/:userId Body { role }  (creator only) → { member }
   (upsert on `(spaceId, userId)`).
 - The space creator can never be added, re-roled, or removed as a member
   (`400 validation_error`) — they aren't a `space_members` row to begin with.
+- **On the public commons**, `POST /members` is not really an "invite" (the
+  target is already an implicit `contributor`) — it's an **override**: a
+  `viewer` row demotes them to read-only, an `editor` row delegates item
+  moderation (never file-write, see [The public
+  commons](#the-public-commons)). Only the commons creator can call this.
 - `DELETE /members/:userId` also retracts everything that member contributed
   to the space (see Security boundaries above). `404 member_not_found` if
-  they aren't currently a member.
+  they aren't currently a member. **On the commons this is the same
+  endpoint doing double duty** — it deletes their override row (so they fall
+  back to the implicit `contributor` floor, not to no-access) **but it also
+  retracts every item they contributed while that row existed.** To undo a
+  `viewer` demotion without wiping the user's contributions, `PATCH
+  /members/:userId` back to `contributor` instead of `DELETE`-ing the row.
 - `PATCH /members/:userId` changes an existing member's role. `404
   member_not_found` if they aren't currently a member.
 
@@ -166,7 +283,9 @@ DELETE /spaces/:id/items/:itemId                                 → { removed: 
   (for `memory`). The ref must resolve to a resource **you own** — see
   Security boundary #1. Idempotent: contributing the same
   `(spaceId, itemType, itemRef)` twice returns the existing item rather than
-  erroring.
+  erroring. **On a `visibility: "public"` space, `itemType: "folder"` fails
+  `400 folders_not_allowed_in_public`** before the ownership check runs (D4)
+  — only `file` and `memory` may be contributed to the commons.
 - `GET /items` requires `viewer`+. Returns a **flat, attributed list** — each
   item shows who contributed it — not a merged path tree (avoids
   cross-contributor path collisions, e.g. two members both having `/notes.md`).
@@ -176,7 +295,12 @@ DELETE /spaces/:id/items/:itemId                                 → { removed: 
   one item type; `limit`/`offset` paginate (default 50, max 200).
 - `DELETE /items/:itemId` requires `contributor`+. You may remove your own
   items freely; removing another member's item requires `editor`+
-  (`403 space_forbidden` otherwise). Removes the reference row only.
+  (`403 space_forbidden` otherwise). Removes the reference row only. **On
+  the commons**, "removing another member's item" in practice means the
+  commons creator (owner), or a user the owner explicitly promoted to
+  `editor` there — an ordinary implicit `contributor` can only withdraw
+  their own item, never anyone else's (see [The public
+  commons](#the-public-commons)).
 
 **Item object (flat, attributed):**
 ```json
@@ -198,15 +322,17 @@ reference row itself is left for you to clean up explicitly.
 
 Six tools, all requiring a real user identity (see above). Scope column shows
 `requiredScope`; there is no new scope — spaces reuse `read:drive`/`write:drive`.
+Every one of these tools bootstraps the commons on first use, the same way
+the REST routes do — an agent never needs to know it exists ahead of time.
 
 | Tool | Scope | Input | Notes |
 |---|---|---|---|
-| `list_spaces` | `read:drive` | `{}` | Spaces you created + are a member of, with role and counts |
+| `list_spaces` | `read:drive` | `{}` | Spaces you created + are a member of, **plus the public commons** for any active user, with role and counts |
 | `read_space` | `read:drive` | `{ space, type? }` | Flat attributed item list; `type` optionally filters `file`\|`folder`\|`memory` |
-| `add_to_space` | `write:drive` | `{ space, type, path? , memory_key? }` | `path` for `file`/`folder`, `memory_key` for `memory`. Must own the resource. |
-| `remove_from_space` | `write:drive` | `{ space, item_id }` | Own items freely; others' items need `editor`+ |
-| `create_space` | `write:drive` | `{ name }` | You become `creator` |
-| `manage_space_members` | `write:drive` | `{ space, email, role?, remove? }` | Creator only. Pass `role` to add/update, or `remove: true` to remove |
+| `add_to_space` | `write:drive` | `{ space, type, path? , memory_key? }` | `path` for `file`/`folder`, `memory_key` for `memory`. Must own the resource. `type: "folder"` into the commons fails `folders_not_allowed_in_public`. **Contributing to the commons publishes to every active user of this deployment — never do this on a human's behalf without explicit intent.** |
+| `remove_from_space` | `write:drive` | `{ space, item_id }` | Own items freely; others' items need `editor`+. On the commons that means the creator (owner) or an owner-delegated editor — an implicit contributor can only withdraw their own item. |
+| `create_space` | `write:drive` | `{ name }` | You become `creator`. Always creates an invite space — you cannot create a public one. |
+| `manage_space_members` | `write:drive` | `{ space, email, role?, remove? }` | Creator only. Pass `role` to add/update, or `remove: true` to remove. On the commons this overrides (demotes to `viewer` / delegates moderation via `editor`) an already-implicit member rather than inviting a stranger. |
 
 JSON-RPC error `message` is the same colon-delimited `code:description` format
 used elsewhere in this API (e.g. `space_forbidden:...`).
@@ -216,6 +342,7 @@ used elsewhere in this API (e.g. `space_forbidden:...`).
 | Status | Code | Meaning |
 |---|---|---|
 | 400 | `validation_error` | Bad `name`/`role`/`itemType`/`ref`, or an attempt to touch the space creator as if they were a regular member |
+| 400 | `folders_not_allowed_in_public` | Tried to contribute `itemType: "folder"` to the public commons — only `file` and `memory` are accepted there (D4) |
 | 403 | `identity_required` | No resolvable user identity on the request (session or user-bound bearer only — the legacy global `AGENT_TOKEN` cannot use spaces) |
 | 403 | `space_forbidden` | Caller's role in the space is below what the operation requires |
 | 403 | `not_your_resource` | `ref` passed to `POST /spaces/:id/items` doesn't resolve to a live resource the caller owns (same code for "doesn't exist" and "exists but belongs to someone else") |
@@ -224,10 +351,13 @@ used elsewhere in this API (e.g. `space_forbidden:...`).
 | 404 | `item_not_found` | Item id doesn't belong to this space |
 | 404 | `user_not_found` | `POST /spaces/:id/members` — no existing user with that email |
 
-## What's out of scope in P1
+## What's still out of scope
 
-- The public commons (one instance-wide `visibility: "public"` space) — P2.
-- Accept/decline on invite — a member is added directly (design D2).
+- Users creating additional public/instance-wide spaces — there is exactly
+  ONE commons, system-bootstrapped; `POST /spaces` always creates
+  `visibility: "invite"`.
+- Accept/decline on invite — a member is added directly (design D2). This
+  is moot on the commons anyway, since membership there is implicit.
 - Copy-on-contribute — spaces are references only, by design.
 - Per-item roles, nested spaces, real-time collaboration/locking, audit of
   who-read-what.

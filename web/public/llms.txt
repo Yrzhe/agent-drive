@@ -39,8 +39,9 @@
 ## Shared Spaces (sharing existing resources by reference)
 
 - Share your OWN files/folders/memory with other users -- no storage copy, the
-  bytes stay owned by whoever contributed them. P1 spaces are invite-only (no
-  public/instance-wide space yet).
+  bytes stay owned by whoever contributed them. Most spaces are invite-only
+  (visibility: invite); there is also exactly ONE instance-wide public commons
+  every active user implicitly belongs to (see below).
 - MCP: list_spaces {} / read_space { space, type? } / add_to_space { space,
   type, path?, memory_key? } / remove_from_space { space, item_id } /
   create_space { name } / manage_space_members { space, email, role?,
@@ -54,15 +55,31 @@
   own (403 not_your_resource otherwise). Once you're a member, your reads
   (list_files, read_file, recall, etc.) widen to include space-contributed
   resources.
-- LIVE-EDIT WARNING: because items are references, an editor who overwrites
-  a shared file edits the CONTRIBUTOR's real file, in their own drive -- no
-  copy is made. Only grant editor to someone you trust to co-edit your files.
+- LIVE-EDIT WARNING (invite spaces only): because items are references, an
+  editor who overwrites a shared file edits the CONTRIBUTOR's real file, in
+  their own drive -- no copy is made. Only grant editor to someone you trust
+  to co-edit your files.
 - Removing a member retracts their contributions from the space (their
   resources are never deleted, just no longer reachable through it).
 - Every space call requires a real user identity (session or a user-bound
   bearer token); the legacy deployment-wide AGENT_TOKEN cannot use spaces
   (403 identity_required). No new scope was added -- spaces reuse
   read:drive / write:drive.
+- THE PUBLIC COMMONS: one instance-wide visibility:'public' space. Every
+  ACTIVE user is implicitly a contributor -- no invite needed, nothing to
+  accept. You read everything in it and can contribute your OWN files/memory.
+  FOLDERS ARE NOT ACCEPTED (400 folders_not_allowed_in_public) -- a folder
+  would expose its whole live subtree. You can only withdraw YOUR OWN item;
+  the commons creator (the deployment owner) is the moderator and can remove
+  anyone's item, but moderation removes only the reference row -- unlike an
+  invite space's editor, editor on the commons NEVER grants write access to
+  the underlying file. memberCount is null there ("everyone on this drive"),
+  never a number, and the member roster is creator-only (item attribution
+  still flows via contributedBy). Users cannot create additional public
+  spaces -- POST /spaces always creates visibility:'invite'.
+  PUBLISHING CONSEQUENCE: contributing to the commons makes that file/memory
+  readable by EVERY active user of this deployment, immediately -- an agent
+  must never contribute to it on a human's behalf without explicit intent.
 - Full contract: /api/public/guide (spaces section) or docs/api/spaces.md.
 
 ## Auth model
