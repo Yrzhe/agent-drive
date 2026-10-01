@@ -1,3 +1,4 @@
+import { getPlatform } from "@platform";
 import { and, eq, isNull } from "drizzle-orm";
 import { Hono } from "hono";
 import { nanoid } from "nanoid";
@@ -24,7 +25,7 @@ foldersRoutes.post(
     const folderPath = joinPath(parentPath, name);
     assertRestPathAllowed(c, folderPath);
 
-    const { db, storage } = await import("edgespark");
+    const { db, storage } = await getPlatform();
     const ownerId = c.get("ownerId") ?? null;
     await ensureFolderChain(db, parentPath, ownerId);
 

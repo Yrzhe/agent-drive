@@ -1,3 +1,4 @@
+import { getPlatform } from "@platform";
 import { and, desc, eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { nanoid } from "nanoid";
@@ -64,7 +65,7 @@ webhooksRoutes.post(
     const secret = body.secret?.trim() || createWebhookSecret();
     const eventTypes = parseEventTypes(body.eventTypes);
 
-    const { db } = await import("edgespark");
+    const { db } = await getPlatform();
     const [created] = await db
       .insert(webhooks)
       .values({
@@ -89,7 +90,7 @@ webhooksRoutes.get(
   "/",
   withErrorHandling(async (c) => {
     const { limit, offset } = parseListPagination((name) => c.req.query(name), { defaultLimit: 100, maxLimit: 500 });
-    const { db } = await import("edgespark");
+    const { db } = await getPlatform();
     const ownerId = c.get("ownerId") ?? null;
     const rows = await db
       .select()
@@ -108,7 +109,7 @@ webhooksRoutes.delete(
     const id = c.req.param("id");
     if (!id) throw new ApiError(400, "validation_error", "Missing path param: id");
 
-    const { db } = await import("edgespark");
+    const { db } = await getPlatform();
     const ownerId = c.get("ownerId") ?? null;
     const deleted = await db
       .delete(webhooks)
@@ -125,7 +126,7 @@ webhooksRoutes.post(
     const id = c.req.param("id");
     if (!id) throw new ApiError(400, "validation_error", "Missing path param: id");
 
-    const { db, ctx } = await import("edgespark");
+    const { db, ctx } = await getPlatform();
     const webhook = await getWebhookById(db, id, c.get("ownerId") ?? null);
     if (!webhook) throw new ApiError(404, "webhook_not_found", "Webhook not found");
 

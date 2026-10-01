@@ -1,3 +1,4 @@
+import { getPlatform } from "@platform";
 import { and, desc, eq, gte, lt } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
@@ -24,7 +25,7 @@ export function parseActivityMetadata(row: ActivityLogRow): Record<string, unkno
 }
 
 export async function getRequestActor(): Promise<ActivityEventInput["actor"]> {
-  const { auth } = await import("edgespark/http");
+  const { auth } = await getPlatform();
   return auth.isAuthenticated() ? "owner" : "agent";
 }
 
@@ -53,7 +54,7 @@ export async function logEvent(db: AppDb, event: ActivityEventInput): Promise<vo
   }
 
   try {
-    const { ctx } = await import("edgespark");
+    const { ctx } = await getPlatform();
     const { triggerWebhooks } = await import("./webhooks");
     ctx.runInBackground(
       triggerWebhooks(db, {
@@ -107,7 +108,7 @@ export async function logEventsBatch(
 
   if (!webhookEvent) return;
   try {
-    const { ctx } = await import("edgespark");
+    const { ctx } = await getPlatform();
     const { triggerWebhooks } = await import("./webhooks");
     ctx.runInBackground(
       triggerWebhooks(db, webhookEvent, webhookEvent.ownerId).catch((error) => {

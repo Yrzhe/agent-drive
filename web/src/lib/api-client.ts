@@ -1,4 +1,4 @@
-import { client } from "@/lib/edgespark";
+import { client } from "@/lib/platform";
 
 export const isMockMode = import.meta.env.VITE_USE_MOCK === "true";
 

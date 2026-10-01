@@ -1,3 +1,4 @@
+import { getPlatform } from "@platform";
 import { Hono } from "hono";
 
 import { MCP_SCOPES } from "../lib/mcp-scopes";
@@ -8,7 +9,7 @@ const API_PUBLIC_BASE = "/api/public";
 const OAUTH_METADATA_PATH = `${API_PUBLIC_BASE}/.well-known/oauth-authorization-server`;
 
 async function originFromRequest(url: string): Promise<string> {
-  const { vars } = await import("edgespark");
+  const { vars } = await getPlatform();
   return (vars.get("ALLOWED_ORIGIN") ?? new URL(url).origin).replace(/\/+$/u, "");
 }
 

@@ -1,3 +1,4 @@
+import { getPlatform } from "@platform";
 import { and, asc, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { driveObjectKey } from "./object-keys";
@@ -327,7 +328,14 @@ export function listMcpTools(scopes: readonly string[]) {
       name: tool.name,
       description: tool.description,
       inputSchema: tool.inputSchema,
-    }));
+      annotations: {
+        readOnlyHint: tool.requiredScope.startsWith("read:"),
+        destructiveHint: ["write_file", "forget", "remove_from_space", "manage_space_members"].includes(tool.name),
+        idempotentHint: tool.requiredScope.startsWith("read:"),
+        openWorldHint: ["send_file", "create_share"].includes(tool.name),
+      },
+    }))
+    .sort((left, right) => left.name.localeCompare(right.name, "en"));
 }
 
 export async function callMcpTool(db: AppDb, origin: string, scopes: readonly string[], name: string, input: Record<string, unknown>, ownerId: string | null = null): Promise<ToolResult> {
@@ -399,7 +407,7 @@ export async function callMcpTool(db: AppDb, origin: string, scopes: readonly st
     // `??` short-circuits, so the widened query only runs when the caller owns nothing here.
     const file = (ownerId ? await findLiveFile(eq(files.ownerId, ownerId)) : undefined) ?? (await findLiveFile(readable));
     if (!file?.s3Uri) throw new Error("file_not_found");
-    const { storage } = await import("edgespark");
+    const { storage } = await getPlatform();
     const parsed = storage.tryParseS3Uri(file.s3Uri);
     if (!parsed) throw new Error("file_not_found");
     // Guard on the REAL R2 object size (a HEAD, no body) BEFORE loading it into Worker
@@ -424,7 +432,7 @@ export async function callMcpTool(db: AppDb, origin: string, scopes: readonly st
     const parentPath = parentOfPath(path);
     const filename = normalizeName(path.split("/").pop());
     const bytes = new TextEncoder().encode(content);
-    const { storage } = await import("edgespark");
+    const { storage } = await getPlatform();
 
     // Resolve the write target BEFORE mutating anything. Prefer the caller's OWN row at this
     // path — the #30 owner-scoped behavior, unchanged for a caller writing their own file.
@@ -607,7 +615,7 @@ export async function callMcpTool(db: AppDb, origin: string, scopes: readonly st
     const message = stringArg(input, "message", false);
     const contact = await getContactByName(db, contactName, ownerId);
     if (!contact) throw new Error("contact_not_found");
-    const { storage } = await import("edgespark");
+    const { storage } = await getPlatform();
     const result = await sendFileToContact(db, storage, contact, path, message, origin);
     return textResult(result);
   }

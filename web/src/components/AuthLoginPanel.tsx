@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { client } from "@/lib/edgespark";
+import { client } from "@/lib/platform";
 
 interface AuthLoginPanelProps {
   redirectTo?: string;

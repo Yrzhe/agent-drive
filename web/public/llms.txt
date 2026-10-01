@@ -5,6 +5,15 @@
 > Single-owner deployment; everything below requires the owner's bearer token
 > unless marked public.
 
+## Deployment variants
+
+Sites: /mcp is the native Sites-managed OAuth endpoint (MCP 2.0 plus legacy compatibility).
+/api/public/mcp remains the application-bearer endpoint. Private Sites requires
+platform access even for app-public shares, bundles, inbox and download URLs.
+GET /api/public/guide reports the deployment variant and access/transfer rules.
+Upload tickets with multipart.partSize require bounded sequential parts; see the
+Sites skill reference. MCP Events is not advertised.
+
 ## Entry points
 
 - /api/public/guide — machine-readable JSON guide. Public. START HERE if you

@@ -1,10 +1,11 @@
+import type { PlatformStorage } from "../platform/types";
 import { inArray } from "drizzle-orm";
 
 import { buckets, files } from "@defs";
 
 import type { AppDb } from "../types";
 
-type StorageClient = typeof import("edgespark")["storage"];
+type StorageClient = PlatformStorage;
 
 /**
  * An object younger than this is never reaped. Server-side writers (MCP `write_file`,

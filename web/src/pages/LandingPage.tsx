@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-const DOMAIN = 'large-gator-9215.edgespark.app';
+const DOMAIN = window.location.host;
 const TOOLS: {
   name: string;
   desc: string;

@@ -1,3 +1,4 @@
+import { getPlatform } from "@platform";
 import type { MiddlewareHandler } from "hono";
 
 import { parseBearerToken } from "../lib/crypto";
@@ -18,7 +19,7 @@ import type { AppEnv } from "../types";
  */
 export const requireDualAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
   try {
-    const { auth } = await import("edgespark/http");
+    const { auth } = await getPlatform();
     if (auth.isAuthenticated()) {
       c.set("restAuth", { kind: "session", ownerId: auth.user.id });
       c.set("ownerId", auth.user.id);
@@ -30,7 +31,7 @@ export const requireDualAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
       throw new ApiError(401, "unauthorized", "Authentication required");
     }
 
-    const { db } = await import("edgespark");
+    const { db } = await getPlatform();
     const authContext = await authenticateMcpBearer(db, c.req.header("authorization"));
     if (!authContext) {
       throw new ApiError(401, "invalid_token", "Invalid bearer token");

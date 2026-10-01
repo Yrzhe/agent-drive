@@ -11,6 +11,12 @@
 
 ---
 
+## ChatGPT Sites / native Cloudflare version
+
+The same repository now supports EdgeSpark and ChatGPT Sites through request-scoped platform adapters. Sites uses native ChatGPT sign-in, D1, R2 streaming/multipart transfers, and a Sites-managed OAuth Remote MCP at `/mcp`. Existing approvals, quotas, space roles, scoped application tokens and CLI sync are retained.
+
+See [Sites migration and deployment](docs/migration/chatgpt-sites.md) and [Sites API contract](docs/api/sites.md). Build with `npm run build:sites`; EdgeSpark keeps its existing CLI deployment flow. This creates a separate Sites deployment; old EdgeSpark data is not copied automatically. Private Sites access applies to shares, subscriptions and peer inbox delivery. MCP Events is a documented follow-up, not an advertised capability.
+
 ## What is Agent Drive?
 
 Agent Drive is a private cloud drive designed for AI agents. Your agent uploads files, organizes them into folders, creates password-protected share links, and other agents download everything via API — no browser needed.

@@ -1,3 +1,4 @@
+import { deploymentPlatform } from "@/lib/platform";
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { ConnectorUrlBlock } from "@/components/ConnectorUrlBlock";
@@ -112,7 +113,7 @@ function parseInitializeResult(payload: unknown): { name?: string; version?: str
 
 export default function ConnectSetupPage() {
   const origin = getOrigin();
-  const connectorUrl = `${origin}/api/public/mcp`;
+  const connectorUrl = `${origin}${deploymentPlatform === "sites" ? "/mcp" : "/api/public/mcp"}`;
   const protectedResourceUrl = `${origin}/api/public/.well-known/oauth-protected-resource`;
   const authorizationServerUrl = `${origin}/api/public/.well-known/oauth-authorization-server`;
   const [selectedScopes, setSelectedScopes] = useState<string[]>(() => loadStoredScopes() ?? ALL_SCOPES.filter((scope) => DEFAULT_SCOPES.has(scope)));
@@ -151,7 +152,7 @@ export default function ConnectSetupPage() {
 
   const handleTestConnection = async () => {
     setTestStatus({ kind: "idle", message: "Testing MCP endpoint..." });
-    const token = findLocalBearerToken();
+    const token = deploymentPlatform === "sites" ? null : findLocalBearerToken();
     try {
       const response = await fetch(connectorUrl, {
         method: "POST",
@@ -170,6 +171,9 @@ export default function ConnectSetupPage() {
 
       if (response.ok) {
         const payload = await response.json().catch(() => null) as unknown;
+        if (!payload || typeof payload !== "object" || (payload as { error?: unknown }).error || !(payload as { result?: unknown }).result) {
+          throw new Error("MCP endpoint rejected the request. Check your account approval and connection settings.");
+        }
         const info = parseInitializeResult(payload);
         setTestStatus({
           kind: "success",
@@ -197,7 +201,7 @@ export default function ConnectSetupPage() {
         </header>
 
         <ConnectorUrlBlock url={connectorUrl} />
-        <PlatformTabs connectorUrl={connectorUrl} scope={scopeString} />
+        {deploymentPlatform === "sites" ? <section className="rounded-xl border border-slate-200 bg-white p-5"><h2 className="text-base font-semibold">ChatGPT Developer Mode</h2><ol className="mt-3 list-decimal space-y-2 pl-5 text-sm text-slate-700"><li>Enable Developer mode in ChatGPT Settings → Security and login.</li><li>Open Plugins, select the plus button, and add the Remote MCP URL above using OAuth.</li><li>Connect your ChatGPT account, refresh tools, and first test list_files or recall.</li></ol><p className="mt-3 text-sm text-slate-600">Sites manages this connection. External CLI clients use /api/public/mcp and an Agent Drive token; private Sites also require platform service access.</p></section> : <PlatformTabs connectorUrl={connectorUrl} scope={scopeString} />}
 
         <section className="rounded-xl border border-slate-200 bg-white p-5">
           <h2 className="text-base font-semibold text-slate-900">Scope picker</h2>

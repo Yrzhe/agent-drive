@@ -4,6 +4,9 @@
   "description": "EdgeSpark user code template for AI coding agents",
   "type": "module",
   "scripts": {
+    "build:sites": "node scripts/build-sites.mjs",
+    "test:sites": "node scripts/test-sites.mjs",
+    "db:generate:sites": "drizzle-kit generate --config drizzle.sites.config.ts",
     "typecheck": "tsc --noEmit",
     "gen:skill": "node scripts/gen-skill-manifest.mjs",
     "test": "vitest run && vitest run --config vitest.integration.config.ts",
@@ -17,10 +20,13 @@
     "nanoid": "^5.1.7"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261001.1",
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^22.0.0",
     "better-sqlite3": "^12.11.1",
     "drizzle-kit": "^0.31.10",
+    "esbuild": "^0.28.2",
+    "miniflare": "^4.20260730.0",
     "typescript": "^5.9.3",
     "vitest": "^4.1.9"
   }

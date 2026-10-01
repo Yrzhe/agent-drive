@@ -1,0 +1,5 @@
+{
+  "d1": { "binding": "DB" },
+  "r2": { "binding": "BUCKET" },
+  "capabilities": ["mcp"]
+}

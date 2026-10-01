@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { getPlatform } from "@platform";
 
 import { withErrorHandling } from "../lib/errors";
 import { APP_VERSION } from "../lib/version";
@@ -10,9 +11,17 @@ guideRoutes.get(
   "/guide",
   withErrorHandling(async (c) => {
     const origin = new URL(c.req.url).origin;
+    const { kind } = await getPlatform();
     return c.json({
       name: "Agent Drive",
       version: APP_VERSION,
+      deployment: kind === "sites" ? {
+        platform: "chatgpt-sites", nativeMcp: `${origin}/mcp`, legacyMcp: `${origin}/api/public/mcp`,
+        auth: "Native /mcp uses Sites-managed OAuth and trusted ChatGPT identity. Browser sign-in uses top-level /signin-with-chatgpt. Existing approvals, owner isolation and space roles remain enforced.",
+        privateAccess: "App-public routes below remain behind Sites access policy. CLI needs an application token plus OAI-Sites-Authorization service access when private. A service credential does not identify a user.",
+        uploads: "If upload ticket includes multipart.partSize, files above that size use POST uploadUrl {action:start}, sequential PUT uploadUrl&part=N, POST {action:complete}, then the usual REST /files/upload/complete. Downloads stream through short-lived signed same-origin URLs.",
+        events: "MCP Events is not advertised; existing signed app webhooks are separate.",
+      } : { platform: "edgespark" },
       description: "Agent-native private cloud drive. Agents upload files, create share links, persist cross-session memories, and other agents download via API — no browser needed.",
       agentSurfaces: {
         description: "All machine-facing entry points of this deployment (owner auth required except shares)",

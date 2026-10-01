@@ -1,3 +1,4 @@
+import { getPlatform } from "@platform";
 import type { Context } from "hono";
 
 import { ApiError } from "./errors";
@@ -28,8 +29,8 @@ import type { AppEnv } from "../types";
  */
 export async function assertAdmin(c: Context<AppEnv>): Promise<void> {
   requireSessionAuth(c);
-  const { db } = await import("edgespark");
-  const { auth } = await import("edgespark/http");
+  const { db } = await getPlatform();
+  const { auth } = await getPlatform();
   const ownerId = await resolveOwnerUserId(db);
   // `requireSessionAuth` guarantees `restAuth.kind === "session"`, which middleware only
   // ever sets after observing `auth.isAuthenticated()` true for this same request — so

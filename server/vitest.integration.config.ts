@@ -8,6 +8,8 @@ function here(path: string): string {
 export default defineConfig({
   resolve: {
     alias: [
+      { find: "@platform", replacement: here("./src/platform/edgespark.ts") },
+      { find: "@users", replacement: here("./src/platform/users.ts") },
       { find: "@defs", replacement: here("./src/defs/index.ts") },
       { find: /^edgespark\/http$/u, replacement: here("./test/integration/stubs/edgespark-http.ts") },
       { find: /^edgespark$/u, replacement: here("./test/integration/stubs/edgespark.ts") },

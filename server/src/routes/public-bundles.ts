@@ -1,3 +1,5 @@
+import type { PlatformStorage } from "../platform/types";
+import { getPlatform } from "@platform";
 import { and, eq, isNull } from "drizzle-orm";
 import { Hono } from "hono";
 
@@ -34,7 +36,7 @@ async function getPublishedBundle(db: AppDb, publicId: string) {
  */
 async function loadManifestPaths(
   db: AppDb,
-  storage: typeof import("edgespark")["storage"],
+  storage: PlatformStorage,
   prefix: string,
   ownerId: string | null
 ): Promise<{ manifestBytes: Uint8Array; paths: Set<string> }> {
@@ -71,7 +73,7 @@ async function loadManifestPaths(
 publicBundlesRoutes.get(
   "/:publicId/current",
   withErrorHandling(async (c) => {
-    const { db, storage } = await import("edgespark");
+    const { db, storage } = await getPlatform();
     const bundle = await getPublishedBundle(db, getPublicId(c));
     const { manifestBytes } = await loadManifestPaths(db, storage, bundle.prefix, bundle.ownerId ?? null);
     const signature = await signWithIdentity(db, manifestBytes);
@@ -97,7 +99,7 @@ publicBundlesRoutes.get(
 publicBundlesRoutes.get(
   "/:publicId/manifest",
   withErrorHandling(async (c) => {
-    const { db, storage } = await import("edgespark");
+    const { db, storage } = await getPlatform();
     const bundle = await getPublishedBundle(db, getPublicId(c));
     const { manifestBytes } = await loadManifestPaths(db, storage, bundle.prefix, bundle.ownerId ?? null);
     return new Response(manifestBytes, {
@@ -112,7 +114,7 @@ publicBundlesRoutes.get(
     const relPath = c.req.query("path");
     if (!relPath) throw new ApiError(400, "validation_error", "path query param is required");
 
-    const { db, storage } = await import("edgespark");
+    const { db, storage } = await getPlatform();
     const bundle = await getPublishedBundle(db, getPublicId(c));
     const { paths } = await loadManifestPaths(db, storage, bundle.prefix, bundle.ownerId ?? null);
     // Only manifest-listed relative paths are downloadable — never arbitrary

@@ -1,3 +1,4 @@
+import { getPlatform } from "@platform";
 import { and, asc, desc, eq, gt, inArray, isNull, or, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { nanoid } from "nanoid";
@@ -172,7 +173,7 @@ sharesRoutes.post(
     const password = body.password?.trim();
     if (body.password !== undefined && !password) throw new ApiError(400, "validation_error", "password cannot be empty");
 
-    const { db } = await import("edgespark");
+    const { db } = await getPlatform();
     if (fileId) {
       const [file] = await db.select().from(files).where(and(eq(files.id, fileId), eq(files.isFolder, 0), isNull(files.deletedAt))).limit(1);
       if (!file) throw new ApiError(404, "file_not_found", "File not found");
@@ -230,7 +231,7 @@ sharesRoutes.post(
 sharesRoutes.get(
   "/shares",
   withErrorHandling(async (c) => {
-    const { db } = await import("edgespark");
+    const { db } = await getPlatform();
     const { limit, offset } = parseListPagination((name) => c.req.query(name), { defaultLimit: 100, maxLimit: 500 });
     const nowIsoString = new Date().toISOString();
     const ownerId = c.get("ownerId") ?? null;
@@ -263,7 +264,7 @@ sharesRoutes.get(
 sharesRoutes.get(
   "/shares/:id",
   withErrorHandling(async (c) => {
-    const { db } = await import("edgespark");
+    const { db } = await getPlatform();
     const share = await getShareById(db, getShareId(c), c.get("ownerId") ?? null);
     assertRestPathAllowed(c, await shareTargetPath(db, share));
     return c.json({ share: await toShareObject(db, share, new URL(c.req.url).origin) });
@@ -273,7 +274,7 @@ sharesRoutes.get(
 sharesRoutes.get(
   "/shares/:id/stats",
   withErrorHandling(async (c) => {
-    const { db } = await import("edgespark");
+    const { db } = await getPlatform();
     const share = await getShareById(db, getShareId(c), c.get("ownerId") ?? null);
     assertRestPathAllowed(c, await shareTargetPath(db, share));
     const shareObject = await toShareObject(db, share, new URL(c.req.url).origin);
@@ -334,7 +335,7 @@ sharesRoutes.get(
 sharesRoutes.delete(
   "/shares/:id",
   withErrorHandling(async (c) => {
-    const { db } = await import("edgespark");
+    const { db } = await getPlatform();
     const share = await getShareById(db, getShareId(c), c.get("ownerId") ?? null);
     assertRestPathAllowed(c, await shareTargetPath(db, share));
     const deleted = await db.delete(shares).where(eq(shares.id, share.id)).returning();
@@ -361,7 +362,7 @@ sharesRoutes.get(
   withErrorHandling(async (c) => {
     // Stats aggregate the whole drive; require an unrestricted token.
     assertRestPathAllowed(c, "/");
-    const { db } = await import("edgespark");
+    const { db } = await getPlatform();
     const ownerId = c.get("ownerId") ?? null;
     const [filesCount, foldersCount, sizeSum, shareCount, downloadSum] = await Promise.all([
       db.select({ count: sql<number>`count(*)` }).from(files).where(and(eq(files.isFolder, 0), isNull(files.deletedAt), ownerId ? eq(files.ownerId, ownerId) : undefined)),

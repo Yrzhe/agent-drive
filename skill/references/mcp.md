@@ -1,5 +1,7 @@
 # MCP (Remote Model Context Protocol)
 
+Sites deployments also expose native `/mcp` with Sites-managed OAuth and MCP 2.0 (`2026-07-28`). See [Sites reference](./sites.md) for stateless discovery, required request metadata/headers, multipart uploads, and private access limits. The legacy endpoint and examples below remain available for application-bearer clients. MCP Events is not advertised.
+
 Agent Drive exposes a remote MCP endpoint so IDE/agent clients get the drive as native tools — no manual REST calls.
 
 ```

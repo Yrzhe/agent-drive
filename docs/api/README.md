@@ -4,6 +4,7 @@ This directory documents the public HTTP surface of an Agent Drive deployment.
 
 | Doc | Audience |
 |---|---|
+| [`sites.md`](./sites.md) | ChatGPT Sites deployment, native `/mcp`, private platform access and R2 multipart |
 | [`mcp.md`](./mcp.md) | Anyone integrating an AI agent over Remote MCP |
 | [`oauth.md`](./oauth.md) | OAuth client implementers, security reviewers |
 | [`drive-bundles.md`](./drive-bundles.md) | `adrive sync` users + anyone building versioned bundle workflows |

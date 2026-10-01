@@ -1,3 +1,4 @@
+import { siteFetch } from "./site-fetch.js";
 import { type AgentDriveConfig, writeConfig } from "./config.js";
 import { refreshAccessToken } from "./oauth.js";
 
@@ -96,7 +97,7 @@ async function refreshIfNeeded(options: McpClientOptions, force = false): Promis
 }
 
 async function sendJsonRpc<T>(options: McpClientOptions, method: string, params?: unknown): Promise<{ response: Response; payload: JsonRpcResponse<T> | null }> {
-  const response = await fetch(mcpEndpoint(options.url), {
+  const response = await siteFetch(mcpEndpoint(options.url), {
     method: "POST",
     headers: {
       "content-type": "application/json",

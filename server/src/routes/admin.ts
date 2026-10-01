@@ -1,7 +1,9 @@
+import { driveUsers } from "@users";
+import { getPlatform } from "@platform";
 import { and, eq, isNull } from "drizzle-orm";
 import { Hono } from "hono";
 
-import { allowlist, esSystemAuthUser, oauthTokens, userAccess } from "@defs";
+import { allowlist, oauthTokens, userAccess } from "@defs";
 
 import { assertAdmin } from "../lib/admin";
 import { ApiError, withErrorHandling } from "../lib/errors";
@@ -41,7 +43,7 @@ function requireValidEmail(input: string): string {
 }
 
 async function requireAuthenticatedAdmin(): Promise<{ id: string }> {
-  const { auth } = await import("edgespark/http");
+  const { auth } = await getPlatform();
   if (!auth.isAuthenticated()) throw new ApiError(401, "unauthorized", "Authentication required");
   return { id: auth.user.id };
 }
@@ -101,7 +103,7 @@ adminRoutes.post(
   "/backfill-owner",
   withErrorHandling(async (c) => {
     await assertAdmin(c);
-    const { db } = await import("edgespark");
+    const { db } = await getPlatform();
     const ownerId = await resolveOwnerUserId(db);
     if (!ownerId) {
       throw new ApiError(
@@ -120,18 +122,18 @@ adminRoutes.get(
   "/waitlist",
   withErrorHandling(async (c) => {
     await assertAdmin(c);
-    const { db } = await import("edgespark");
+    const { db } = await getPlatform();
     const rows = await db
       .select({
         userId: userAccess.userId,
-        email: esSystemAuthUser.email,
-        name: esSystemAuthUser.name,
+        email: driveUsers.email,
+        name: driveUsers.name,
         message: userAccess.message,
         referredBy: userAccess.referredBy,
         appliedAt: userAccess.appliedAt,
       })
       .from(userAccess)
-      .innerJoin(esSystemAuthUser, eq(userAccess.userId, esSystemAuthUser.id))
+      .innerJoin(driveUsers, eq(userAccess.userId, driveUsers.id))
       .where(eq(userAccess.status, "pending"));
     return c.json({ waitlist: rows });
   })
@@ -142,7 +144,7 @@ adminRoutes.post(
   withErrorHandling(async (c) => {
     await assertAdmin(c);
     const admin = await requireAuthenticatedAdmin();
-    const { db } = await import("edgespark");
+    const { db } = await getPlatform();
     const row = await setDecidedStatus(db, requireParam(c, "userId"), "active", admin.id);
     return c.json(row);
   })
@@ -154,7 +156,7 @@ adminRoutes.post(
   withErrorHandling(async (c) => {
     await assertAdmin(c);
     const admin = await requireAuthenticatedAdmin();
-    const { db } = await import("edgespark");
+    const { db } = await getPlatform();
     const row = await setDecidedStatus(db, requireParam(c, "userId"), "suspended", admin.id);
     return c.json(row);
   })
@@ -164,7 +166,7 @@ adminRoutes.get(
   "/allowlist",
   withErrorHandling(async (c) => {
     await assertAdmin(c);
-    const { db } = await import("edgespark");
+    const { db } = await getPlatform();
     const rows = await db.select().from(allowlist);
     return c.json({ allowlist: rows });
   })
@@ -183,7 +185,7 @@ adminRoutes.post(
     // via lower(), but storing lowercased too keeps GET /allowlist and DELETE /allowlist/:email
     // (an exact-match delete) consistent with what's actually on the row.
     const email = requireValidEmail(body.email.trim().toLowerCase());
-    const { db } = await import("edgespark");
+    const { db } = await getPlatform();
     await db
       .insert(allowlist)
       .values({ email, addedBy: admin.id, addedAt: nowIso() } as never)
@@ -207,7 +209,7 @@ adminRoutes.delete(
       throw error;
     }
     const email = decoded.trim().toLowerCase();
-    const { db } = await import("edgespark");
+    const { db } = await getPlatform();
     await db.delete(allowlist).where(eq(allowlist.email, email));
     return c.json({ email });
   })
@@ -228,17 +230,17 @@ adminRoutes.get(
   "/users",
   withErrorHandling(async (c) => {
     await assertAdmin(c);
-    const { db } = await import("edgespark");
+    const { db } = await getPlatform();
     const [rows, ownerId] = await Promise.all([
       db
         .select({
-          userId: esSystemAuthUser.id,
-          email: esSystemAuthUser.email,
-          name: esSystemAuthUser.name,
+          userId: driveUsers.id,
+          email: driveUsers.email,
+          name: driveUsers.name,
           status: userAccess.status,
         })
-        .from(esSystemAuthUser)
-        .leftJoin(userAccess, eq(esSystemAuthUser.id, userAccess.userId)),
+        .from(driveUsers)
+        .leftJoin(userAccess, eq(driveUsers.id, userAccess.userId)),
       resolveOwnerUserId(db),
     ]);
     const users = rows.map((row) => ({
@@ -260,7 +262,7 @@ adminRoutes.post(
   withErrorHandling(async (c) => {
     await assertAdmin(c);
     const admin = await requireAuthenticatedAdmin();
-    const { db } = await import("edgespark");
+    const { db } = await getPlatform();
     const row = await setDecidedStatus(db, requireParam(c, "userId"), "suspended", admin.id);
     return c.json(row);
   })
@@ -271,7 +273,7 @@ adminRoutes.post(
   withErrorHandling(async (c) => {
     await assertAdmin(c);
     const admin = await requireAuthenticatedAdmin();
-    const { db } = await import("edgespark");
+    const { db } = await getPlatform();
     const row = await setDecidedStatus(db, requireParam(c, "userId"), "active", admin.id);
     return c.json(row);
   })

@@ -17,6 +17,7 @@ export interface UploadTicket {
   uploadUrl: string;
   requiredHeaders: Record<string, string>;
   expiresAt: string;
+  multipart?: { partSize: number };
 }
 
 export interface ShareLink {

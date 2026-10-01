@@ -1,3 +1,4 @@
+import { getPlatform } from "@platform";
 import { and, eq, isNull } from "drizzle-orm";
 
 import { oauthTokens } from "@defs";
@@ -8,7 +9,7 @@ import { resolveOwnerUserId } from "./owner";
 import type { AppDb } from "../types";
 
 export interface McpAuthContext {
-  kind: "oauth" | "agent_token";
+  kind: "oauth" | "agent_token" | "sites";
   userId: string | null;
   clientId: string | null;
   /**
@@ -68,7 +69,7 @@ export async function authenticateMcpBearer(db: AppDb, authorization: string | u
     }
   }
 
-  const { secret, vars } = await import("edgespark");
+  const { secret, vars } = await getPlatform();
   const configured = secret.get("AGENT_TOKEN");
   if (configured && timingSafeEqualStrings(bearer, configured)) {
     // The deployment-wide token has no identity of its own; bind it to the owner so

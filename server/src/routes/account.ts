@@ -1,3 +1,4 @@
+import { getPlatform } from "@platform";
 import { eq } from "drizzle-orm";
 import { Hono } from "hono";
 
@@ -34,7 +35,7 @@ function parseOptionalField(input: unknown, maxChars: number, field: string): st
 }
 
 async function requireAuthenticatedUser(): Promise<{ id: string; email: string | null }> {
-  const { auth } = await import("edgespark/http");
+  const { auth } = await getPlatform();
   if (!auth.isAuthenticated()) throw new ApiError(401, "unauthorized", "Authentication required");
   return { id: auth.user.id, email: auth.user.email };
 }
@@ -45,7 +46,7 @@ accountRoutes.get(
     requireSessionAuth(c);
     const user = await requireAuthenticatedUser();
 
-    const { db } = await import("edgespark");
+    const { db } = await getPlatform();
     // isAdmin mirrors the fail-closed `assertAdmin` enforcement: derive it from the
     // uniquely-resolved owner id, never `isRequestOwner()` (trust-any true for everyone
     // when OWNER_EMAIL is unset), so the web AdminPage never renders for a caller whose
@@ -70,7 +71,7 @@ accountRoutes.post(
     const message = parseOptionalField(body.message, MAX_MESSAGE_CHARS, "message");
     const ref = parseOptionalField(body.ref, MAX_REF_CHARS, "ref");
 
-    const { db } = await import("edgespark");
+    const { db } = await getPlatform();
     // Materialize the row first (idempotent) so the waitlist message always lands on
     // an existing row — never derives or flips status itself, only admin approval does.
     const status = await resolveAccessStatus(db, user);

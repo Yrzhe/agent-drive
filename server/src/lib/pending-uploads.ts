@@ -1,3 +1,4 @@
+import type { PlatformStorage } from "../platform/types";
 import { and, eq, isNull, like, lt } from "drizzle-orm";
 
 import { buckets, files } from "@defs";
@@ -6,7 +7,7 @@ import { driveObjectKey } from "./object-keys";
 import { PENDING_UPLOAD_PREFIX, readPendingUploadObjectKey } from "./pending-marker";
 import type { AppDb, FileRow } from "../types";
 
-type StorageClient = typeof import("edgespark")["storage"];
+type StorageClient = PlatformStorage;
 
 /** Abandoned pending rows/objects are reaped by the background sweep after this. */
 export const PENDING_UPLOAD_TTL_MS = 24 * 60 * 60 * 1000; // 24 h

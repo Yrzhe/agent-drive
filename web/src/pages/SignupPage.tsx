@@ -1,6 +1,9 @@
+import { deploymentPlatform } from "@/lib/platform";
+import { AuthLoginPanel } from "@/components/AuthLoginPanel";
 import { useEffect, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
-import { client } from "@/lib/edgespark";
+import { Link, Navigate, useSearchParams } from "react-router-dom";
+import { useAuth } from "@/hooks/useAuth";
+import { client } from "@/lib/platform";
 import { apiFetchJson } from "@/lib/api-client";
 
 // Part ③ agent-native registration hand-off: a recipient's agent mints a short-lived
@@ -20,7 +23,7 @@ interface RegistrationIntent {
 
 const getErrorMessage = (error: unknown) => (error instanceof Error ? error.message : "Something went wrong. Please try again.");
 
-export default function SignupPage() {
+function EdgesparkSignupPage() {
   const [searchParams] = useSearchParams();
   const token = searchParams.get("token");
 
@@ -203,4 +206,15 @@ export default function SignupPage() {
       </div>
     </main>
   );
+}
+
+function SitesSignupPage() {
+  const { isAuthenticated, loading } = useAuth();
+  if (loading) return <main className="p-6">Loading account…</main>;
+  if (isAuthenticated) return <Navigate replace to="/waitlist" />;
+  return <main className="min-h-screen bg-slate-50 px-6 py-12"><AuthLoginPanel redirectTo="/waitlist" /><p className="mx-auto mt-4 max-w-md text-sm text-slate-600">Sign in with ChatGPT to request access. New accounts need administrator approval.</p></main>;
+}
+export default function SignupPage() {
+  if (deploymentPlatform === "sites") return <SitesSignupPage />;
+  return <EdgesparkSignupPage />;
 }

@@ -1,3 +1,4 @@
+import { getPlatform } from "@platform";
 import { and, asc, eq, isNull, lt, or, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { zipSync } from "fflate";
@@ -88,7 +89,7 @@ async function incrementDownloadCountOrThrow(db: AppDb, shareId: string): Promis
 async function resolveShareAndToken(
   c: { req: { param: (name: string) => string | undefined; header: (name: string) => string | undefined } },
 ) {
-  const { db, secret } = await import("edgespark");
+  const { db, secret } = await getPlatform();
   const [share] = await db.select().from(shares).where(eq(shares.id, getShareId(c))).limit(1);
   if (!share) throw new ApiError(404, "share_not_found", "Share link not found");
   assertShareAccessible(share);
@@ -104,7 +105,7 @@ async function resolveShareAndToken(
 publicSharesRoutes.get(
   "/:shareId",
   withErrorHandling(async (c) => {
-    const { db } = await import("edgespark");
+    const { db } = await getPlatform();
     const [share] = await db.select().from(shares).where(eq(shares.id, getShareId(c))).limit(1);
     if (!share) throw new ApiError(404, "share_not_found", "Share link not found");
     const expired = isExpired(share.expiresAt);
@@ -140,7 +141,7 @@ publicSharesRoutes.get(
     // fileCount) before the password is proven — the filename alone is often
     // sensitive. Require a valid access token (obtained via POST /:id/access).
     if (share.passwordHash) {
-      const { secret } = await import("edgespark");
+      const { secret } = await getPlatform();
       const tokenSecret = secret.get("AGENT_TOKEN");
       const hasValidToken = tokenSecret
         ? await verifyAccessToken(c.req.header("x-access-token"), share.id, tokenSecret, share.passwordVersion ?? 1)
@@ -256,7 +257,7 @@ publicSharesRoutes.post(
   withErrorHandling(async (c) => {
     const shareId = getShareId(c);
     const body = (await c.req.json().catch(() => ({}))) as { password?: string };
-    const { db, secret } = await import("edgespark");
+    const { db, secret } = await getPlatform();
     const rateLimitKey = `share-access:${shareId}`;
     const limitState = await checkRateLimit(db, rateLimitKey, RATE_LIMIT_MAX_ATTEMPTS, RATE_LIMIT_WINDOW_MS);
     if (!limitState.allowed) {
@@ -346,7 +347,7 @@ publicSharesRoutes.get(
   "/:shareId/download",
   withErrorHandling(async (c) => {
     const { share, db } = await resolveShareAndToken(c);
-    const { storage } = await import("edgespark");
+    const { storage } = await getPlatform();
 
     let target = undefined as typeof files.$inferSelect | undefined;
     if (share.fileId) {
@@ -404,7 +405,7 @@ publicSharesRoutes.get(
   "/:shareId/download-zip",
   withErrorHandling(async (c) => {
     const { share, db } = await resolveShareAndToken(c);
-    const { storage } = await import("edgespark");
+    const { storage } = await getPlatform();
 
     const subPath = (c.req.query("path") ?? "").trim();
     let basePath: string;

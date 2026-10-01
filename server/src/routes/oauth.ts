@@ -1,3 +1,4 @@
+import { getPlatform } from "@platform";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { nanoid } from "nanoid";
@@ -28,7 +29,7 @@ function requestIp(c: { req: { header: (name: string) => string | undefined } })
 }
 
 async function publicOrigin(url: string): Promise<string> {
-  const { vars } = await import("edgespark");
+  const { vars } = await getPlatform();
   return (vars.get("ALLOWED_ORIGIN") ?? new URL(url).origin).replace(/\/+$/u, "");
 }
 
@@ -159,7 +160,7 @@ async function issueTokenPair(input: { clientId: string; userId: string; scope: 
 oauthRoutes.post(
   "/register",
   withErrorHandling(async (c) => {
-    const { db } = await import("edgespark");
+    const { db } = await getPlatform();
     const rateLimitKey = `oauth-register:${requestIp(c)}`;
     const limitState = await checkRateLimit(db, rateLimitKey, OAUTH_REGISTER_RATE_LIMIT_MAX, OAUTH_REGISTER_RATE_LIMIT_MS);
     if (!limitState.allowed) {
@@ -224,7 +225,7 @@ oauthRoutes.get(
     if (responseType !== "code") throw new ApiError(400, "unsupported_response_type", "response_type must be code");
     assertPkceS256(codeChallengeMethod, codeChallenge);
 
-    const { db } = await import("edgespark");
+    const { db } = await getPlatform();
     const [client] = await db.select().from(oauthClients).where(eq(oauthClients.id, clientId)).limit(1);
     if (!client) throw new ApiError(400, "invalid_client", "Unknown client_id");
     assertExactRedirectUri(client, redirectUri);
@@ -250,14 +251,14 @@ oauthRoutes.get(
 oauthRoutes.post(
   "/authorize/consent",
   withErrorHandling(async (c) => {
-    const { auth } = await import("edgespark/http");
+    const { auth } = await getPlatform();
     if (!auth.isAuthenticated()) throw new ApiError(401, "unauthorized", "Sign in before authorizing this client");
     await assertRequestOwner();
 
     await assertSameOrigin(c);
     const body = await readBody(c);
 
-    const { db } = await import("edgespark");
+    const { db } = await getPlatform();
     const [client] = await db.select().from(oauthClients).where(eq(oauthClients.id, body.client_id ?? "")).limit(1);
     if (!client) throw new ApiError(400, "invalid_client", "Unknown client_id");
     const redirectUri = body.redirect_uri ?? "";
@@ -304,7 +305,7 @@ oauthRoutes.post(
   "/token",
   withErrorHandling(async (c) => {
     const body = await readBody(c);
-    const { db } = await import("edgespark");
+    const { db } = await getPlatform();
     const rateLimitKey = `oauth-token:${requestIp(c)}:${body.client_id ?? "unknown"}`;
     const limitState = await checkRateLimit(db, rateLimitKey, OAUTH_TOKEN_RATE_LIMIT_MAX, OAUTH_TOKEN_RATE_LIMIT_MS);
     if (!limitState.allowed) throw new ApiError(429, "too_many_attempts", "Too many token attempts");
@@ -413,7 +414,7 @@ oauthRoutes.get(
   withErrorHandling(async (c) => {
     const clientId = c.req.param("clientId");
     if (!clientId) throw new ApiError(400, "invalid_request", "clientId is required");
-    const { db } = await import("edgespark");
+    const { db } = await getPlatform();
     const [client] = await db.select().from(oauthClients).where(eq(oauthClients.id, clientId)).limit(1);
     if (!client) throw new ApiError(404, "client_not_found", "OAuth client not found");
     return c.json({

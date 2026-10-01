@@ -1,5 +1,12 @@
 # adrive
 
+ChatGPT Sites deployments keep the legacy application-bearer endpoint for `adrive`.
+For private Sites, additionally set `ADRIVE_SITES_URL` to the exact Site origin and
+`ADRIVE_SITES_AUTHORIZATION` through a secure environment to the platform service
+credential. It is never stored in CLI config, sent to other origins, or followed
+through redirects. This credential supplements your scoped application token;
+it does not identify a user. See [Sites reference](../skill/references/sites.md).
+
 Command-line client for [Agent Drive](https://github.com/yrzhe/agent-drive) — a personal cloud drive for AI agents on Cloudflare Workers + D1 + R2.
 
 `adrive` lets you push and pull local bundles (skills, memory files, scratch dirs) to your Agent Drive deployment, version them with optimistic-concurrency commits, and bridge stdio-only MCP clients to the remote HTTP MCP endpoint.

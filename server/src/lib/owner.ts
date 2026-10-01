@@ -1,6 +1,8 @@
+import { driveUsers } from "@users";
+import { getPlatform } from "@platform";
 import { sql } from "drizzle-orm";
 
-import { esSystemAuthUser } from "@defs";
+
 
 import type { AppDb } from "../types";
 import { ApiError } from "./errors";
@@ -19,10 +21,10 @@ import { ApiError } from "./errors";
  * is trimmed and case-insensitive.
  */
 export async function isRequestOwner(): Promise<boolean> {
-  const { auth } = await import("edgespark/http");
+  const { auth } = await getPlatform();
   if (!auth.isAuthenticated()) return false;
 
-  const { vars } = await import("edgespark");
+  const { vars } = await getPlatform();
   const ownerEmail = vars.get("OWNER_EMAIL")?.trim();
   if (!ownerEmail) return true;
 
@@ -55,13 +57,13 @@ export async function isRequestOwner(): Promise<boolean> {
  * foundation every later phase builds on must never silently choose the wrong owner.
  */
 export async function resolveOwnerUserId(db: AppDb): Promise<string | null> {
-  const { vars } = await import("edgespark");
+  const { vars } = await getPlatform();
   const ownerEmail = vars.get("OWNER_EMAIL")?.trim();
   if (!ownerEmail) return null;
   const rows = await db
-    .select({ id: esSystemAuthUser.id })
-    .from(esSystemAuthUser)
-    .where(sql`lower(${esSystemAuthUser.email}) = lower(${ownerEmail})`)
+    .select({ id: driveUsers.id })
+    .from(driveUsers)
+    .where(sql`lower(${driveUsers.email}) = lower(${ownerEmail})`)
     .limit(2);
   if (rows.length !== 1) return null; // 0 = no match, >1 = case-only-duplicate ambiguity
   return rows[0].id;

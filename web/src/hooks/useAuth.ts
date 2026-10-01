@@ -6,8 +6,8 @@
  */
 
 import { useEffect, useState } from "react";
-import { client } from "@/lib/edgespark";
-import type { AuthSession } from "@edgespark/web";
+import { client } from "@/lib/platform";
+import type { AuthSession } from "@/lib/platform";
 
 export function useAuth() {
   const [session, setSession] = useState<AuthSession | null>(null);
