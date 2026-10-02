@@ -8,6 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Sites frontend deep links, including MCP browser upload links, fall back to the SPA entry point even when the hosting asset binding omits SPA handling; API/auth routes and unknown assets retain 404 responses.
+
 - Native Sites MCP discovery no longer returns HTTP 400 when the dispatcher omits `Mcp-Method`/`Mcp-Name`. Native requests accept absent protocol metadata and capabilities, while validating supplied values. Initialization and tool schemas are available before user OAuth; private tool calls retain authentication, account approval and scope checks. Classic initialization also works when a client sends the modern transport header. Structural MCP diagnostics exclude arguments, credentials and identity values.
 
 ### Added

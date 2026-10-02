@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 const mf = new Miniflare({ workers: [{
   modules: [{ type: "ESModule", path: "index.js", contents: await readFile(new URL("../../dist/server/index.js", import.meta.url), "utf8") }], compatibilityDate: "2026-08-06",
   compatibilityFlags: ["nodejs_compat"], d1Databases: ["DB"], r2Buckets: ["BUCKET"],
+  serviceBindings: { ASSETS: async (request) => new URL(request.url).pathname === "/index.html" ? new Response("<!doctype html><html>Agent Drive</html>", { headers: { "content-type": "text/html" } }) : new Response("Asset not found", { status: 404 }) },
   bindings: { OWNER_EMAIL: "owner@example.com", AGENT_TOKEN: "sites-test-secret-at-least-32-characters", ALLOWED_ORIGIN: "https://drive.example", MCP_ALLOWED_ORIGINS: "https://chatgpt.com" },
 }] });
 const owner = { "oai-authenticated-user-id": "owner-subject", "oai-authenticated-user-email": "owner@example.com" };
@@ -33,6 +34,11 @@ try {
     const sql = await readFile(`${directory}/${file}`, "utf8");
     for (const statement of sql.split("--> statement-breakpoint").filter((sql) => sql.trim())) await db.prepare(statement).run();
   }
+  assert.equal((await request("/upload")).status, 200, "direct upload link must load SPA even when asset binding has no fallback");
+  assert.equal((await request("/connect")).status, 200);
+  assert.equal((await request("/assets/missing.js")).status, 404);
+  assert.equal((await request("/api/public/missing")).status, 404);
+  assert.equal((await request("/upload", { method: "POST", body: "{}" })).status, 404);
   assert.equal((await json("/api/public/v1/account/status")).isAdmin, true);
   assert.equal((await json("/api/public/v1/account/status", undefined, visitor)).status, "pending");
   assert.equal((await request("/api/public/v1/files", {}, visitor)).status, 403);
