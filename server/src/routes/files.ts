@@ -5,6 +5,7 @@ import { nanoid } from "nanoid";
 import { buckets, files, shares } from "@defs";
 import { getRequestActor, logEvent } from "../lib/activity";
 import { prepareFileUpload, completeFileUpload } from "../lib/file-uploads";
+import { PENDING_UPLOAD_PREFIX } from "../lib/pending-marker";
 import { rewriteBundlePrefixesForMove } from "../lib/bundle-prefixes";
 import { ensureFolderChain, isPathUniqueConflict, nowIso, toFileObject } from "../lib/files";
 import { ApiError, withErrorHandling } from "../lib/errors";
@@ -422,7 +423,7 @@ filesRoutes.get(
     if (!file) throw new ApiError(404, "file_not_found", "File not found");
     assertRestPathAllowed(c, file.path);
     if (file.isFolder === 1) throw new ApiError(400, "validation_error", "Folders cannot be previewed");
-    if (!file.s3Uri) throw new ApiError(409, "upload_pending", "File has not finished uploading");
+    if (!file.s3Uri || file.s3Uri.startsWith(PENDING_UPLOAD_PREFIX)) throw new ApiError(409, "upload_pending", "File has not finished uploading");
     const parsed = storage.tryParseS3Uri(file.s3Uri);
     if (!parsed) throw new ApiError(500, "storage_error", "Invalid storage URI");
     const { downloadUrl } = await storage.from(buckets.drive).createPresignedGetUrl(presignPath(parsed.path), PREVIEW_URL_TTL_SECS);

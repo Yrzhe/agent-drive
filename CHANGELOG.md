@@ -7,6 +7,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Fixed
+- Sites transfer tickets now use the active request origin, avoiding stale upload/download domains after a Site hostname change. Pending upload records expose `uploadStatus: pending`; preview returns `409 upload_pending`, and the file table shows an unfinished upload instead of presenting a zero-byte file as ready.
+
+### Added
+- Sites MCP `upload_file` receives real ChatGPT attachments through the official `openai/fileParams` schema and streams bytes from authorized temporary HTTPS URLs into bounded R2 multipart storage. Parent folders and completed file records are created after successful transfer; authorization, path scopes, quotas, source/redirect validation and failure cleanup apply. No sandbox PUT or separate completion call is required.
+
+### Fixed
 
 - Sites frontend deep links, including MCP browser upload links, fall back to the SPA entry point even when the hosting asset binding omits SPA handling; API/auth routes and unknown assets retain 404 responses.
 

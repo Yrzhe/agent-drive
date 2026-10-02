@@ -7,6 +7,7 @@ import { buckets, files, shares, spaceItems, spaceMembers, spaces } from "@defs"
 
 import { hashPassword } from "./crypto";
 import { prepareFileUpload, completeFileUpload } from "./file-uploads";
+import { uploadChatGptFile, type ChatGptFile } from "./chatgpt-files";
 import { ensureFolderChain, nowIso, toFileObject } from "./files";
 import { forgetMemory, listMemories, recallMemories, rememberMemory } from "./memory";
 import { getContactByName, sendFileToContact } from "./peering";
@@ -36,6 +37,8 @@ interface McpToolDefinition {
   description: string;
   requiredScope: McpScope;
   inputSchema: Record<string, unknown>;
+  _meta?: Record<string, unknown>;
+  outputSchema?: Record<string, unknown>;
 }
 
 type ToolResult = { content: Array<{ type: "text"; text: string }> };
@@ -109,6 +112,21 @@ export const MCP_TOOLS: McpToolDefinition[] = [
         overwrite: { type: "boolean" },
       },
       required: ["path", "content"],
+    },
+  },
+  {
+    name: "upload_file",
+    description: "Save a file attached to or generated in this ChatGPT conversation directly to Agent Drive on Sites. Pass the real ChatGPT file parameter; the server downloads and streams its bytes into R2 and returns success only after completion. No curl/PUT, base64, guessed size or separate complete call is needed. Requires an absolute destination file path; creates parent folders automatically. Existing paths are not overwritten. If ChatGPT cannot supply a file parameter, use prepare_file_upload without size for a browser handoff.",
+    requiredScope: "write:drive",
+    _meta: { "openai/fileParams": ["file"] },
+    outputSchema: { type: "object", properties: { file: { type: "object" }, uploadStatus: { type: "string", enum: ["complete"] } }, required: ["file", "uploadStatus"] },
+    inputSchema: {
+      type: "object",
+      properties: {
+        path: { type: "string", description: "Absolute destination file path including filename, e.g. /image/poster.png." },
+        file: { type: "object", properties: { download_url: { type: "string" }, file_id: { type: "string" }, mime_type: { type: "string" }, file_name: { type: "string" } }, required: ["download_url", "file_id"], additionalProperties: false },
+      },
+      required: ["path", "file"],
     },
   },
   {
@@ -351,11 +369,13 @@ export function listMcpTools(scopes: readonly string[]) {
       name: tool.name,
       description: tool.description,
       inputSchema: tool.inputSchema,
+      ...(tool._meta ? { _meta: tool._meta } : {}),
+      ...(tool.outputSchema ? { outputSchema: tool.outputSchema } : {}),
       annotations: {
         readOnlyHint: tool.requiredScope.startsWith("read:"),
         destructiveHint: ["write_file", "prepare_file_upload", "forget", "remove_from_space", "manage_space_members"].includes(tool.name),
         idempotentHint: tool.requiredScope.startsWith("read:"),
-        openWorldHint: ["send_file", "create_share"].includes(tool.name),
+        openWorldHint: ["send_file", "create_share", "upload_file"].includes(tool.name),
       },
     }))
     .sort((left, right) => left.name.localeCompare(right.name, "en"));
@@ -365,6 +385,11 @@ export async function callMcpTool(db: AppDb, origin: string, scopes: readonly st
   const tool = MCP_TOOLS.find((candidate) => candidate.name === name);
   if (!tool) throw new Error(`unknown_tool:${name}`);
   if (!hasScope(scopes, tool.requiredScope)) throw new Error(`invalid_scope:${tool.requiredScope}`);
+
+  if (name === "upload_file") {
+    return textResult(await uploadChatGptFile(stringArg(input, "path")!, input.file as ChatGptFile,
+      requireUserId(ownerId), (path) => requirePathAllowed(scopes, path)));
+  }
 
   if (name === "prepare_file_upload") {
     const rawPath = stringArg(input, "path")!;

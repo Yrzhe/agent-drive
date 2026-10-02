@@ -6,6 +6,7 @@ import { files } from "@defs";
 import type { AppDb, FileObject, FileRow } from "../types";
 import { ApiError } from "./errors";
 import { joinPath, normalizeName, normalizePath } from "./paths";
+import { PENDING_UPLOAD_PREFIX } from "./pending-marker";
 
 export function nowIso(): string {
   return new Date().toISOString();
@@ -36,6 +37,7 @@ export function toFileObject(file: FileRow): FileObject {
     contentType: file.contentType,
     createdAt: file.createdAt,
     updatedAt: file.updatedAt,
+    ...(file.s3Uri?.startsWith(PENDING_UPLOAD_PREFIX) ? { uploadStatus: "pending" as const } : {}),
   };
 }
 

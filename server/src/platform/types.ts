@@ -59,6 +59,8 @@ export interface PlatformRuntime {
   readonly kind: "edgespark" | "sites";
   readonly maxUploadBytes?: number;
   readonly hasLiveUpload?: (fileId: string) => Promise<boolean>;
+  readonly storeFileStream?: (key: string, body: ReadableStream<Uint8Array>, contentType: string,
+    expectedSize: number | undefined, validateSize: (size: number) => Promise<void>) => Promise<number>;
   readonly db: AppDb;
   readonly storage: PlatformStorage;
   readonly auth: PlatformAuth;

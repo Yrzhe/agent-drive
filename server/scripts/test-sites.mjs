@@ -4,11 +4,29 @@ import { Miniflare } from "miniflare";
 import { fileURLToPath } from "node:url";
 
 // Real workerd + D1 + R2: no mocked EdgeSpark SDK or Node sqlite substitutions.
+const attachmentImage = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jmZ8AAAAASUVORK5CYII=", "base64");
+const attachmentRequests = [];
 const mf = new Miniflare({ workers: [{
   modules: [{ type: "ESModule", path: "index.js", contents: await readFile(new URL("../../dist/server/index.js", import.meta.url), "utf8") }], compatibilityDate: "2026-08-06",
   compatibilityFlags: ["nodejs_compat"], d1Databases: ["DB"], r2Buckets: ["BUCKET"],
+  outboundService: async (request) => {
+    const url = new URL(request.url);
+    attachmentRequests.push(url.href);
+    assert.equal(url.hostname, "files.oaiusercontent.com", "no arbitrary attachment source requests");
+    if (url.pathname === "/redirect") return new Response(null, { status: 302, headers: { location: "https://127.0.0.1/private" } });
+    if (url.pathname === "/expired") return new Response("Expired", { status: 403 });
+    if (url.pathname === "/image.png") return new Response(attachmentImage, { headers: { "content-type": "image/png", "content-length": String(attachmentImage.length) } });
+    const size = url.pathname === "/large.zip" ? 500 * 1024 * 1024 : url.pathname === "/short.bin" ? 8 * 1024 * 1024 + 1 : 16 * 1024 * 1024 + 3;
+    let remaining = size;
+    const body = new ReadableStream({ pull(controller) {
+      if (!remaining) { if (url.pathname === "/short.bin") controller.error(new Error("Fixture source disconnected")); else controller.close(); return; }
+      const length = Math.min(64 * 1024, remaining);
+      controller.enqueue(new Uint8Array(length).fill(73)); remaining -= length;
+    } });
+    return new Response(body, { headers: { "content-type": "application/octet-stream", ...(["/chunked.bin", "/short.bin"].includes(url.pathname) ? {} : { "content-length": String(size) }) } });
+  },
   serviceBindings: { ASSETS: async (request) => new URL(request.url).pathname === "/" ? new Response("<!doctype html><html>Agent Drive</html>", { headers: { "content-type": "text/html" } }) : new URL(request.url).pathname === "/index.html" ? Response.redirect(new URL("/", request.url), 307) : new Response("Asset not found", { status: 404 }) },
-  bindings: { OWNER_EMAIL: "owner@example.com", AGENT_TOKEN: "sites-test-secret-at-least-32-characters", ALLOWED_ORIGIN: "https://drive.example", MCP_ALLOWED_ORIGINS: "https://chatgpt.com" },
+  bindings: { OWNER_EMAIL: "owner@example.com", AGENT_TOKEN: "sites-test-secret-at-least-32-characters", ALLOWED_ORIGIN: "https://old-drive.example", MCP_ALLOWED_ORIGINS: "https://chatgpt.com,https://drive.example" },
 }] });
 const owner = { "oai-authenticated-user-id": "owner-subject", "oai-authenticated-user-email": "owner@example.com" };
 const visitor = { "oai-authenticated-user-id": "visitor-subject", "oai-authenticated-user-email": "visitor@example.com" };
@@ -43,7 +61,7 @@ try {
   assert.equal((await json("/api/public/v1/account/status", undefined, visitor)).status, "pending");
   assert.equal((await request("/api/public/v1/files", {}, visitor)).status, 403);
   const visitorId = (await json("/api/public/session", undefined, visitor)).user.id;
-  assert.equal((await rpc("tools/list", {}, visitor)).result.tools.length, 18);
+  assert.equal((await rpc("tools/list", {}, visitor)).result.tools.length, 19);
   assert.equal((await request("/mcp", { method: "POST", body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "list_files", arguments: {} } }) }, visitor)).status, 403);
   await json(`/api/public/v1/admin/waitlist/${visitorId}/approve`, {});
   const modern = { _meta: { "io.modelcontextprotocol/protocolVersion": "2026-07-28", "io.modelcontextprotocol/clientCapabilities": {} } };
@@ -52,14 +70,57 @@ try {
   assert.ok(discover.result.supportedVersions.includes("2026-07-28"));
   assert.equal(discover.result.capabilities.events, undefined);
   const list = await rpc("tools/list", modern);
-  assert.equal(list.result.tools.length, 18);
+  assert.equal(list.result.tools.length, 19);
   assert.equal(list.result.tools.find((tool) => tool.name === "read_file").annotations.readOnlyHint, true);
+  const attachmentTool = list.result.tools.find((tool) => tool.name === "upload_file");
+  assert.deepEqual(attachmentTool._meta["openai/fileParams"], ["file"]);
+  assert.deepEqual(attachmentTool.inputSchema.properties.file.required, ["download_url", "file_id"]);
+  assert.deepEqual(Object.keys(attachmentTool.inputSchema.properties.file.properties).sort(), ["download_url", "file_id", "file_name", "mime_type"]);
+  const attachment = (name) => ({ file_id: "file_test_attachment", download_url: `https://files.oaiusercontent.com/${name}?sig=not-persisted` });
+  const imported = await rpc("tools/call", { name: "upload_file", arguments: { path: "/chat-images/poster.png", file: { ...attachment("image.png"), mime_type: "image/png", file_name: "generated-poster.png" } } });
+  assert.ok(!imported.error, JSON.stringify(imported));
+  assert.equal(imported.result.structuredContent.uploadStatus, "complete");
+  const importedFile = imported.result.structuredContent.file;
+  assert.equal(importedFile.size, attachmentImage.length);
+  assert.equal(importedFile.uploadStatus, undefined);
+  const importedPreview = await json(`/api/public/v1/files/${importedFile.id}/preview`);
+  assert.deepEqual(Buffer.from(await (await request(importedPreview.downloadUrl, {}, {})).arrayBuffer()), attachmentImage);
+  assert.equal((await request(`/api/public/v1/files/${importedFile.id}/preview`, {}, visitor)).status, 404);
+  assert.ok((await rpc("tools/call", { name: "upload_file", arguments: { path: importedFile.path, file: attachment("image.png") } })).error, "existing path must not be overwritten");
+  const importRows = await db.prepare("SELECT count(*) FROM files").first("count(*)");
+  const bucket = await mf.getR2Bucket("BUCKET");
+  const importObjects = (await bucket.list()).objects.length;
+  for (const source of ["redirect", "expired"]) {
+    console.log(`Checking attachment failure cleanup: ${source}`);
+    const failed = await rpc("tools/call", { name: "upload_file", arguments: { path: `/failed-${source}.bin`, file: attachment(source) } });
+    assert.ok(failed.error, source);
+    assert.equal(await db.prepare("SELECT count(*) FROM files").first("count(*)"), importRows, "failed attachment creates no pending/completed file");
+    assert.equal((await bucket.list()).objects.length, importObjects, "failed attachment storage is cleaned up");
+  }
+  const chunked = await rpc("tools/call", { name: "upload_file", arguments: { path: "/chat-images/chunked.bin", file: attachment("chunked.bin") } });
+  assert.equal(chunked.result.structuredContent.file.size, 16 * 1024 * 1024 + 3);
+  console.log("Checking real 500 MiB attachment ingestion into R2.");
+  const largeImport = await rpc("tools/call", { name: "upload_file", arguments: { path: "/chat-images/large.zip", file: attachment("large.zip") } });
+  assert.ok(!largeImport.error, JSON.stringify(largeImport));
+  assert.equal(largeImport.result.structuredContent.file.size, 500 * 1024 * 1024);
+  const largeImportPreview = await json(`/api/public/v1/files/${largeImport.result.structuredContent.file.id}/preview`);
+  const largeImportTail = await request(largeImportPreview.downloadUrl, { headers: { range: "bytes=-4" } }, {});
+  assert.deepEqual([...new Uint8Array(await largeImportTail.arrayBuffer())], [73, 73, 73, 73]);
+  assert.ok(!JSON.stringify(await json("/api/public/v1/activity")).includes("not-persisted"), "signed attachment URL never enters the audit log");
+  const pendingImage = await json("/api/public/v1/files/upload", { filename: "pending.png", path: "/chat-images", size: attachmentImage.length, contentType: "image/png" });
+  assert.equal(new URL(pendingImage.uploadUrl).origin, "https://drive.example", "old browser origin config must not override current transfer host");
+  assert.equal((await json(`/api/public/v1/files/${pendingImage.fileId}`)).file.uploadStatus, "pending");
+  assert.equal((await request(`/api/public/v1/files/${pendingImage.fileId}/preview`)).status, 409);
+  const emptyText = await rpc("tools/call", { name: "write_file", arguments: { path: "/chat-images/.keep", content: "" } });
+  assert.equal(emptyText.result.structuredContent.file.size, 0);
+  assert.equal(emptyText.result.structuredContent.file.uploadStatus, undefined, "completed zero-byte file is not pending");
+  console.log("Attachment ingestion verified: byte-identical PNG, 500 MiB streamed file, chunked source, cleanup, pending status, and hostname changes.");
   // Production Sites requests omit Mcp-Method/Mcp-Name even with the modern header.
   const sitesHeaders = { "MCP-Protocol-Version": "2026-07-28" };
   const forwarded = await json("/mcp", { jsonrpc: "2.0", id: 1, method: "server/discover", params: modern }, sitesHeaders);
   assert.equal(forwarded.result.resultType, "complete");
   const catalog = await json("/mcp", { jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }, sitesHeaders);
-  assert.equal(catalog.result.tools.length, 18);
+  assert.equal(catalog.result.tools.length, 19);
   assert.ok(!JSON.stringify(catalog).includes("owner@example.com"));
   const unauthenticatedInitialize = await rpc("initialize", { protocolVersion: "2025-11-25" }, {});
   assert.equal(unauthenticatedInitialize.result.protocolVersion, "2025-11-25");
@@ -232,15 +293,22 @@ try {
   assert.ok(scoped.token, JSON.stringify(scoped));
   const limited = await rpc("tools/list", {}, { authorization: `Bearer ${scoped.token}` }, "/api/public/mcp");
   assert.ok(!limited.result.tools.some((tool) => tool.name === "write_file"));
-  assert.ok(!limited.result.tools.some((tool) => ["prepare_file_upload", "complete_file_upload"].includes(tool.name)));
+  assert.ok(!limited.result.tools.some((tool) => ["upload_file", "prepare_file_upload", "complete_file_upload"].includes(tool.name)));
+  const deniedSourceRequests = attachmentRequests.length;
+  const readonlyAttachment = await rpc("tools/call", { name: "upload_file", arguments: { path: "/forbidden.png", file: attachment("image.png") } }, { authorization: `Bearer ${scoped.token}` }, "/api/public/mcp");
+  assert.equal(readonlyAttachment.error.code, -32001);
+  assert.equal(attachmentRequests.length, deniedSourceRequests, "unauthorized calls never fetch an attachment");
   const readonlyUpload = await rpc("tools/call", { name: "prepare_file_upload", arguments: { path: "/forbidden.zip", size: 500000000 } }, { authorization: `Bearer ${scoped.token}` }, "/api/public/mcp");
   assert.equal(readonlyUpload.error.code, -32001);
   const scopedWriter = await json("/api/public/v1/tokens", { label: "upload-path", scopes: ["write:drive"], pathPrefix: "/allowed" });
   const wrongPath = await rpc("tools/call", { name: "prepare_file_upload", arguments: { path: "/outside.zip", size: 500000000 } }, { authorization: `Bearer ${scopedWriter.token}` }, "/api/public/mcp");
   assert.equal(wrongPath.error.code, -32001);
+  const wrongAttachmentPath = await rpc("tools/call", { name: "upload_file", arguments: { path: "/outside.png", file: attachment("image.png") } }, { authorization: `Bearer ${scopedWriter.token}` }, "/api/public/mcp");
+  assert.equal(wrongAttachmentPath.error.code, -32001);
+  assert.equal(attachmentRequests.length, deniedSourceRequests, "out-of-scope attachment never leaves the server");
   await db.prepare("UPDATE user_access SET status='suspended' WHERE user_id=?").bind(visitorId).run();
   assert.equal((await request("/api/public/v1/files", {}, visitor)).status, 403);
-  assert.equal((await rpc("tools/list", {}, visitor)).result.tools.length, 18);
+  assert.equal((await rpc("tools/list", {}, visitor)).result.tools.length, 19);
   assert.equal((await request("/mcp", { method: "POST", body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "list_files", arguments: {} } }) }, visitor)).status, 403);
   console.log("Sites workerd checks passed: D1 migrations/FTS, native identity, approval/suspension, concurrent isolation, MCP 2.0/legacy, immutable versions/restore/latest/fixed/password shares/conflicts, Unicode/R2 streaming/ranges, multipart, quota boundary and replay/tamper protection.");
 } finally { await mf.dispose(); }

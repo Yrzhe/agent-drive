@@ -7,6 +7,14 @@
 
 ## Large and binary files
 
+Sites upload_file {path,file} saves an actual ChatGPT attachment or generated
+file via openai/fileParams; the host supplies download_url/file_id and optional
+mime_type/file_name. Sites streams approved temporary OpenAI HTTPS bytes to R2
+and confirms completion in one call. No sandbox PUT, base64 or guessed size.
+Never invent an attachment from a filename, sandbox path or file ID alone.
+If the host cannot provide a real file parameter, use the browser handoff.
+Pending tickets have uploadStatus pending; preview returns 409 upload_pending.
+
 prepare_file_upload {path:"/program.zip"} without size gives an authenticated
 browser upload link. Choose the actual file there; size detection, bounded chunks
 and completion are automatic. A client with byte access supplies exact size for
@@ -40,7 +48,7 @@ fixed retains selected bytes. Already-open browser push is not implemented.
 - /api/public/guide — machine-readable JSON guide. Public. START HERE if you
   received a share link: it documents the anonymous download flow.
 - /api/public/mcp — remote MCP server (JSON-RPC over HTTP POST). Tools:
-  list_files, read_file, write_file, prepare_file_upload, complete_file_upload,
+  list_files, read_file, write_file, upload_file, prepare_file_upload, complete_file_upload,
   search_files, create_share,
   remember, recall, list_memories, forget, send_file, list_spaces,
   read_space, add_to_space, remove_from_space, create_space,

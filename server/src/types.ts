@@ -32,6 +32,7 @@ export type AppEnv = {
 };
 
 export interface FileObject {
+  uploadStatus?: "pending";
   id: string;
   name: string;
   path: string;

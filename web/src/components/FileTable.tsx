@@ -96,20 +96,20 @@ export function FileTable({
                         📁 {entry.name}
                       </button>
                     ) : (
-                      <button className="rounded px-2 py-1 text-left text-slate-800 hover:bg-slate-50" onClick={() => onPreview(entry)} type="button">
+                      <button disabled={entry.uploadStatus === "pending"} className="rounded px-2 py-1 text-left text-slate-800 hover:bg-slate-50 disabled:cursor-default disabled:text-slate-500" onClick={() => onPreview(entry)} type="button">
                         📄 {entry.name}
                       </button>
                     )}
                   </td>
                   <td className="py-2 pr-4 text-slate-700">{entry.isFolder ? "Folder" : entry.contentType || "File"}</td>
-                  <td className="py-2 pr-4 text-slate-700">{entry.isFolder ? "-" : formatBytes(entry.size)}</td>
+                  <td className="py-2 pr-4 text-slate-700">{entry.uploadStatus === "pending" ? "Upload incomplete" : entry.isFolder ? "-" : formatBytes(entry.size)}</td>
                   <td className="py-2 pr-4 text-slate-600">{formatDate(entry.updatedAt)}</td>
                   <td className="py-2 pr-4">
                     <div className="flex flex-wrap gap-2">
                       <button className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-700" onClick={() => onRename(entry)} type="button">Rename</button>
-                      <button className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-700" onClick={() => onShare(entry)} type="button">Share</button>
-                      {onVersions && !entry.isFolder ? <button className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-700" onClick={() => onVersions(entry)} type="button">Versions</button> : null}
-                      {onAddToSpace ? (
+                      <button disabled={entry.uploadStatus === "pending"} className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-700 disabled:opacity-40" onClick={() => onShare(entry)} type="button">Share</button>
+                      {onVersions && !entry.isFolder && entry.uploadStatus !== "pending" ? <button className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-700" onClick={() => onVersions(entry)} type="button">Versions</button> : null}
+                      {onAddToSpace && entry.uploadStatus !== "pending" ? (
                         <button className="rounded border border-slate-300 px-2 py-1 text-xs text-slate-700" onClick={() => onAddToSpace(entry)} type="button">Add to space</button>
                       ) : null}
                       <button className="rounded border border-red-300 px-2 py-1 text-xs text-red-700" onClick={() => onDelete(entry)} type="button">Delete</button>

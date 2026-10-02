@@ -9,6 +9,8 @@ Your private cloud drive that agents operate via API. Upload files, organize fol
 
 For ChatGPT Sites, native `/mcp` discovery exposes public schemas before OAuth; file and memory calls require authenticated, approved access. Sites-forwarded requests may omit redundant headers/metadata; conflicting supplied values fail. If an existing chat has no tools after an update, refresh the plugin's tools and start a new chat. Read `references/sites.md` before connecting.
 
+For a ChatGPT attachment or generated file, use Sites `upload_file {path,file}` with the actual `openai/fileParams` file object. Sites streams and confirms bytes automatically; no curl/PUT or base64 is needed. A file ID alone, a sandbox path or a filename cannot supply the bytes. If ChatGPT cannot provide a real file parameter, use the browser handoff. File entries with `uploadStatus: pending` are unfinished uploads.
+
 For a local 500 MB program or other large/binary file, use `prepare_file_upload {path}` without size and give the user its authenticated browser upload link. Exact sizing and multipart completion are automatic. A client with the bytes can supply exact size for a transfer ticket and call `complete_file_upload {file_id}` after transfer. The 5 MiB `write_file` cap is only for inline text.
 
 ## When to Use
@@ -34,7 +36,7 @@ For a local 500 MB program or other large/binary file, use `prepare_file_upload 
 |--------|-----------|-------------|
 | **ChatGPT Sites** | `references/sites.md` | Native Sites OAuth/MCP, private access, Cloudflare R2 multipart and CLI platform credentials |
 | **Setup & Deploy** | `references/setup.md` | First-time deployment or re-deployment |
-| **MCP (remote tools)** | `references/mcp.md` | Connect an IDE/agent over Remote MCP; OAuth vs AGENT_TOKEN; the 18 tools + scopes |
+| **MCP (remote tools)** | `references/mcp.md` | Connect an IDE/agent over Remote MCP; OAuth vs AGENT_TOKEN; the 19 tools + scopes |
 | **File Operations** | `references/file-ops.md` | Upload, download, list, move, rename, delete files and folders |
 | **Share Management** | `references/sharing.md` | Create/delete share links, set password/expiration/limits, handoff message format |
 | **Receiving Downloads** | `references/receiving.md` | When another agent needs to download from a share link (pure API, no browser) |
