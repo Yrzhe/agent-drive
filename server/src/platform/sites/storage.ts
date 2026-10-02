@@ -8,6 +8,16 @@ import type { BucketDef, HttpMetadata, ObjectMetadata, PlatformStorage } from ".
 import { uploadSessions } from "./schema";
 
 export const SITES_PART_BYTES = 8 * 1024 * 1024;
+export const SITES_MAX_PART_BYTES = 64 * 1024 * 1024;
+export const SITES_MAX_FILE_BYTES = SITES_MAX_PART_BYTES * 10_000;
+export function sitesUploadTtl(size: number, requested = 3600): number {
+  // Budget transfer time at 5 MiB/s plus 15 minutes, capped at seven days.
+  return Math.min(7 * 24 * 3600, Math.max(requested, 3600, Math.ceil(size / (5 * 1024 * 1024)) + 900));
+}
+export function sitesPartSize(size: number): number {
+  if (!Number.isSafeInteger(size) || size < 0 || size > SITES_MAX_FILE_BYTES) throw new Error("File exceeds this Sites transport's supported size");
+  return Math.max(SITES_PART_BYTES, Math.ceil(size / 10_000 / (1024 * 1024)) * 1024 * 1024);
+}
 export const TRANSFER_PATH = "/api/public/transfer";
 export interface TransferGrant {
   operation: "read" | "upload";
@@ -54,7 +64,7 @@ export function createSitesStorage(db: AppDb, bucket: R2Bucket, origin: string, 
     return match ? { bucket: { bucket_name: "drive", description: "Agent Drive" }, path: match[1] } : null;
   }
   async function url(operation: TransferGrant['operation'], path: string, ttl: number, nonce: string) {
-    const expiresAt = new Date(Date.now() + Math.max(1, Math.min(ttl, 3600)) * 1000);
+    const expiresAt = new Date(Date.now() + Math.max(1, Math.min(ttl, operation === "upload" ? 7 * 24 * 3600 : 3600)) * 1000);
     const key = decodeURIComponent(path); // preserve EdgeSpark's once-decoded presign contract
     const token = await signTransfer({ operation, key, expires: expiresAt.getTime(), nonce }, secret);
     return { url: `${origin}${TRANSFER_PATH}?token=${encodeURIComponent(token)}`, expiresAt, key };
@@ -84,19 +94,20 @@ export function createSitesStorage(db: AppDb, bucket: R2Bucket, origin: string, 
         },
         async createPresignedPutUrl(path, ttl = 3600, options = {}) {
           const nonce = nanoid();
-          const signed = await url("upload", path, ttl, nonce);
-          const fileId = signed.key.slice(0, signed.key.indexOf("/"));
+          const key = decodeURIComponent(path);
+          const fileId = key.slice(0, key.indexOf("/"));
           const [file] = await db.select().from(files).where(eq(files.id, fileId)).limit(1);
           const principal = ownerId();
           const expectedSize = readPendingUploadDeclaredSize(file?.s3Uri ?? null);
           if (!principal || file?.ownerId !== principal || file.deletedAt || expectedSize === null ||
-              readPendingUploadObjectKey(file.s3Uri) !== signed.key || !Number.isSafeInteger(expectedSize)) {
+              readPendingUploadObjectKey(file.s3Uri) !== key || !Number.isSafeInteger(expectedSize)) {
             throw new Error("Invalid pending upload principal or object key");
           }
+          const signed = await url("upload", path, sitesUploadTtl(expectedSize, ttl), nonce);
           await db.insert(uploadSessions).values({ id: nonce, fileId, ownerId: principal, objectKey: signed.key,
             contentType: options.contentType || "application/octet-stream", expectedSize, expiresAt: signed.expiresAt.getTime() });
           return { uploadUrl: signed.url, expiresAt: signed.expiresAt,
-            requiredHeaders: { "content-type": options.contentType || "application/octet-stream" }, multipart: { partSize: SITES_PART_BYTES } };
+            requiredHeaders: { "content-type": options.contentType || "application/octet-stream" }, multipart: { partSize: sitesPartSize(expectedSize) } };
         },
       };
     },

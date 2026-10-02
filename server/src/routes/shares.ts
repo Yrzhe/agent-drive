@@ -42,6 +42,8 @@ async function getShareById(db: AppDb, id: string, ownerId: string | null): Prom
 }
 
 async function toShareObject(db: AppDb, share: ShareRow, origin: string): Promise<ShareObject> {
+  const { versioning } = await getPlatform();
+  const details = versioning ? (await versioning.shareDetails([share.id])).get(share.id) ?? { shareMode: "latest" as const } : {};
   if (share.fileId) {
     const [file] = await db.select().from(files).where(eq(files.id, share.fileId)).limit(1);
     return {
@@ -56,6 +58,7 @@ async function toShareObject(db: AppDb, share: ShareRow, origin: string): Promis
       expiresAt: share.expiresAt,
       createdAt: share.createdAt,
       shareUrl: `${origin}/s/${share.id}`,
+      ...details,
     };
   }
 
@@ -123,6 +126,8 @@ function toShareObjectWithTarget(share: ShareRow, origin: string, targetName: st
 }
 
 async function toShareObjects(db: AppDb, shareRows: ShareRow[], origin: string): Promise<ShareObject[]> {
+  const { versioning } = await getPlatform();
+  const details = versioning ? await versioning.shareDetails(shareRows.map((s) => s.id)) : null;
   const fileIds = shareRows.map((share) => share.fileId).filter((id): id is string => Boolean(id));
   const folderPaths = shareRows
     .filter((share) => !share.fileId)
@@ -135,12 +140,13 @@ async function toShareObjects(db: AppDb, shareRows: ShareRow[], origin: string):
   const fileNameById = new Map(fileRows.map((file) => [file.id, file.name]));
   const folderNameByPath = new Map(folderRows.map((folder) => [folder.path, folder.name]));
 
-  return shareRows.map((share) => {
+  const result = shareRows.map((share) => {
     if (share.fileId) return toShareObjectWithTarget(share, origin, fileNameById.get(share.fileId) ?? "(deleted file)");
     const folderPath = normalizePath(share.folderPath ?? "/");
     if (folderPath === "/") return toShareObjectWithTarget(share, origin, ROOT_SHARE_NAME);
     return toShareObjectWithTarget(share, origin, folderNameByPath.get(folderPath) ?? folderPath.split("/").filter(Boolean).pop() ?? "/");
   });
+  return result.map((share) => ({ ...share, ...(details ? details.get(share.id) ?? { shareMode: "latest" as const } : {}) }));
 }
 
 sharesRoutes.post(
@@ -152,6 +158,8 @@ sharesRoutes.post(
       password?: string;
       maxDownloads?: number;
       expiresIn?: number;
+      shareMode?: "latest" | "fixed";
+      versionId?: string;
     };
 
     const fileId = body.fileId?.trim() || null;
@@ -173,16 +181,19 @@ sharesRoutes.post(
     const password = body.password?.trim();
     if (body.password !== undefined && !password) throw new ApiError(400, "validation_error", "password cannot be empty");
 
-    const { db } = await getPlatform();
+    const { db, versioning } = await getPlatform();
+    const mode = body.shareMode ?? "latest";
+    if (!["latest", "fixed"].includes(mode) || (body.versionId && mode !== "fixed")) throw new ApiError(400, "validation_error", "Invalid shareMode or versionId");
+    if (mode === "fixed" && (!fileId || !versioning)) throw new ApiError(400, "validation_error", "Fixed version shares require a Sites file");
     if (fileId) {
-      const [file] = await db.select().from(files).where(and(eq(files.id, fileId), eq(files.isFolder, 0), isNull(files.deletedAt))).limit(1);
+      const [file] = await db.select().from(files).where(and(eq(files.id, fileId), eq(files.isFolder, 0), isNull(files.deletedAt), versioning && c.get("ownerId") ? eq(files.ownerId, c.get("ownerId")!) : undefined)).limit(1);
       if (!file) throw new ApiError(404, "file_not_found", "File not found");
       assertRestPathAllowed(c, file.path);
     }
     if (folderPath) {
       assertRestPathAllowed(c, folderPath);
       if (folderPath !== "/") {
-        const [folder] = await db.select().from(files).where(and(eq(files.path, folderPath), eq(files.isFolder, 1), isNull(files.deletedAt))).limit(1);
+        const [folder] = await db.select().from(files).where(and(eq(files.path, folderPath), eq(files.isFolder, 1), isNull(files.deletedAt), versioning && c.get("ownerId") ? eq(files.ownerId, c.get("ownerId")!) : undefined)).limit(1);
         if (!folder) throw new ApiError(404, "file_not_found", "Folder not found");
       }
     }
@@ -203,6 +214,13 @@ sharesRoutes.post(
       })
       .returning();
 
+    if (mode === "fixed" && fileId && versioning) {
+      try {
+        const [target] = await db.select().from(files).where(eq(files.id, fileId)).limit(1);
+        if (!target) throw new ApiError(404, "file_not_found", "File not found");
+        await versioning.pinShare(created.id, target, body.versionId);
+      } catch (error) { await db.delete(shares).where(eq(shares.id, created.id)); throw error; }
+    }
     await logEvent(db, {
       ownerId: c.get("ownerId") ?? null,
       eventType: "share.created",

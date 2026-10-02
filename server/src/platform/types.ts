@@ -1,4 +1,4 @@
-import type { AppDb } from "../types";
+import type { AppDb, FileRow } from "../types";
 import type { SecretKey, VarKey } from "../defs/runtime";
 
 export interface PlatformUser {
@@ -57,10 +57,19 @@ export interface PlatformStorage {
 }
 export interface PlatformRuntime {
   readonly kind: "edgespark" | "sites";
+  readonly maxUploadBytes?: number;
+  readonly hasLiveUpload?: (fileId: string) => Promise<boolean>;
   readonly db: AppDb;
   readonly storage: PlatformStorage;
   readonly auth: PlatformAuth;
   readonly vars: { get(name: VarKey): string | null };
   readonly secret: { get(name: SecretKey): string | null };
   readonly ctx: { readonly environment: "staging" | "production"; runInBackground(promise: Promise<unknown>): void };
+  readonly versioning?: {
+    extraUsageBytes(): Promise<number>;
+    writeText(existing: FileRow | undefined, values: Omit<FileRow, "deletedAt" | "s3Uri">, bytes: Uint8Array): Promise<FileRow>;
+    pinShare(shareId: string, file: FileRow, versionId?: string): Promise<string>;
+    resolveShare(shareId: string, file: FileRow): Promise<FileRow>;
+    shareDetails(ids: string[]): Promise<Map<string, { shareMode: "fixed"; versionId: string }>>;
+  };
 }

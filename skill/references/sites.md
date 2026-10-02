@@ -16,14 +16,22 @@ Native `/mcp` account permissions follow the approved signed-in account. CLI/app
 
 ## R2 uploads and downloads
 
-Request `POST /api/public/v1/files/upload` as before. If the ticket includes `multipart.partSize` (8 MiB), upload files above that size as follows:
+Request `POST /api/public/v1/files/upload` as before. Sites defaults to 625 GiB per file and 1 TiB total application quota, with streamed uploads. Use the ticket's `multipart.partSize` (dynamic 8–64 MiB), never a hardcoded chunk size. Upload files above that size as follows:
 
 1. `POST uploadUrl` with JSON `{ "action": "start" }`.
 2. Sequential `PUT uploadUrl&part=N` requests, numbered from 1. Each body is exactly `partSize` bytes, except the final remainder. Retry a failed part; overlapping operations return 409.
 3. `POST uploadUrl` with JSON `{ "action": "complete" }`. Use `{ "action": "abort" }` if abandoning the session.
 4. Call the existing `POST /api/public/v1/files/upload/complete` to confirm metadata.
 
-Small files use one PUT. Grants expire after an hour and cannot overwrite a completed upload. Required content type comes from the ticket; the server validates exact byte counts. The browser handles multipart automatically. Returned same-origin download URLs support streaming, HEAD and byte ranges; treat them as short-lived secrets.
+Small files use one PUT. Upload expiration comes from the ticket: at least an hour, extended by declared size for large transfers (budgeted at 5 MiB/s plus 15 minutes, capped at seven days). Grants cannot overwrite a completed upload. Required content type comes from the ticket; the server validates exact byte counts. The browser handles multipart automatically. Returned same-origin download URLs support streaming, HEAD and byte ranges; treat them as short-lived secrets.
+
+## File history and share versions
+
+Sites `write_file` retains old immutable bytes. List owner-only history with `GET /api/public/v1/files/:id/versions?limit=50&offset=0` (max limit 100). Download via `GET /:id/versions/:versionId/download`; restore via `POST /:id/versions/:versionId/restore`. For large/binary replacements, `POST /:id/versions/upload` with `{size,contentType}`, upload using its ticket, then `POST /:id/versions/complete` with `{sessionId}`. A concurrent edit yields HTTP 409 `version_conflict`; reload the file before retrying. Read/write scopes and path grants apply, and history counts toward quota.
+
+MCP `create_share` accepts `share_mode: "latest"` (default) or `"fixed"`; optional `version_id` selects a retained history version for a fixed file share. REST uses `shareMode`/`versionId`. Latest links follow the current file at open/download; fixed links retain their selected contents. Folder shares follow current contents. Existing password, expiry, counts and private Site access remain in force. Already-open pages do not receive live push yet; MCP Events is also not implemented. A short-lived download URL already issued for A keeps granting A until it expires, even after the latest share starts resolving B.
+
+Purging a file removes access to its history and shares. Retained R2 objects and orphan metadata are removed by bounded, retryable background cleanup.
 
 ## Access limits
 

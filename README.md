@@ -15,6 +15,10 @@
 
 The same repository now supports EdgeSpark and ChatGPT Sites through request-scoped platform adapters. Sites uses native ChatGPT sign-in, D1, R2 streaming/multipart transfers, and a Sites-managed OAuth Remote MCP at `/mcp`. Existing approvals, quotas, space roles, scoped application tokens and CLI sync are retained.
 
+Sites defaults to a 625 GiB per-file cap and 1 TiB application quota, using dynamic 8–64 MiB streaming parts. These are application settings, not confirmed Sites plan entitlements. Durable Objects, KV and Queues bindings are not exposed by the current Sites configuration interface.
+
+Sites also retains file history, supports downloading/restoring old versions and uploading binary replacements, and offers fixed-version or latest-version share links. Latest links resolve new contents on open/download; live updates to already-open pages are pending a supported cross-instance push service. See [the version API](docs/api/sites.md#file-versions-and-stable-shares-sites).
+
 See [Sites migration and deployment](docs/migration/chatgpt-sites.md) and [Sites API contract](docs/api/sites.md). Build with `npm run build:sites`; EdgeSpark keeps its existing CLI deployment flow. This creates a separate Sites deployment; old EdgeSpark data is not copied automatically. Private Sites access applies to shares, subscriptions and peer inbox delivery. MCP Events is a documented follow-up, not an advertised capability.
 
 ## What is Agent Drive?

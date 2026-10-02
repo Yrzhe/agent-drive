@@ -4,6 +4,7 @@ import app from "../../index";
 import { createMcpRoutes } from "../../routes/mcp";
 import { createSitesRuntime } from "./runtime";
 import { transferRoutes } from "./transfers";
+import { versionRoutes } from "./version-routes";
 import type { SitesBindings, SitesEnv, SitesExecutionContext } from "./types";
 
 const site = new Hono<SitesEnv>();
@@ -28,6 +29,7 @@ site.get("/api/public/session", (c) => {
 });
 site.route("/mcp", createMcpRoutes({ sitesIdentity: true }));
 site.route("/api/public/transfer", transferRoutes);
+site.route("/api/public/v1/files", versionRoutes as unknown as Hono<SitesEnv>);
 site.route("/", app as unknown as Hono<SitesEnv>);
 site.notFound(async (c) => {
   if (c.req.path.startsWith("/api/") || c.req.path === "/mcp" || c.req.path.startsWith("/.well-known/")) return c.json({ error: "not_found" }, 404);

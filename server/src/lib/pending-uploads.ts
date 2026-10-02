@@ -1,4 +1,5 @@
 import type { PlatformStorage } from "../platform/types";
+import { getPlatform } from "@platform";
 import { and, eq, isNull, like, lt } from "drizzle-orm";
 
 import { buckets, files } from "@defs";
@@ -55,6 +56,8 @@ async function purgePendingRow(db: AppDb, storage: StorageClient, row: FileRow):
 export async function reclaimStalePendingUpload(db: AppDb, storage: StorageClient, row: FileRow): Promise<boolean> {
   if (!isPendingRow(row)) return false;
   if (Date.parse(row.createdAt) >= Date.now() - PENDING_RECLAIM_AFTER_MS) return false;
+  const { hasLiveUpload } = await getPlatform();
+  if (hasLiveUpload && await hasLiveUpload(row.id)) return false;
   // Returns false if the row was completed concurrently — the path is genuinely taken.
   return purgePendingRow(db, storage, row);
 }
@@ -78,6 +81,8 @@ export async function maybePurgeStalePendingUploads(db: AppDb, storage: StorageC
     ));
   for (const row of stale) {
     try {
+      const { hasLiveUpload } = await getPlatform();
+      if (hasLiveUpload && await hasLiveUpload(row.id)) continue;
       await purgePendingRow(db, storage, row);
     } catch {
       // best-effort; keep sweeping

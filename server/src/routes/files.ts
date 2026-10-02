@@ -57,8 +57,8 @@ filesRoutes.post(
     const contentType = (body.contentType ?? "application/octet-stream").trim();
     const declaredSize = Number(body.size);
     if (!contentType) throw new ApiError(400, "validation_error", "contentType is required");
-    if (!Number.isFinite(declaredSize) || declaredSize < 0) {
-      throw new ApiError(400, "validation_error", "size must be a non-negative number");
+    if (!Number.isSafeInteger(declaredSize) || declaredSize < 0) {
+      throw new ApiError(400, "validation_error", "size must be a non-negative safe integer");
     }
 
     const parentPath = normalizePath(body.path ?? "/");

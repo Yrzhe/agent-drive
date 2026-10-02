@@ -209,12 +209,13 @@ export function buildAgentCard(identity: AgentIdentity, origin: string, appVersi
       purpose: "Future peer handshakes and bundle signatures verify against this key.",
     },
     "x-agent-drive": {
+      ...(platform === "sites" ? { fileVersions: { history: `${origin}/api/public/v1/files/{id}/versions`, replacement: "/versions/upload + /versions/complete", restore: "/versions/{versionId}/restore", sharing: "create_share share_mode latest|fixed, optional version_id; latest resolves on open/download. No live push to already-open pages. Retained history consumes quota." } } : {}),
       // A2A specifies root /.well-known/agent.json, but this platform only
       // routes /api/* through the server — the canonical card URL below is a
       // documented deviation.
       cardUrl: `${origin}/api/public/.well-known/agent.json`,
       mcp: `${origin}${platform === "sites" ? "/mcp" : "/api/public/mcp"}`,
-      ...(platform === "sites" ? { platform: "sites", nativeMcpAuth: "Sites-managed OAuth with ChatGPT identity; app approval still required", legacyMcp: `${origin}/api/public/mcp`, platformAccess: "Private Sites service access is additional to app bearer authorization. Anonymous shares, subscriptions and inbox delivery require appropriate Sites access.", mcpEvents: "not advertised" } : {}),
+      ...(platform === "sites" ? { platform: "sites", nativeMcpAuth: "Sites-managed OAuth with ChatGPT identity; app approval still required", legacyMcp: `${origin}/api/public/mcp`, platformAccess: "Private Sites service access is additional to app bearer authorization. Anonymous shares, subscriptions and inbox delivery require appropriate Sites access.", storageLimits: "Application defaults: 625 GiB/file, 1 TiB total; dynamic 8–64 MiB streaming parts. Sites platform entitlements unconfirmed; DO/KV/Queues bindings not exposed by current interface.", mcpEvents: "not advertised" } : {}),
       rest: `${origin}/api/public/v1`,
       guide: `${origin}/api/public/guide`,
       llmsTxt: `${origin}/llms.txt`,

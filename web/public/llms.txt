@@ -13,6 +13,14 @@ platform access even for app-public shares, bundles, inbox and download URLs.
 GET /api/public/guide reports the deployment variant and access/transfer rules.
 Upload tickets with multipart.partSize require bounded sequential parts; see the
 Sites skill reference. MCP Events is not advertised.
+Sites uploads stream with dynamic 8–64 MiB parts. Application defaults: 625 GiB/file,
+1 TiB total; these do not establish Sites plan entitlements. DO/KV/Queues bindings
+are not currently exposed by the Sites configuration interface.
+Sites file history: /api/public/v1/files/{id}/versions (paged, owner-only),
+/{versionId}/download, /{versionId}/restore, /upload, /complete. History counts
+toward quota. REST shares: shareMode=latest|fixed and optional versionId;
+MCP create_share: share_mode and version_id. Latest resolves on open/download;
+fixed retains selected bytes. Already-open browser push is not implemented.
 
 ## Entry points
 

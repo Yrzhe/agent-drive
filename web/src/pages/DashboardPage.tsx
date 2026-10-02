@@ -5,6 +5,8 @@ import { Link, Navigate, useSearchParams } from "react-router-dom";
 import { AuthLoginPanel } from "@/components/AuthLoginPanel";
 import { Breadcrumbs } from "@/components/Breadcrumbs";
 import { FileTable } from "@/components/FileTable";
+import { VersionsModal } from "@/components/VersionsModal";
+import { deploymentPlatform } from "@/lib/platform";
 import { PreviewModal } from "@/components/PreviewModal";
 import { ShareModal, type ShareModalInput } from "@/components/ShareModal";
 import { AddToSpaceModal } from "@/components/spaces/AddToSpaceModal";
@@ -40,6 +42,7 @@ export default function DashboardPage() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [shareTarget, setShareTarget] = useState<DriveFile | null>(null);
   const [previewTarget, setPreviewTarget] = useState<DriveFile | null>(null);
+  const [versionsTarget, setVersionsTarget] = useState<DriveFile | null>(null);
   const [addToSpaceTarget, setAddToSpaceTarget] = useState<DriveFile | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
@@ -314,6 +317,7 @@ export default function DashboardPage() {
         password: input.password,
         maxDownloads: input.maxDownloads ?? undefined,
         expiresIn: expiresIn ?? undefined,
+        shareMode: input.shareMode,
       };
       const payload = shareTarget.isFolder ? { ...apiInput, folderPath: shareTarget.path } : { ...apiInput, fileId: shareTarget.id };
       await driveApi.createShare(payload);
@@ -471,6 +475,7 @@ export default function DashboardPage() {
             onDelete={(entry) => { void handleDelete(entry); }}
             onOpenFolder={handleOpenFolder}
             onPreview={(entry) => setPreviewTarget(entry)}
+            onVersions={deploymentPlatform === "sites" ? setVersionsTarget : undefined}
             onRename={(entry) => { void handleRename(entry); }}
             onShare={(entry) => setShareTarget(entry)}
             onToggleSelect={handleToggleSelect}
@@ -573,6 +578,7 @@ export default function DashboardPage() {
       </div>
 
       {shareTarget ? <ShareModal onCancel={() => setShareTarget(null)} onCreate={(input) => { void handleCreateShare(input); }} target={shareTarget} /> : null}
+      {versionsTarget ? <VersionsModal file={versionsTarget} onClose={() => setVersionsTarget(null)} onChange={() => { void refreshVisibleEntries(); void refreshShares(); }} /> : null}
       {previewTarget ? <PreviewModal loadPreview={loadPreview} onClose={() => setPreviewTarget(null)} target={previewTarget} /> : null}
       {addToSpaceTarget ? (
         <AddToSpaceModal

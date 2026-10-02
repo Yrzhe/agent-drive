@@ -1,5 +1,5 @@
 {
-  "d1": { "binding": "DB" },
-  "r2": { "binding": "BUCKET" },
+  "d1": "DB",
+  "r2": "BUCKET",
   "capabilities": ["mcp"]
 }

@@ -1,11 +1,14 @@
 import { drizzle } from "drizzle-orm/d1";
+import { and, eq, gt, notInArray } from "drizzle-orm";
 import type { Context } from "hono";
 import type { AppDb } from "../../types";
 import type { PlatformAuth, PlatformRuntime } from "../types";
 import { drizzleSchema } from "./defs";
 import { resolveSitesUser } from "./identity";
-import { createSitesStorage } from "./storage";
+import { createSitesStorage, SITES_MAX_FILE_BYTES } from "./storage";
 import { cleanupExpiredUploads } from "./cleanup";
+import { createVersions } from "./versions";
+import { uploadSessions } from "./schema";
 import type { SitesEnv, SitesExecutionContext } from "./types";
 
 export async function createSitesRuntime(c: Context<SitesEnv>, execution: SitesExecutionContext): Promise<PlatformRuntime> {
@@ -22,8 +25,14 @@ export async function createSitesRuntime(c: Context<SitesEnv>, execution: SitesE
   const origin = (c.env.ALLOWED_ORIGIN || new URL(c.req.url).origin).replace(/\/+$/u, "");
   return {
     kind: "sites", db, auth,
+    maxUploadBytes: SITES_MAX_FILE_BYTES,
+    hasLiveUpload: async (fileId) => {
+      const [active] = await db.select({ id: uploadSessions.id }).from(uploadSessions).where(and(eq(uploadSessions.fileId, fileId), gt(uploadSessions.expiresAt, Date.now()), notInArray(uploadSessions.state, ["aborted", "committed"]))).limit(1);
+      return Boolean(active);
+    },
+    versioning: createVersions(db, c.env.DB, c.env.BUCKET),
     storage: createSitesStorage(db, c.env.BUCKET, origin, c.env.AGENT_TOKEN, () => c.get("ownerId") ?? user?.id ?? null),
-    vars: { get: (key) => c.env[key] ?? null },
+    vars: { get: (key) => c.env[key] ?? (key === "MAX_FILE_BYTES" ? "671088640000" : key === "MAX_TOTAL_BYTES" ? "1099511627776" : null) },
     secret: { get: (key) => c.env[key] ?? null },
     ctx: { environment: "production", runInBackground: (promise) => execution.waitUntil(promise) },
   };

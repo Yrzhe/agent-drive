@@ -10,9 +10,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - ChatGPT Sites deployment alongside EdgeSpark, using request-scoped native identity, D1 and R2 adapters; separate additive Sites migrations avoid EdgeSpark system tables.
 - Native Sites OAuth `/mcp`, MCP 2.0 stateless discovery/metadata checks, legacy compatibility, structured tool results, tool annotations and exact Origin validation.
-- Signed same-origin streaming downloads and bounded 8 MiB R2 multipart uploads with durable session/part records, replay protection and expired-session cleanup.
+- Signed same-origin streaming downloads and uploads with dynamic 8–64 MiB R2 multipart chunks, durable session/part records, replay protection and expired-session cleanup. Sites defaults to 625 GiB per file and 1 TiB total application quota; actual Sites platform quotas are not published by the current interface.
 - Private Sites CLI service access bound to an explicit origin through environment-only credentials; existing application token scopes remain enforced.
 - Native ChatGPT browser sign-in, Sites connection instructions, browser-visible drive WebMCP read tool and deployment/access documentation. MCP Events remains a follow-up.
+- Sites immutable file history, owner-only version listing/download/restore and streamed binary replacements, with D1 compare-and-swap conflicts and retained-history quota accounting. Fixed/current-history or latest-content file shares work through REST and MCP; latest links resolve on open/download. Already-open browser push is not implemented because Sites exposes no cross-instance messaging binding in the current interface.
 
 
 ### Fixed

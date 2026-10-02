@@ -135,6 +135,8 @@ export const MCP_TOOLS: McpToolDefinition[] = [
         password: { type: "string" },
         max_downloads: { type: "number" },
         expires_in: { type: "number", description: "Expiration in seconds." },
+        share_mode: { type: "string", enum: ["latest", "fixed"], description: "Sites file shares: follow latest contents (default), or pin the current version." },
+        version_id: { type: "string", description: "Sites: optional history version to pin; requires share_mode=fixed." },
       },
     },
   },
@@ -432,7 +434,7 @@ export async function callMcpTool(db: AppDb, origin: string, scopes: readonly st
     const parentPath = parentOfPath(path);
     const filename = normalizeName(path.split("/").pop());
     const bytes = new TextEncoder().encode(content);
-    const { storage } = await getPlatform();
+    const { storage, versioning } = await getPlatform();
 
     // Resolve the write target BEFORE mutating anything. Prefer the caller's OWN row at this
     // path — the #30 owner-scoped behavior, unchanged for a caller writing their own file.
@@ -478,10 +480,16 @@ export async function callMcpTool(db: AppDb, origin: string, scopes: readonly st
     if (bytes.byteLength > MCP_WRITE_FILE_MAX_BYTES) {
       throw new Error(`file_too_large:write_file content is ${bytes.byteLength} bytes; the limit is ${MCP_WRITE_FILE_MAX_BYTES} bytes (use REST presigned upload for larger/binary files)`);
     }
-    const quotaCheck = await checkTotalQuota(db, bytes.byteLength - (existing?.size ?? 0));
+    const quotaCheck = await checkTotalQuota(db, bytes.byteLength - (versioning ? 0 : existing?.size ?? 0));
     if (!quotaCheck.ok) throw new Error(`${quotaCheck.code}:${quotaCheck.message}`);
 
     const fileId = existing?.id ?? nanoid();
+    if (versioning) {
+      const timestamp = nowIso();
+      const saved = await versioning.writeText(existing, { id: fileId, name: filename, path, parentPath, isFolder: 0,
+        size: bytes.byteLength, contentType, createdAt: existing?.createdAt ?? timestamp, updatedAt: timestamp, ownerId: existing?.ownerId ?? ownerId }, bytes);
+      return textResult({ file: toFileObject(saved) });
+    }
     // Overwrite an existing file at its STORED key rather than re-deriving one from
     // the current name: after a rename the two differ, and writing to a fresh key
     // would strand the old object forever — the orphan reconciler keys off the file
@@ -529,9 +537,15 @@ export async function callMcpTool(db: AppDb, origin: string, scopes: readonly st
   }
 
   if (name === "create_share") {
+    const { versioning } = await getPlatform();
+    const mode = stringArg(input, "share_mode", false) ?? "latest";
+    const versionId = stringArg(input, "version_id", false);
+    if (!["latest", "fixed"].includes(mode) || (versionId && mode !== "fixed")) throw new Error("invalid_params:invalid share_mode or version_id");
+    if (mode === "fixed" && !versioning) throw new Error("invalid_params:fixed versions require the Sites deployment");
     const filePath = stringArg(input, "file_path", false);
     const folderPathInput = stringArg(input, "folder_path", false);
     if ((filePath ? 1 : 0) + (folderPathInput ? 1 : 0) !== 1) throw new Error("invalid_params:exactly one of file_path or folder_path is required");
+    if (mode === "fixed" && !filePath) throw new Error("invalid_params:fixed sharing requires a single file");
     const password = stringArg(input, "password", false);
     const maxDownloads = input.max_downloads == null ? null : Math.trunc(numberArg(input, "max_downloads", 0));
     const expiresIn = input.expires_in == null ? null : Math.trunc(numberArg(input, "expires_in", 0));
@@ -575,7 +589,16 @@ export async function callMcpTool(db: AppDb, origin: string, scopes: readonly st
       createdAt: nowIso(),
       ownerId,
     }).returning();
-    return textResult({ shareId: share.id, shareUrl: `${origin}/s/${share.id}`, guideUrl: `${origin}/api/public/guide`, hasPassword: Boolean(password), maxDownloads, expiresAt: share.expiresAt });
+    let pinnedVersion: string | undefined;
+    if (mode === "fixed" && fileId && versioning) {
+      try {
+        const [target] = await db.select().from(files).where(eq(files.id, fileId)).limit(1);
+        if (!target) throw new Error("file_not_found");
+        pinnedVersion = await versioning.pinShare(share.id, target, versionId ?? undefined);
+      } catch (error) { await db.delete(shares).where(eq(shares.id, share.id)); throw error; }
+    }
+    return textResult({ shareId: share.id, shareUrl: `${origin}/s/${share.id}`, guideUrl: `${origin}/api/public/guide`, hasPassword: Boolean(password), maxDownloads, expiresAt: share.expiresAt,
+      ...(versioning ? { shareMode: mode, versionId: pinnedVersion } : {}) });
   }
 
   if (name === "remember") {

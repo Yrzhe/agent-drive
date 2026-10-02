@@ -8,9 +8,11 @@
 | 原有功能 | Sites 实现 |
 |---|---|
 | 文件、文件夹、搜索、预览、重命名、移动、批量操作 | 共用原业务路由；原生 D1 元数据与 R2 对象 |
-| 大文件上传、下载 | 8 MiB R2 multipart 分块；短期签名同源 URL；下载流式响应、HEAD、Range |
+| 大文件上传、下载 | 8–64 MiB 动态 R2 multipart 分块；上传/下载流式响应、短期签名同源 URL、HEAD、Range |
 | 回收站、恢复、永久删除、30 天清理、配额 | 原有规则保留；新增过期 multipart 会话清理 |
 | 密码、过期、次数限制的文件/目录/root 分享、ZIP | 原有分享处理器保留；私有 Sites 还要求平台访问权限 |
+| 文件版本历史、恢复、上传二进制新版本 | Sites 新增不可变 R2 对象与 D1 版本记录；并发更新返回 409；历史计入配额 |
+| 固定 A / 跟随最新 B 的稳定分享 | REST 与 MCP 支持固定版本或最新内容；打开/下载时解析最新指针 |
 | 持久记忆、key 更新、标签、FTS、重建索引 | 原生 D1，迁移创建 FTS5 虚拟表 |
 | 多用户隔离、审批、allowlist、封禁 | ChatGPT 身份按 Site-scoped subject 映射；原有审批和 ownerId 隔离 |
 | Shared Spaces、引用分享、角色、公共 commons | 共用业务；public commons 仍只向 active 用户开放 |
@@ -55,7 +57,10 @@ Sites 保存的是源码快照；产品仓库更新不会自动部署到 Site。
 真实邮箱和 token 不写入公开源码。Sites 入口在缺少绑定、管理员或 secret 时返回 503，
 避免使用旧版未配置管理员时的 trust-any 行为。不会自动将第一个访客设为管理员。
 
-默认单文件限制 500 MiB，总配额 5 GiB；MCP 文本读写 5 MiB、inbox 5 MiB、
+Sites 默认单文件限制 625 GiB（671088640000 字节），总配额 1 TiB（1099511627776 字节）。
+分片按声明大小动态选择 8–64 MiB，始终不超过 R2 的 10,000 片。
+这两个数是应用配置，不代表 Sites 官方配额；625 GiB 是当前上传方式的支持上限。
+EdgeSpark 默认值仍是 500 MiB / 5 GiB。MCP 文本读写 5 MiB、inbox 5 MiB、
 ZIP 30 MiB / 400 个文件的现有限制保留。
 R2 binding 不需要、也不能生成 S3 presign 凭证；上传分块与短期下载 grant 均由 Worker 管理。
 
@@ -87,6 +92,18 @@ MCP 2.0 使用 `2026-07-28`：`server/discover`、每请求 namespaced `_meta`�
 
 ## 原生 Cloudflare 后续完善顺序
 
+目前 Sites 的公开配置入口提供 Workers、D1、R2 和原生 MCP/OAuth，尚未找到
+Durable Objects、KV、Queues、Cron 的绑定声明或资源创建入口。因此当前不依赖这些服务。
+D1 本身串行执行并会排队，但不能将其视为可供应用使用的 Durable Object 实例。
+KV 的最终一致性也不适合版本指针、权限和配额；这些继续保存在 D1。
+
+Cloudflare 公布的底层限制与 Sites 套餐额度应分别核对：Workers 每 isolate 128 MB 内存；
+常见账户的单请求 body 为 100 MB 起，所以当前分片最多 64 MiB；R2 单对象 5 TiB、
+multipart 上传约 4.995 TiB、最多 10,000 片、桶存储无限（不等于免费或 Sites 承诺无限）。
+D1 每库为 Free 500 MB / Paid 10 GB，行大小 2 MB、每查询最多 100 个参数。
+Sites 没有在当前接口中公开实际 Cloudflare 套餐、CPU/请求/存储计费额度；不能把 Paid 上限
+当作本 Site 已获额度。大文件接近上限的实际上传仍需生产端验证。
+
 1. 支持平台提供的绑定后，将 multipart/回收站清理和 quota 聚合接入 Cron；高并发写入可用
    Durable Objects 排队，减少 D1/R2 跨资源竞争。当前使用有界请求内操作和机会性后台清理。
 2. 用持久 outbox + Queues 做 webhook 投递、重试、死信和 activity 游标，而不是仅 waitUntil。
@@ -98,6 +115,13 @@ MCP 2.0 使用 `2026-07-28`：`server/discover`、每请求 namespaced `_meta`�
 这些是后续能力建议，当前没有声明 Events、Queues、DO、AI 或 Vectorize 已上线。
 既有应用 webhooks 与 MCP Events 的协议不同，不能将 SSE 连接直接当作 Events。
 
+版本历史现已实现，入口在文件列表的 Versions 按钮；创建分享时可选 Follow latest 或 Fixed version。
+最新链接在重新打开或请求下载时指向 B，固定链接始终指向选定的 A。
+已经签发的短期下载 URL 仍只授权原对象；已经打开的页面暂时没有实时推送。
+后续若 Sites 开放 DO，可按分享 ID 建立 WebSocket hub：D1 提交版本后发出版本变更事件，
+hub 推送给在线订阅者，前端按版本 ID 拉取一次新元数据；断线重连时核对最新版本。
+不能用 Worker 全局内存广播保证跨实例一致性，KV 最终一致性也不能替代这个 hub。
+
 ## 官方资料（2026-10-01 核对）
 
 - [ChatGPT Developer Mode](https://developers.openai.com/api/docs/guides/developer-mode)
@@ -105,3 +129,6 @@ MCP 2.0 使用 `2026-07-28`：`server/discover`、每请求 namespaced `_meta`�
 - [MCP Events](https://developers.openai.com/plugins/build/mcp-events)
 - [MCP 2026-07-28](https://modelcontextprotocol.io/specification/2026-07-28)
 - [MCP transport](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports)
+- [Workers limits](https://developers.cloudflare.com/workers/platform/limits/)
+- [R2 limits](https://developers.cloudflare.com/r2/platform/limits/)
+- [D1 limits](https://developers.cloudflare.com/d1/platform/limits/)

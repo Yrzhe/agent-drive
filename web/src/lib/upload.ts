@@ -17,7 +17,7 @@ export async function uploadBlob(ticket: UploadTicket, file: Blob, progress: (pe
     xhr.send(blob);
   });
   if (!partSize || file.size <= partSize) { await put(file, ticket.uploadUrl, 0); return; }
-  if (!Number.isSafeInteger(partSize) || partSize < 5 * 1024 * 1024 || partSize > 32 * 1024 * 1024) throw new DriveApiError("Invalid upload chunk size", 500, "INVALID_UPLOAD_TICKET");
+  if (!Number.isSafeInteger(partSize) || partSize < 5 * 1024 * 1024 || partSize > 64 * 1024 * 1024) throw new DriveApiError("Invalid upload chunk size", 500, "INVALID_UPLOAD_TICKET");
   await control("start");
   try {
     for (let offset = 0, part = 1; offset < file.size; offset += partSize, part++) {

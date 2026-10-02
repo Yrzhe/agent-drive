@@ -21,6 +21,11 @@ const MAX_ZIP_FILE_COUNT = 400;
 const ZIP_METADATA_FILE_ID_LIMIT = 50;
 const ROOT_SHARE_NAME = "Drive";
 
+async function sitesShareFileFilter(share: { ownerId: string | null }) {
+  const { kind } = await getPlatform();
+  return kind === "sites" ? (share.ownerId ? eq(files.ownerId, share.ownerId) : sql`0`) : undefined;
+}
+
 function getShareId(c: { req: { param: (name: string) => string | undefined } }): string {
   const shareId = c.req.param("shareId");
   if (!shareId) throw new ApiError(400, "validation_error", "Missing path param: shareId");
@@ -170,8 +175,10 @@ publicSharesRoutes.get(
     }
 
     if (share.fileId) {
-      const [file] = await db.select().from(files).where(and(eq(files.id, share.fileId), isNull(files.deletedAt))).limit(1);
+      let [file] = await db.select().from(files).where(and(eq(files.id, share.fileId), isNull(files.deletedAt), await sitesShareFileFilter(share))).limit(1);
       if (!file) throw new ApiError(404, "file_not_found", "Shared file not found");
+      const { versioning } = await getPlatform();
+      if (versioning) file = await versioning.resolveShare(share.id, file);
       await logEvent(db, {
         ownerId: share.ownerId ?? null,
         eventType: "share.accessed",
@@ -188,6 +195,7 @@ publicSharesRoutes.get(
       return c.json({
         id: share.id,
         type: "file",
+        ...(versioning ? (await versioning.shareDetails([share.id])).get(share.id) ?? { shareMode: "latest" } : {}),
         name: file.name,
         size: file.size,
         fileCount: 1,
@@ -204,7 +212,7 @@ publicSharesRoutes.get(
     const folderPath = normalizePath(share.folderPath ?? "/");
     const folder = folderPath === "/"
       ? null
-      : (await db.select().from(files).where(and(eq(files.path, folderPath), eq(files.isFolder, 1), isNull(files.deletedAt))).limit(1))[0];
+      : (await db.select().from(files).where(and(eq(files.path, folderPath), eq(files.isFolder, 1), isNull(files.deletedAt), await sitesShareFileFilter(share))).limit(1))[0];
     if (folderPath !== "/" && !folder) throw new ApiError(404, "file_not_found", "Shared folder not found");
 
     const [stats] = await db
@@ -213,7 +221,7 @@ publicSharesRoutes.get(
         fileCount: sql<number>`count(case when ${files.isFolder} = 0 then 1 end)`,
       })
       .from(files)
-      .where(and(sql`${files.path} LIKE ${escapedDescendantPattern(folderPath)} ESCAPE '\\'`, isNull(files.deletedAt)));
+      .where(and(sql`${files.path} LIKE ${escapedDescendantPattern(folderPath)} ESCAPE '\\'`, isNull(files.deletedAt), await sitesShareFileFilter(share)));
     const size = Number(stats?.size ?? 0);
     const fileCount = Number(stats?.fileCount ?? 0);
 
@@ -307,8 +315,10 @@ publicSharesRoutes.get(
     const offset = boundedQueryInt(c.req.query("offset"), 0, 0, Number.MAX_SAFE_INTEGER);
 
     if (share.fileId) {
-      const [file] = await db.select().from(files).where(and(eq(files.id, share.fileId), eq(files.isFolder, 0), isNull(files.deletedAt))).limit(1);
+      let [file] = await db.select().from(files).where(and(eq(files.id, share.fileId), eq(files.isFolder, 0), isNull(files.deletedAt), await sitesShareFileFilter(share))).limit(1);
       if (!file) throw new ApiError(404, "file_not_found", "Shared file not found");
+      const { versioning } = await getPlatform();
+      if (versioning) file = await versioning.resolveShare(share.id, file);
       return c.json({
         files: offset === 0 ? [{ id: file.id, name: file.name, path: file.name, isFolder: false, size: file.size, contentType: file.contentType }] : [],
         limit,
@@ -320,7 +330,7 @@ publicSharesRoutes.get(
     const rows = await db
       .select()
       .from(files)
-      .where(and(sql`${files.path} LIKE ${escapedDescendantPattern(folderPath)} ESCAPE '\\'`, isNull(files.deletedAt)))
+      .where(and(sql`${files.path} LIKE ${escapedDescendantPattern(folderPath)} ESCAPE '\\'`, isNull(files.deletedAt), await sitesShareFileFilter(share)))
       .orderBy(asc(files.path))
       .limit(limit)
       .offset(offset);
@@ -351,7 +361,7 @@ publicSharesRoutes.get(
 
     let target = undefined as typeof files.$inferSelect | undefined;
     if (share.fileId) {
-      [target] = await db.select().from(files).where(and(eq(files.id, share.fileId), eq(files.isFolder, 0), isNull(files.deletedAt))).limit(1);
+      [target] = await db.select().from(files).where(and(eq(files.id, share.fileId), eq(files.isFolder, 0), isNull(files.deletedAt), await sitesShareFileFilter(share))).limit(1);
     } else {
       const fileId = (c.req.query("fileId") ?? "").trim();
       if (!fileId) throw new ApiError(400, "validation_error", "fileId is required for single file download. Use /download-zip to download all files.");
@@ -362,13 +372,15 @@ publicSharesRoutes.get(
         .where(and(
           eq(files.id, fileId),
           eq(files.isFolder, 0),
-          isNull(files.deletedAt),
+          isNull(files.deletedAt), await sitesShareFileFilter(share),
           or(eq(files.path, folderPath), sql`${files.path} LIKE ${escapedDescendantPattern(folderPath)} ESCAPE '\\'`)
         ))
         .limit(1);
     }
 
     if (!target) throw new ApiError(404, "file_not_found", "Shared file not found");
+    const { versioning } = await getPlatform();
+    if (versioning && share.fileId) target = await versioning.resolveShare(share.id, target);
     if (!target.s3Uri) throw new ApiError(404, "upload_not_found", "Storage path not found");
 
     const parsed = storage.tryParseS3Uri(target.s3Uri);
@@ -428,12 +440,12 @@ publicSharesRoutes.get(
     if (basePath === "/") {
       zipName = sanitizeZipFilename(ROOT_SHARE_NAME);
     } else {
-      const [baseFolder] = await db.select().from(files).where(and(eq(files.path, basePath), eq(files.isFolder, 1), isNull(files.deletedAt))).limit(1);
+      const [baseFolder] = await db.select().from(files).where(and(eq(files.path, basePath), eq(files.isFolder, 1), isNull(files.deletedAt), await sitesShareFileFilter(share))).limit(1);
       if (!baseFolder) throw new ApiError(404, "file_not_found", "Folder not found in share");
       zipName = sanitizeZipFilename(baseFolder.name);
     }
 
-    const zipFilter = and(sql`${files.path} LIKE ${escapedDescendantPattern(basePath)} ESCAPE '\\'`, eq(files.isFolder, 0), isNull(files.deletedAt));
+    const zipFilter = and(sql`${files.path} LIKE ${escapedDescendantPattern(basePath)} ESCAPE '\\'`, eq(files.isFolder, 0), isNull(files.deletedAt), await sitesShareFileFilter(share));
     const [zipStats] = await db
       .select({ fileCount: sql<number>`count(*)` })
       .from(files)
