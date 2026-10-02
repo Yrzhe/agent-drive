@@ -5,6 +5,15 @@
 > Single-owner deployment; everything below requires the owner's bearer token
 > unless marked public.
 
+## Large and binary files
+
+prepare_file_upload {path:"/program.zip"} without size gives an authenticated
+browser upload link. Choose the actual file there; size detection, bounded chunks
+and completion are automatic. A client with byte access supplies exact size for
+a transfer ticket, uploads bytes, then calls complete_file_upload {file_id}.
+The 5 MiB write_file limit applies to inline text, not binary storage uploads.
+Sites defaults are 625 GiB/file and 1 TiB total; plan entitlements unconfirmed.
+
 ## Deployment variants
 
 Sites: /mcp is the native Sites-managed OAuth endpoint (MCP 2.0 plus legacy compatibility).
@@ -31,7 +40,8 @@ fixed retains selected bytes. Already-open browser push is not implemented.
 - /api/public/guide — machine-readable JSON guide. Public. START HERE if you
   received a share link: it documents the anonymous download flow.
 - /api/public/mcp — remote MCP server (JSON-RPC over HTTP POST). Tools:
-  list_files, read_file, write_file, search_files, create_share,
+  list_files, read_file, write_file, prepare_file_upload, complete_file_upload,
+  search_files, create_share,
   remember, recall, list_memories, forget, send_file, list_spaces,
   read_space, add_to_space, remove_from_space, create_space,
   manage_space_members.

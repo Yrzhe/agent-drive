@@ -12,6 +12,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- MCP `prepare_file_upload` / `complete_file_upload` reuse REST ownership, path-scope, quota and stored-size checks for large/binary uploads. A metadata-only browser upload link handles local programs/ZIPs without guessing their size; the authenticated /upload page reads exact bytes, uses bounded multipart chunks and confirms completion. Inline-text limits are documented separately from storage uploads.
+
 - ChatGPT Sites deployment alongside EdgeSpark, using request-scoped native identity, D1 and R2 adapters; separate additive Sites migrations avoid EdgeSpark system tables.
 - Native Sites OAuth `/mcp`, MCP 2.0 stateless discovery/metadata checks, legacy compatibility, structured tool results, tool annotations and exact Origin validation.
 - Signed same-origin streaming downloads and uploads with dynamic 8–64 MiB R2 multipart chunks, durable session/part records, replay protection and expired-session cleanup. Sites defaults to 625 GiB per file and 1 TiB total application quota; actual Sites platform quotas are not published by the current interface.

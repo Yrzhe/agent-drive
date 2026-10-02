@@ -3,6 +3,7 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 
 const LandingPage = lazy(() => import("@/pages/LandingPage"));
 const DashboardPage = lazy(() => import("@/pages/DashboardPage"));
+const UploadPage = lazy(() => import("@/pages/UploadPage"));
 const ShareDownloadPage = lazy(() => import("@/pages/ShareDownloadPage"));
 const GuidePage = lazy(() => import("@/pages/GuidePage"));
 const ConnectAuthorizePage = lazy(() => import("@/pages/ConnectAuthorizePage"));
@@ -30,6 +31,7 @@ function App() {
         <Routes>
           <Route element={<LandingPage />} path="/" />
           <Route element={<DashboardPage />} path="/drive" />
+          <Route element={<UploadPage />} path="/upload" />
           <Route element={<ShareDownloadPage />} path="/s/:shareId" />
           <Route element={<GuidePage />} path="/guide" />
           <Route element={<ConnectSetupPage />} path="/connect" />

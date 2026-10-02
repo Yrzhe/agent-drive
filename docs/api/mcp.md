@@ -149,6 +149,14 @@ Response shape (success):
 
 The `content[0].text` payload is a JSON string. Clients should `JSON.parse` it.
 
+## Large/binary upload tools
+
+`prepare_file_upload` and `complete_file_upload` require `write:drive` and the destination path scope. The first accepts `{path,size?,content_type?}` where path includes the filename. Omit size for a user's local file: it returns an authenticated browser `uploadPageUrl` and creates no pending file. The browser reads the real file size and automatically streams/completes uploads, including a 500 MB program. The link must be opened as the intended account.
+
+Only supply size if a byte-access client knows the exact count. This creates the normal REST upload ticket (`fileId`, `uploadUrl`, `requiredHeaders`, `expiresAt`, optional `multipart.partSize`). Transfer small files with PUT; for multipart POST `{action:"start"}`, sequential PUT with `part=N`, POST `{action:"complete"}`; then call `complete_file_upload {file_id:fileId}`. The latter checks ownership, path scope, stored size and quota. Browser links complete automatically. Existing files are not overwritten; conflicts return `path_conflict`.
+
+The inline `write_file` cap remains 5 MiB per text message. Sites application storage uploads default to 625 GiB/file and 1 TiB total, subject to actual platform entitlements. HTTP transfers to a private Site also need platform access; a browser signed into the same account provides it, while separate automation needs its own access arrangement.
+
 ## Tools
 
 All tool input/output schemas are sourced from `server/src/lib/mcp-tools.ts`.

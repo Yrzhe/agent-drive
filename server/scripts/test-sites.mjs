@@ -37,7 +37,7 @@ try {
   assert.equal((await json("/api/public/v1/account/status", undefined, visitor)).status, "pending");
   assert.equal((await request("/api/public/v1/files", {}, visitor)).status, 403);
   const visitorId = (await json("/api/public/session", undefined, visitor)).user.id;
-  assert.equal((await rpc("tools/list", {}, visitor)).result.tools.length, 16);
+  assert.equal((await rpc("tools/list", {}, visitor)).result.tools.length, 18);
   assert.equal((await request("/mcp", { method: "POST", body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "list_files", arguments: {} } }) }, visitor)).status, 403);
   await json(`/api/public/v1/admin/waitlist/${visitorId}/approve`, {});
   const modern = { _meta: { "io.modelcontextprotocol/protocolVersion": "2026-07-28", "io.modelcontextprotocol/clientCapabilities": {} } };
@@ -46,14 +46,14 @@ try {
   assert.ok(discover.result.supportedVersions.includes("2026-07-28"));
   assert.equal(discover.result.capabilities.events, undefined);
   const list = await rpc("tools/list", modern);
-  assert.equal(list.result.tools.length, 16);
+  assert.equal(list.result.tools.length, 18);
   assert.equal(list.result.tools.find((tool) => tool.name === "read_file").annotations.readOnlyHint, true);
   // Production Sites requests omit Mcp-Method/Mcp-Name even with the modern header.
   const sitesHeaders = { "MCP-Protocol-Version": "2026-07-28" };
   const forwarded = await json("/mcp", { jsonrpc: "2.0", id: 1, method: "server/discover", params: modern }, sitesHeaders);
   assert.equal(forwarded.result.resultType, "complete");
   const catalog = await json("/mcp", { jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }, sitesHeaders);
-  assert.equal(catalog.result.tools.length, 16);
+  assert.equal(catalog.result.tools.length, 18);
   assert.ok(!JSON.stringify(catalog).includes("owner@example.com"));
   const unauthenticatedInitialize = await rpc("initialize", { protocolVersion: "2025-11-25" }, {});
   assert.equal(unauthenticatedInitialize.result.protocolVersion, "2025-11-25");
@@ -180,6 +180,39 @@ try {
   }
   await upload("中文 100% #?.bin", new TextEncoder().encode("binary unicode name payload"));
   await upload("multipart.bin", new Uint8Array(16 * 1024 * 1024 + 127).fill(73), true);
+  // Transfer a real 500 MiB binary using bounded chunks; never allocate the whole
+  // file in the client or load it through the inline read_file text path.
+  const ownerId = (await json("/api/public/session")).user.id;
+  const beforeLink = await db.prepare("SELECT count(*) AS count FROM files").first("count");
+  const browserLink = (await rpc("tools/call", { name: "prepare_file_upload", arguments: { path: "/local-program.zip" }, ...modern })).result.structuredContent;
+  const uploadPage = new URL(browserLink.uploadPageUrl);
+  assert.equal(uploadPage.pathname, "/upload");
+  assert.equal(uploadPage.searchParams.get("account"), ownerId);
+  assert.equal(uploadPage.searchParams.get("path"), "/local-program.zip");
+  assert.equal(await db.prepare("SELECT count(*) AS count FROM files").first("count"), beforeLink, "link-only preparation creates no pending file");
+  const programSize = 500 * 1024 * 1024;
+  const program = (await rpc("tools/call", { name: "prepare_file_upload", arguments: { path: "/program-500MiB.zip", size: programSize }, ...modern })).result.structuredContent;
+  assert.equal(program.uploadMode, "transfer");
+  assert.equal(program.multipart.partSize, 8 * 1024 * 1024);
+  await json(program.uploadUrl, { action: "start" }, {});
+  for (let offset = 0, part = 1; offset < programSize; offset += program.multipart.partSize, part++) {
+    const size = Math.min(program.multipart.partSize, programSize - offset);
+    const chunk = new Uint8Array(size).fill(part % 256);
+    const response = await request(program.uploadUrl + `&part=${part}`, { method: "PUT", body: chunk }, {});
+    assert.equal(response.status, 200, await response.text());
+  }
+  await json(program.uploadUrl, { action: "complete" }, {});
+  const stolenCompletion = await rpc("tools/call", { name: "complete_file_upload", arguments: { file_id: program.fileId }, ...modern }, visitor);
+  assert.ok(stolenCompletion.error, "another account cannot complete an upload ticket");
+  const programCompleted = await rpc("tools/call", { name: "complete_file_upload", arguments: { file_id: program.fileId }, ...modern });
+  assert.equal(programCompleted.result.structuredContent.file.size, programSize);
+  const programDownload = await json(`/api/public/v1/files/${program.fileId}/preview`);
+  assert.equal((await request(programDownload.downloadUrl, { method: "HEAD" }, {})).headers.get("content-length"), String(programSize));
+  const programTail = await request(programDownload.downloadUrl, { headers: { Range: `bytes=${programSize - 4}-${programSize - 1}` } }, {});
+  assert.equal(programTail.status, 206);
+  assert.deepEqual([...new Uint8Array(await programTail.arrayBuffer())], [63, 63, 63, 63]);
+  assert.ok((await rpc("tools/call", { name: "complete_file_upload", arguments: { file_id: program.fileId }, ...modern })).error, "completion cannot replay");
+  console.log("Verified real 500 MiB program upload, byte count and download range through MCP + R2 multipart.");
   const huge = await json("/api/public/v1/files/upload", { filename: "maximum-size.bin", contentType: "application/octet-stream", size: 671088640000, path: "/" });
   assert.equal(huge.multipart.partSize, 64 * 1024 * 1024);
   assert.equal(Math.ceil(671088640000 / huge.multipart.partSize), 10000);
@@ -193,9 +226,15 @@ try {
   assert.ok(scoped.token, JSON.stringify(scoped));
   const limited = await rpc("tools/list", {}, { authorization: `Bearer ${scoped.token}` }, "/api/public/mcp");
   assert.ok(!limited.result.tools.some((tool) => tool.name === "write_file"));
+  assert.ok(!limited.result.tools.some((tool) => ["prepare_file_upload", "complete_file_upload"].includes(tool.name)));
+  const readonlyUpload = await rpc("tools/call", { name: "prepare_file_upload", arguments: { path: "/forbidden.zip", size: 500000000 } }, { authorization: `Bearer ${scoped.token}` }, "/api/public/mcp");
+  assert.equal(readonlyUpload.error.code, -32001);
+  const scopedWriter = await json("/api/public/v1/tokens", { label: "upload-path", scopes: ["write:drive"], pathPrefix: "/allowed" });
+  const wrongPath = await rpc("tools/call", { name: "prepare_file_upload", arguments: { path: "/outside.zip", size: 500000000 } }, { authorization: `Bearer ${scopedWriter.token}` }, "/api/public/mcp");
+  assert.equal(wrongPath.error.code, -32001);
   await db.prepare("UPDATE user_access SET status='suspended' WHERE user_id=?").bind(visitorId).run();
   assert.equal((await request("/api/public/v1/files", {}, visitor)).status, 403);
-  assert.equal((await rpc("tools/list", {}, visitor)).result.tools.length, 16);
+  assert.equal((await rpc("tools/list", {}, visitor)).result.tools.length, 18);
   assert.equal((await request("/mcp", { method: "POST", body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "list_files", arguments: {} } }) }, visitor)).status, 403);
   console.log("Sites workerd checks passed: D1 migrations/FTS, native identity, approval/suspension, concurrent isolation, MCP 2.0/legacy, immutable versions/restore/latest/fixed/password shares/conflicts, Unicode/R2 streaming/ranges, multipart, quota boundary and replay/tamper protection.");
 } finally { await mf.dispose(); }

@@ -14,6 +14,10 @@ Sites application defaults are 625 GiB/file and 1 TiB total. Uploads stream usin
 
 MCP Events callbacks are not implemented or advertised. Existing Agent Drive webhooks keep their prior HMAC payload and delivery rules and are not interoperable with MCP Events subscriptions.
 
+## Large-file MCP uploads
+
+`prepare_file_upload {path}` without size returns a login-protected browser upload link for the same account; it creates no pending file. The user chooses the actual local file, including a 500 MB program or ZIP, and exact sizing, streaming multipart and confirmation run automatically. For byte-access automation, supply exact size and optional content_type for the regular transfer ticket, then call `complete_file_upload {file_id}`. Both tools require write:drive and enforce ownership/path scope through the same REST upload services. A private Site still enforces platform access on transfer URLs. Inline write_file text is capped at 5 MiB per tool message; that is independent of large-file storage uploads.
+
 ## File versions and stable shares (Sites)
 
 Completed files keep immutable R2 objects. MCP `write_file` overwrites retain prior contents and use an atomic D1 compare-and-swap; history consumes quota. `GET /api/public/v1/files/:id/versions?limit=50&offset=0` returns history with `current`, without object keys; max page size is 100. History is owner-only, and bearer read/write and path scopes apply.

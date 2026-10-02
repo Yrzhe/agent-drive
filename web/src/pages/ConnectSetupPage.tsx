@@ -198,6 +198,7 @@ export default function ConnectSetupPage() {
             <li>在 ChatGPT 设置中启用 Developer Mode，然后添加 Remote MCP／插件。</li>
             <li>复制下方 MCP 地址，选择 OAuth，使用你自己的 ChatGPT 账号完成授权。原生连接无需粘贴管理员 token。</li>
             <li>刷新工具列表并打开新聊天，先调用 <code>list_files</code> 检查连接，再使用文件、记忆和空间工具。</li>
+            <li>上传 500 MB 程序等大文件：让 ChatGPT 调用 <code>prepare_file_upload</code> 获取上传链接，打开后选择本地文件。网站会自动读取大小、分块传输并确认保存；5 MiB 仅限制直接放进工具参数的文本。</li>
           </ol>
           <p className="mt-3 text-sm text-slate-600">大家使用同一个站点 MCP 地址，授权身份不同。你的文件和记忆按账号隔离；共享空间按成员角色开放。下方 scope 选择用于应用 token／外部客户端，不改变原生 OAuth 的账号身份。</p>
           <details className="mt-4 text-sm text-slate-600"><summary className="cursor-pointer font-medium">常见问题与 MCP Events</summary><div className="mt-2 space-y-2">

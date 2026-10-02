@@ -24,7 +24,8 @@ Both land on the same scope-checked tool surface. Never put the `AGENT_TOKEN` in
 | Tool | Scope | Notes |
 |---|---|---|
 | `list_files`, `read_file`, `search_files` | `read:drive` | `read_file` returns file **text directly** (no share needed), UTF-8 up to 5 MB — larger/binary via REST download |
-| `write_file` | `write:drive` | **UTF-8 text only, max 5 MB.** Binary/large files → REST presigned flow, not `write_file` |
+| `write_file` | `write:drive` | Inline UTF-8 text only, max 5 MiB. Large/binary files use `prepare_file_upload` |
+| `prepare_file_upload`, `complete_file_upload` | `write:drive` | Browser upload links or streaming transfer tickets and confirmation for large/binary files |
 | `create_share` | `share:create` | Returns `{ shareUrl, guideUrl }` — put `guideUrl` in hand-off messages |
 | `send_file` | `share:create` | Drive-to-Drive delivery to a pinned contact (see `peering.md`) |
 | `remember`, `recall`, `list_memories`, `forget` | `read:memory` / `write:memory` | Cross-session memory (see `memory.md`) |
@@ -35,7 +36,13 @@ On `initialize`, the server returns rich `instructions` (granted scopes, path ru
 
 ## Binary / large uploads (write_file can't do these)
 
-`write_file` is text-only. For PDFs, images, video, or files > 5 MB use REST:
+`write_file` is inline text-only (5 MiB per message), not a storage-size limit.
+
+- For a user's local file, call `prepare_file_upload {path:"/program.zip"}` **without size**. It returns `uploadPageUrl`; give this link to the user. The authenticated browser selects the actual file, reads its exact byte count and automatically uploads bounded chunks and confirms completion. No pending file or upload credential is created by this link-only call. The link names the intended account; sign in as that account. A 500 MB program or ZIP uses this flow.
+- For a client that has the bytes and their exact count, call `prepare_file_upload {path,size,content_type?}`. The response includes `fileId`, `uploadUrl`, `requiredHeaders`, `expiresAt` and optional `multipart.partSize`. Small files use PUT; large files use POST `{action:"start"}`, sequential PUT `part=1..N`, POST `{action:"complete"}`. Finish with `complete_file_upload {file_id:fileId}`. Read-only/path-scoped tokens remain restricted, and another owner cannot complete your ticket.
+- Sites defaults are 625 GiB/file and 1 TiB total application quota, not confirmed platform entitlements. Private Site platform access still applies to HTTP transfer URLs; MCP OAuth does not give a separate HTTP client a browser session or service credential. The browser upload flow needs no service credential.
+
+The corresponding REST flow remains available:
 
 ```
 POST {url}/api/public/v1/files/upload   → { uploadUrl, ... }

@@ -6,7 +6,7 @@ Read this before using a Sites-hosted Agent Drive. Application-public endpoints 
 
 Connect ChatGPT Developer Mode to `https://<site-host>/mcp`, using Sites-managed OAuth. Sign in with ChatGPT; an approved account operates its own drive and authorized Shared Spaces. New accounts remain pending until the administrator approves them. Native OAuth is separate from the legacy application OAuth at `/api/public/oauth/*`.
 
-Supported MCP versions: `2026-07-28` (2.0), `2025-11-25`, `2025-06-18`, `2025-03-26`, `2024-11-05`. Modern requests use `server/discover` and per-request `_meta` keys `io.modelcontextprotocol/protocolVersion` and `io.modelcontextprotocol/clientCapabilities`, plus matching `MCP-Protocol-Version`, `Mcp-Method` and `Mcp-Name` headers when applicable. Native Sites accepts omitted method/name headers and protocol/capabilities metadata for hosting/client compatibility; every supplied value is validated. The application-bearer endpoint retains strict modern validation. Classic `initialize` negotiates a supported 2025/2024 version even with a modern transport header. No session ID or GET SSE stream is issued. The same 16 tools are exposed, filtered by scopes for application bearer callers. MCP Events is not advertised.
+Supported MCP versions: `2026-07-28` (2.0), `2025-11-25`, `2025-06-18`, `2025-03-26`, `2024-11-05`. Modern requests use `server/discover` and per-request `_meta` keys `io.modelcontextprotocol/protocolVersion` and `io.modelcontextprotocol/clientCapabilities`, plus matching `MCP-Protocol-Version`, `Mcp-Method` and `Mcp-Name` headers when applicable. Native Sites accepts omitted method/name headers and protocol/capabilities metadata for hosting/client compatibility; every supplied value is validated. The application-bearer endpoint retains strict modern validation. Classic `initialize` negotiates a supported 2025/2024 version even with a modern transport header. No session ID or GET SSE stream is issued. The same 18 tools are exposed, filtered by scopes for application bearer callers. MCP Events is not advertised.
 
 Native `initialize`, `server/discover` and `tools/list` are metadata-only and available before user OAuth or app approval, within the Site audience. They expose no files, memory, account identity or granted user access. `tools/call` still requires authentication and an active account. A private service credential does not create a user identity. After an update, refresh the plugin's tool metadata and start a new chat if the old chat has no actions.
 
@@ -17,6 +17,8 @@ Keep the existing `/api/public/mcp` endpoint for `adrive`. Mint a scoped applica
 Native `/mcp` account permissions follow the approved signed-in account. CLI/app bearer scopes and path prefixes remain independently enforced.
 
 ## R2 uploads and downloads
+
+For local programs/ZIPs including 500 MB files, call MCP `prepare_file_upload {path}` without size and give its authenticated `uploadPageUrl` to the user. The browser detects exact bytes, streams bounded chunks and completes automatically. A byte-access client can instead supply exact size and use the returned transfer ticket, then call `complete_file_upload {file_id}`. The inline 5 MiB `write_file` text cap does not limit these uploads.
 
 Request `POST /api/public/v1/files/upload` as before. Sites defaults to 625 GiB per file and 1 TiB total application quota, with streamed uploads. Use the ticket's `multipart.partSize` (dynamic 8–64 MiB), never a hardcoded chunk size. Upload files above that size as follows:
 

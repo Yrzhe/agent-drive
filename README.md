@@ -17,6 +17,8 @@ The same repository now supports EdgeSpark and ChatGPT Sites through request-sco
 
 Native `/mcp` initialization and tool discovery expose only public instructions and schemas, so Sites can register the plugin before user OAuth. Tool calls still require authentication and an active account. The native endpoint accepts Sites requests without redundant method/name headers or optional metadata; any supplied conflicting values are rejected. After a server update, refresh the plugin's tools and start a new chat if the old chat has no actions.
 
+Large/binary files, including a 500 MB program, use MCP `prepare_file_upload {path}` without size to get an authenticated browser upload link; choosing the actual file detects its exact size and streams bounded chunks automatically. Byte-access clients may supply exact size to get a transfer ticket and finish with `complete_file_upload {file_id}`. The 5 MiB `write_file` inline-text cap is separate from storage uploads.
+
 Sites defaults to a 625 GiB per-file cap and 1 TiB application quota, using dynamic 8–64 MiB streaming parts. These are application settings, not confirmed Sites plan entitlements. Durable Objects, KV and Queues bindings are not exposed by the current Sites configuration interface.
 
 Sites also retains file history, supports downloading/restoring old versions and uploading binary replacements, and offers fixed-version or latest-version share links. Latest links resolve new contents on open/download; live updates to already-open pages are pending a supported cross-instance push service. See [the version API](docs/api/sites.md#file-versions-and-stable-shares-sites).
