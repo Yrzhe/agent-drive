@@ -1,3 +1,4 @@
+import { getPlatform } from "@platform";
 import { Hono } from "hono";
 
 import { getRequestActor, logEvent } from "../lib/activity";
@@ -33,7 +34,7 @@ memoryRoutes.post(
       tags?: unknown;
       source?: unknown;
     };
-    const { db } = await import("edgespark");
+    const { db } = await getPlatform();
     try {
       const { memory, created } = await rememberMemory(db, {
         content: typeof body.content === "string" ? body.content : "",
@@ -62,7 +63,7 @@ memoryRoutes.get(
   withErrorHandling(async (c) => {
     const limitRaw = Number(c.req.query("limit") ?? "20");
     const offsetRaw = Number(c.req.query("offset") ?? "0");
-    const { db } = await import("edgespark");
+    const { db } = await getPlatform();
     const ownerId = c.get("ownerId") ?? null;
     // Read-path union: own rows PLUS memories reachable via this caller's space memberships
     // (design §Read-path change). Reduces to the strict owner filter when the caller has no
@@ -85,7 +86,7 @@ memoryRoutes.get(
     const query = (c.req.query("q") ?? "").trim();
     if (!query) throw new ApiError(400, "validation_error", "q query param is required");
     const limitRaw = Number(c.req.query("limit") ?? "10");
-    const { db } = await import("edgespark");
+    const { db } = await getPlatform();
     const ownerId = c.get("ownerId") ?? null;
     // FTS recall widens to the union of the caller's own memories + memory ids reachable via
     // spaces, applied to the joined rows so foreign private memories never rank in.
@@ -98,7 +99,7 @@ memoryRoutes.get(
 memoryRoutes.get(
   "/index-status",
   withErrorHandling(async (c) => {
-    const { db } = await import("edgespark");
+    const { db } = await getPlatform();
     return c.json(await getMemoryIndexStatus(db));
   })
 );
@@ -106,7 +107,7 @@ memoryRoutes.get(
 memoryRoutes.post(
   "/rebuild-index",
   withErrorHandling(async (c) => {
-    const { db } = await import("edgespark");
+    const { db } = await getPlatform();
     const rebuilt = await rebuildMemoryIndex(db);
     return c.json({ rebuilt });
   })
@@ -117,7 +118,7 @@ memoryRoutes.get(
   withErrorHandling(async (c) => {
     const id = c.req.param("id");
     if (!id) throw new ApiError(400, "validation_error", "Missing path param: id");
-    const { db } = await import("edgespark");
+    const { db } = await getPlatform();
     const ownerId = c.get("ownerId") ?? null;
     // Read-path union: own memory OR one reachable via a space membership (design §Read-path
     // change). Non-members collapse to the strict owner filter → same 404 as full isolation.
@@ -133,7 +134,7 @@ memoryRoutes.delete(
   withErrorHandling(async (c) => {
     const id = c.req.param("id");
     if (!id) throw new ApiError(400, "validation_error", "Missing path param: id");
-    const { db } = await import("edgespark");
+    const { db } = await getPlatform();
     const forgotten = await forgetMemory(db, id, c.get("ownerId") ?? null);
     if (!forgotten) throw new ApiError(404, "memory_not_found", "Memory not found");
     await logEvent(db, {

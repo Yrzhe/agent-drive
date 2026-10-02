@@ -1,3 +1,4 @@
+import { siteFetch } from "./site-fetch.js";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { hostname } from "node:os";
@@ -133,7 +134,7 @@ async function readJsonResponse<T>(response: Response, label: string): Promise<T
 }
 
 export async function registerOAuthClient(baseUrl: string, redirectUri: string, scope: string): Promise<OAuthClientRegistration> {
-  const response = await fetch(authServerUrl(baseUrl, "/api/public/oauth/register"), {
+  const response = await siteFetch(authServerUrl(baseUrl, "/api/public/oauth/register"), {
     method: "POST",
     headers: jsonHeaders(),
     body: JSON.stringify({
@@ -154,7 +155,7 @@ export async function exchangeAuthorizationCode(input: {
   redirectUri: string;
   verifier: string;
 }): Promise<OAuthTokenResponse> {
-  const response = await fetch(authServerUrl(input.baseUrl, "/api/public/oauth/token"), {
+  const response = await siteFetch(authServerUrl(input.baseUrl, "/api/public/oauth/token"), {
     method: "POST",
     headers: jsonHeaders(),
     body: JSON.stringify({
@@ -174,7 +175,7 @@ export async function refreshAccessToken(input: {
   refreshToken: string;
   scope?: string;
 }): Promise<OAuthTokenResponse> {
-  const response = await fetch(authServerUrl(input.baseUrl, "/api/public/oauth/token"), {
+  const response = await siteFetch(authServerUrl(input.baseUrl, "/api/public/oauth/token"), {
     method: "POST",
     headers: jsonHeaders(),
     body: JSON.stringify({

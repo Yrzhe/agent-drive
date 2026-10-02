@@ -1,9 +1,11 @@
+import { driveUsers } from "@users";
+import { getPlatform } from "@platform";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import type { Context } from "hono";
 import { Hono } from "hono";
 import { nanoid } from "nanoid";
 
-import { esSystemAuthUser, spaceItems, spaceMembers, spaces } from "@defs";
+import { spaceItems, spaceMembers, spaces } from "@defs";
 
 import { ApiError, withErrorHandling } from "../lib/errors";
 import { nowIso } from "../lib/files";
@@ -55,7 +57,7 @@ export const spacesRoutes = new Hono<AppEnv>();
  * every handler below behaves exactly as it did in P1.
  */
 spacesRoutes.use("*", async (_c, next) => {
-  const { db } = await import("edgespark");
+  const { db } = await getPlatform();
   await ensurePublicCommons(db);
   await next();
 });
@@ -137,7 +139,7 @@ spacesRoutes.post(
     const body = (await c.req.json().catch(() => ({}))) as { name?: unknown };
     const name = validateSpaceName(body.name);
 
-    const { db } = await import("edgespark");
+    const { db } = await getPlatform();
     const [space] = await db
       .insert(spaces)
       .values({ id: nanoid(), name, creatorId: callerId, visibility: "invite", createdAt: nowIso() })
@@ -152,7 +154,7 @@ spacesRoutes.get(
   "/",
   withErrorHandling(async (c) => {
     const callerId = requireCaller(c);
-    const { db } = await import("edgespark");
+    const { db } = await getPlatform();
 
     const spaceIds = await userSpaceIds(db, callerId);
     if (spaceIds.length === 0) return c.json({ spaces: [] });
@@ -176,7 +178,7 @@ spacesRoutes.get(
   withErrorHandling(async (c) => {
     const callerId = requireCaller(c);
     const spaceId = requireParam(c, "id");
-    const { db } = await import("edgespark");
+    const { db } = await getPlatform();
 
     // Not a member (or the space doesn't exist) → 404, not 403: unlike assertSpaceRole's
     // space_forbidden (used by the creator-only mutation endpoints below), a plain GET by
@@ -195,7 +197,7 @@ spacesRoutes.delete(
   withErrorHandling(async (c) => {
     const callerId = requireCaller(c);
     const spaceId = requireParam(c, "id");
-    const { db } = await import("edgespark");
+    const { db } = await getPlatform();
 
     await assertSpaceRole(db, spaceId, callerId, "creator");
 
@@ -216,13 +218,13 @@ spacesRoutes.get(
   withErrorHandling(async (c) => {
     const callerId = requireCaller(c);
     const spaceId = requireParam(c, "id");
-    const { db } = await import("edgespark");
+    const { db } = await getPlatform();
 
     await assertSpaceRole(db, spaceId, callerId, "viewer");
     const space = await requireSpaceRow(db, spaceId);
 
     // On the public commons, `viewer` is satisfied by EVERY active user (implicit
-    // membership), so the plain role check would hand this handler's `esSystemAuthUser.email`
+    // membership), so the plain role check would hand this handler's `driveUsers.email`
     // join — including the deployment owner's login email — to the whole deployment. Member
     // listing there is creator-only. Item attribution still flows to everyone via each
     // item's `contributedBy`. Invite spaces keep the P1 viewer+ behavior.
@@ -236,16 +238,16 @@ spacesRoutes.get(
         role: spaceMembers.role,
         addedBy: spaceMembers.addedBy,
         addedAt: spaceMembers.addedAt,
-        email: esSystemAuthUser.email,
+        email: driveUsers.email,
       })
       .from(spaceMembers)
-      .leftJoin(esSystemAuthUser, eq(esSystemAuthUser.id, spaceMembers.userId))
+      .leftJoin(driveUsers, eq(driveUsers.id, spaceMembers.userId))
       .where(eq(spaceMembers.spaceId, spaceId));
 
     const [creatorRow] = await db
-      .select({ email: esSystemAuthUser.email })
-      .from(esSystemAuthUser)
-      .where(eq(esSystemAuthUser.id, space.creatorId))
+      .select({ email: driveUsers.email })
+      .from(driveUsers)
+      .where(eq(driveUsers.id, space.creatorId))
       .limit(1);
 
     // The creator has no space_members row (resolveSpaceRole derives it from
@@ -263,7 +265,7 @@ spacesRoutes.post(
   withErrorHandling(async (c) => {
     const callerId = requireCaller(c);
     const spaceId = requireParam(c, "id");
-    const { db } = await import("edgespark");
+    const { db } = await getPlatform();
 
     await assertSpaceRole(db, spaceId, callerId, "creator");
     const space = await requireSpaceRow(db, spaceId);
@@ -299,7 +301,7 @@ spacesRoutes.delete(
     const callerId = requireCaller(c);
     const spaceId = requireParam(c, "id");
     const targetUserId = requireParam(c, "userId");
-    const { db } = await import("edgespark");
+    const { db } = await getPlatform();
 
     await assertSpaceRole(db, spaceId, callerId, "creator");
     const space = await requireSpaceRow(db, spaceId);
@@ -333,7 +335,7 @@ spacesRoutes.patch(
     const callerId = requireCaller(c);
     const spaceId = requireParam(c, "id");
     const targetUserId = requireParam(c, "userId");
-    const { db } = await import("edgespark");
+    const { db } = await getPlatform();
 
     await assertSpaceRole(db, spaceId, callerId, "creator");
     const space = await requireSpaceRow(db, spaceId);
@@ -370,7 +372,7 @@ spacesRoutes.post(
   withErrorHandling(async (c) => {
     const callerId = requireCaller(c);
     const spaceId = requireParam(c, "id");
-    const { db } = await import("edgespark");
+    const { db } = await getPlatform();
 
     // contributor+ required to add anything; a non-member/viewer never reaches the
     // ownership check below.
@@ -409,7 +411,7 @@ spacesRoutes.get(
   withErrorHandling(async (c) => {
     const callerId = requireCaller(c);
     const spaceId = requireParam(c, "id");
-    const { db } = await import("edgespark");
+    const { db } = await getPlatform();
 
     await assertSpaceRole(db, spaceId, callerId, "viewer");
 
@@ -438,7 +440,7 @@ spacesRoutes.delete(
     const callerId = requireCaller(c);
     const spaceId = requireParam(c, "id");
     const itemId = requireParam(c, "itemId");
-    const { db } = await import("edgespark");
+    const { db } = await getPlatform();
 
     // contributor+ required to remove anything; a viewer/non-member is rejected here
     // before the item lookup even runs.

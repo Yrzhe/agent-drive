@@ -1,3 +1,4 @@
+import { getPlatform } from "@platform";
 import type { MiddlewareHandler } from "hono";
 
 import { checkAccessGate } from "../lib/access";
@@ -57,7 +58,7 @@ export const requireActiveAccess: MiddlewareHandler<AppEnv> = async (c, next) =>
 
     let principal: { id: string; email: string | null };
     if (restAuth.kind === "session") {
-      const { auth } = await import("edgespark/http");
+      const { auth } = await getPlatform();
       if (!auth.isAuthenticated()) {
         // Unreachable in practice: requireDualAuth only sets restAuth.kind === "session"
         // for an authenticated session. Guarded for type-narrowing, fail closed.
@@ -75,7 +76,7 @@ export const requireActiveAccess: MiddlewareHandler<AppEnv> = async (c, next) =>
       principal = { id: restAuth.ownerId, email: null };
     }
 
-    const { db } = await import("edgespark");
+    const { db } = await getPlatform();
     const denial = await checkAccessGate(db, principal);
 
     if (denial) {

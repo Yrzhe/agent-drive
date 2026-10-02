@@ -1,15 +1,18 @@
+import { uploadBlob } from "@/lib/upload";
+import { registerBrowserTools } from "@/lib/webmcp";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, Navigate, useSearchParams } from "react-router-dom";
 import { AuthLoginPanel } from "@/components/AuthLoginPanel";
 import { Breadcrumbs } from "@/components/Breadcrumbs";
 import { FileTable } from "@/components/FileTable";
+import { VersionsModal } from "@/components/VersionsModal";
+import { deploymentPlatform } from "@/lib/platform";
 import { PreviewModal } from "@/components/PreviewModal";
 import { ShareModal, type ShareModalInput } from "@/components/ShareModal";
 import { AddToSpaceModal } from "@/components/spaces/AddToSpaceModal";
 import { UploadZone, type UploadProgress } from "@/components/UploadZone";
 import { useAccessStatus } from "@/hooks/useAccessStatus";
 import { useAuth } from "@/hooks/useAuth";
-import { DriveApiError } from "@/lib/api-client";
 import { driveApi } from "@/lib/drive-api";
 import { normalizePath } from "@/lib/path-utils";
 import type { DriveFile, ShareLink, ShareStats } from "@/types/drive";
@@ -39,6 +42,7 @@ export default function DashboardPage() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [shareTarget, setShareTarget] = useState<DriveFile | null>(null);
   const [previewTarget, setPreviewTarget] = useState<DriveFile | null>(null);
+  const [versionsTarget, setVersionsTarget] = useState<DriveFile | null>(null);
   const [addToSpaceTarget, setAddToSpaceTarget] = useState<DriveFile | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
@@ -54,6 +58,23 @@ export default function DashboardPage() {
   const folderInputRef = useRef<HTMLInputElement | null>(null);
   const isSearchActive = debouncedSearchQuery.trim().length > 0;
   const displayedEntries = isSearchActive ? searchResults : entries;
+  const browserState = useRef({ currentPath, searchQuery, displayedEntries, loadingFiles, searching });
+  browserState.current = { currentPath, searchQuery, displayedEntries, loadingFiles, searching };
+  useEffect(() => {
+    if (!isAuthenticated || accessStatus !== "active") return;
+    return registerBrowserTools([{
+      name: "read_visible_drive",
+      description: "Read the directory, search and file entries currently displayed in Agent Drive.",
+      inputSchema: { type: "object", properties: {}, additionalProperties: false },
+      annotations: { readOnlyHint: true, untrustedContentHint: true },
+      execute(input) {
+        if (!input || typeof input !== "object" || Array.isArray(input) || Object.keys(input).length) throw new Error("Expected an empty object");
+        const state = browserState.current;
+        return { path: state.currentPath, search: state.searchQuery, loading: state.loadingFiles || state.searching,
+          files: state.displayedEntries.map(({ id, name, path, size, isFolder }) => ({ id, name, path, size, isFolder })) };
+      },
+    }]);
+  }, [isAuthenticated, accessStatus]);
   expandedShareStatsRef.current = expandedShareStats;
   shareStatsByIdRef.current = shareStatsById;
   loadingShareStatsRef.current = loadingShareStats;
@@ -144,21 +165,7 @@ export default function DashboardPage() {
     setUploadProgress({ filename: file.name, percent: 0 });
     const ticket = await driveApi.requestUpload({ filename: file.name, contentType: file.type || "application/octet-stream", size: file.size, path: targetPath });
     if (!ticket.uploadUrl.startsWith("mock://")) {
-      await new Promise<void>((resolve, reject) => {
-        const xhr = new XMLHttpRequest();
-        xhr.open("PUT", ticket.uploadUrl);
-        for (const [key, value] of Object.entries(ticket.requiredHeaders)) {
-          xhr.setRequestHeader(key, value);
-        }
-        xhr.upload.onprogress = (event) => {
-          if (event.lengthComputable) {
-            setUploadProgress({ filename: file.name, percent: Math.round((event.loaded / event.total) * 100) });
-          }
-        };
-        xhr.onload = () => (xhr.status >= 200 && xhr.status < 300 ? resolve() : reject(new DriveApiError(`Upload failed (${xhr.status})`, xhr.status, "UPLOAD_FAILED")));
-        xhr.onerror = () => reject(new DriveApiError("Upload network error", 0, "UPLOAD_FAILED"));
-        xhr.send(file);
-      });
+      await uploadBlob(ticket, file, (percent) => setUploadProgress({ filename: file.name, percent }));
     }
     setUploadProgress({ filename: file.name, percent: 100 });
     await driveApi.completeUpload(ticket.fileId, file.name, targetPath);
@@ -310,6 +317,7 @@ export default function DashboardPage() {
         password: input.password,
         maxDownloads: input.maxDownloads ?? undefined,
         expiresIn: expiresIn ?? undefined,
+        shareMode: input.shareMode,
       };
       const payload = shareTarget.isFolder ? { ...apiInput, folderPath: shareTarget.path } : { ...apiInput, fileId: shareTarget.id };
       await driveApi.createShare(payload);
@@ -467,6 +475,7 @@ export default function DashboardPage() {
             onDelete={(entry) => { void handleDelete(entry); }}
             onOpenFolder={handleOpenFolder}
             onPreview={(entry) => setPreviewTarget(entry)}
+            onVersions={deploymentPlatform === "sites" ? setVersionsTarget : undefined}
             onRename={(entry) => { void handleRename(entry); }}
             onShare={(entry) => setShareTarget(entry)}
             onToggleSelect={handleToggleSelect}
@@ -569,6 +578,7 @@ export default function DashboardPage() {
       </div>
 
       {shareTarget ? <ShareModal onCancel={() => setShareTarget(null)} onCreate={(input) => { void handleCreateShare(input); }} target={shareTarget} /> : null}
+      {versionsTarget ? <VersionsModal file={versionsTarget} onClose={() => setVersionsTarget(null)} onChange={() => { void refreshVisibleEntries(); void refreshShares(); }} /> : null}
       {previewTarget ? <PreviewModal loadPreview={loadPreview} onClose={() => setPreviewTarget(null)} target={previewTarget} /> : null}
       {addToSpaceTarget ? (
         <AddToSpaceModal

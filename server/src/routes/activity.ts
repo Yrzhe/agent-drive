@@ -1,3 +1,4 @@
+import { getPlatform } from "@platform";
 import { Hono } from "hono";
 
 import { listActivities, parseActivityMetadata } from "../lib/activity";
@@ -20,7 +21,7 @@ activityRoutes.get(
       if (!Number.isFinite(parsed)) throw new ApiError(400, "validation_error", "since must be a valid ISO timestamp");
     }
 
-    const { db } = await import("edgespark");
+    const { db } = await getPlatform();
     const activities = await listActivities(db, { type, since, limit }, c.get("ownerId") ?? null);
 
     // Events without a target path (share/webhook admin events) are only

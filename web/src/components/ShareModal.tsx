@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
 import type { DriveFile } from "@/types/drive";
+import { deploymentPlatform } from "@/lib/platform";
 
 export type ShareModalInput = {
+  shareMode?: "latest" | "fixed";
   password?: string;
   maxDownloads?: number | null;
   expiresAt?: string | null;
@@ -17,6 +19,7 @@ export function ShareModal({
   onCreate: (input: ShareModalInput) => void;
 }) {
   const [password, setPassword] = useState("");
+  const [shareMode, setShareMode] = useState<"latest" | "fixed">("latest");
   const [maxDownloads, setMaxDownloads] = useState("");
   const [expiresAt, setExpiresAt] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -26,6 +29,7 @@ export function ShareModal({
     setMaxDownloads("");
     setExpiresAt("");
     setError(null);
+    setShareMode("latest");
   }, [target.id]);
 
   const submit = () => {
@@ -50,7 +54,8 @@ export function ShareModal({
       expiration = new Date(ms).toISOString();
     }
 
-    onCreate({ password: password.trim() || undefined, maxDownloads: max, expiresAt: expiration });
+    onCreate({ password: password.trim() || undefined, maxDownloads: max, expiresAt: expiration,
+      ...(deploymentPlatform === "sites" && !target.isFolder ? { shareMode } : {}) });
   };
 
   return (
@@ -58,6 +63,12 @@ export function ShareModal({
       <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-xl">
         <h3 className="text-lg font-semibold text-slate-900">Create share link</h3>
         <p className="mt-1 text-sm text-slate-600">{target.path}</p>
+        {deploymentPlatform === "sites" && !target.isFolder ? <fieldset className="mt-4 space-y-2 text-sm">
+          <legend className="font-medium text-slate-700">File version</legend>
+          <label className="block"><input type="radio" name="share-mode" checked={shareMode === "latest"} onChange={() => setShareMode("latest")} /> Follow latest — this link downloads new contents after an update.</label>
+          <label className="block"><input type="radio" name="share-mode" checked={shareMode === "fixed"} onChange={() => setShareMode("fixed")} /> Fixed version — keep the contents shared today.</label>
+          <p className="text-xs text-slate-500">Latest links resolve on open or download. Already-open pages do not receive live push updates yet. Recipients still need Site access.</p>
+        </fieldset> : null}
 
         <label className="mt-4 block text-sm font-medium text-slate-700" htmlFor="share-password">Password (optional)</label>
         <input className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" id="share-password" onChange={(event) => setPassword(event.target.value)} placeholder="Leave blank for no password" type="password" value={password} />

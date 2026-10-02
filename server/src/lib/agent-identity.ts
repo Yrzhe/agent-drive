@@ -139,7 +139,7 @@ function toPublicIdentity(row: AgentIdentityRow): AgentIdentity {
  * Drive-specific surfaces live under the `x-agent-drive` extension so A2A
  * clients can ignore them safely.
  */
-export function buildAgentCard(identity: AgentIdentity, origin: string, appVersion: string) {
+export function buildAgentCard(identity: AgentIdentity, origin: string, appVersion: string, platform: "edgespark" | "sites" = "edgespark") {
   const host = new URL(origin).host;
   return {
     protocolVersion: "1.0",
@@ -159,7 +159,7 @@ export function buildAgentCard(identity: AgentIdentity, origin: string, appVersi
       {
         id: "file-exchange",
         name: "File exchange",
-        description: "Upload, organize, and share files; other agents download via share links without an account.",
+        description: platform === "sites" ? "Upload, organize, and share files. Private Sites requires platform access for recipients." : "Upload, organize, and share files; other agents download via share links without an account.",
       },
       {
         id: "memory",
@@ -209,11 +209,13 @@ export function buildAgentCard(identity: AgentIdentity, origin: string, appVersi
       purpose: "Future peer handshakes and bundle signatures verify against this key.",
     },
     "x-agent-drive": {
+      ...(platform === "sites" ? { fileVersions: { history: `${origin}/api/public/v1/files/{id}/versions`, replacement: "/versions/upload + /versions/complete", restore: "/versions/{versionId}/restore", sharing: "create_share share_mode latest|fixed, optional version_id; latest resolves on open/download. No live push to already-open pages. Retained history consumes quota." } } : {}),
       // A2A specifies root /.well-known/agent.json, but this platform only
       // routes /api/* through the server — the canonical card URL below is a
       // documented deviation.
       cardUrl: `${origin}/api/public/.well-known/agent.json`,
-      mcp: `${origin}/api/public/mcp`,
+      mcp: `${origin}${platform === "sites" ? "/mcp" : "/api/public/mcp"}`,
+      ...(platform === "sites" ? { platform: "sites", nativeMcpAuth: "Sites-managed OAuth with ChatGPT identity; app approval still required", legacyMcp: `${origin}/api/public/mcp`, platformAccess: "Private Sites service access is additional to app bearer authorization. Anonymous shares, subscriptions and inbox delivery require appropriate Sites access.", storageLimits: "Application defaults: 625 GiB/file, 1 TiB total; dynamic 8–64 MiB streaming parts. Sites platform entitlements unconfirmed; DO/KV/Queues bindings not exposed by current interface.", mcpEvents: "not advertised" } : {}),
       rest: `${origin}/api/public/v1`,
       guide: `${origin}/api/public/guide`,
       llmsTxt: `${origin}/llms.txt`,

@@ -1,3 +1,4 @@
+import { deploymentPlatform } from "@/lib/platform";
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { ConnectorUrlBlock } from "@/components/ConnectorUrlBlock";
@@ -112,7 +113,7 @@ function parseInitializeResult(payload: unknown): { name?: string; version?: str
 
 export default function ConnectSetupPage() {
   const origin = getOrigin();
-  const connectorUrl = `${origin}/api/public/mcp`;
+  const connectorUrl = `${origin}${deploymentPlatform === "sites" ? "/mcp" : "/api/public/mcp"}`;
   const protectedResourceUrl = `${origin}/api/public/.well-known/oauth-protected-resource`;
   const authorizationServerUrl = `${origin}/api/public/.well-known/oauth-authorization-server`;
   const [selectedScopes, setSelectedScopes] = useState<string[]>(() => loadStoredScopes() ?? ALL_SCOPES.filter((scope) => DEFAULT_SCOPES.has(scope)));
@@ -151,7 +152,7 @@ export default function ConnectSetupPage() {
 
   const handleTestConnection = async () => {
     setTestStatus({ kind: "idle", message: "Testing MCP endpoint..." });
-    const token = findLocalBearerToken();
+    const token = deploymentPlatform === "sites" ? null : findLocalBearerToken();
     try {
       const response = await fetch(connectorUrl, {
         method: "POST",
@@ -170,6 +171,9 @@ export default function ConnectSetupPage() {
 
       if (response.ok) {
         const payload = await response.json().catch(() => null) as unknown;
+        if (!payload || typeof payload !== "object" || (payload as { error?: unknown }).error || !(payload as { result?: unknown }).result) {
+          throw new Error("MCP endpoint rejected the request. Check your account approval and connection settings.");
+        }
         const info = parseInitializeResult(payload);
         setTestStatus({
           kind: "success",
@@ -187,6 +191,20 @@ export default function ConnectSetupPage() {
   return (
     <main className="min-h-screen bg-slate-50 px-6 py-8">
       <div className="mx-auto max-w-5xl space-y-6">
+        {deploymentPlatform === "sites" ? <section className="rounded-xl border border-slate-200 bg-white p-6">
+          <h2 className="text-lg font-semibold text-slate-900">在 ChatGPT 中连接你的 Agent Drive</h2>
+          <ol className="mt-3 list-decimal space-y-2 pl-5 text-sm text-slate-700">
+            <li>先用自己的 ChatGPT 账号登录本站。新账号需要管理员批准；在等待页查看申请状态。</li>
+            <li>在 ChatGPT 设置中启用 Developer Mode，然后添加 Remote MCP／插件。</li>
+            <li>复制下方 MCP 地址，选择 OAuth，使用你自己的 ChatGPT 账号完成授权。原生连接无需粘贴管理员 token。</li>
+            <li>刷新工具列表并打开新聊天，先调用 <code>list_files</code> 检查连接，再使用文件、记忆和空间工具。</li>
+          </ol>
+          <p className="mt-3 text-sm text-slate-600">大家使用同一个站点 MCP 地址，授权身份不同。你的文件和记忆按账号隔离；共享空间按成员角色开放。下方 scope 选择用于应用 token／外部客户端，不改变原生 OAuth 的账号身份。</p>
+          <details className="mt-4 text-sm text-slate-600"><summary className="cursor-pointer font-medium">常见问题与 MCP Events</summary><div className="mt-2 space-y-2">
+            <p>登录成功但收到 403：检查账号是否获批或被暂停。工具变更后：刷新连接的工具元数据，再开一个新聊天。私有 Sites 的访问范围还需要站点所有者授权。</p>
+            <p>目前未启用 MCP Events。启用后由 ChatGPT 先订阅并提供回调地址，Agent Drive 验证回调后才能主动投递匹配事件。它不等同于任意给 ChatGPT 发消息，也不等同于网页的实时更新。</p>
+          </div></details>
+        </section> : null}
         <header className="rounded-xl border border-slate-200 bg-white p-6">
           <Link className="mb-3 inline-flex items-center gap-1 text-sm text-slate-600 hover:text-slate-900" to="/drive">← Back to drive</Link>
           <p className="text-sm font-medium text-blue-700">Agent Drive MCP</p>
@@ -197,7 +215,7 @@ export default function ConnectSetupPage() {
         </header>
 
         <ConnectorUrlBlock url={connectorUrl} />
-        <PlatformTabs connectorUrl={connectorUrl} scope={scopeString} />
+        {deploymentPlatform === "sites" ? <section className="rounded-xl border border-slate-200 bg-white p-5"><h2 className="text-base font-semibold">ChatGPT Developer Mode</h2><ol className="mt-3 list-decimal space-y-2 pl-5 text-sm text-slate-700"><li>Enable Developer mode in ChatGPT Settings → Security and login.</li><li>Open Plugins, select the plus button, and add the Remote MCP URL above using OAuth.</li><li>Connect your ChatGPT account, refresh tools, and first test list_files or recall.</li></ol><p className="mt-3 text-sm text-slate-600">Sites manages this connection. External CLI clients use /api/public/mcp and an Agent Drive token; private Sites also require platform service access.</p></section> : <PlatformTabs connectorUrl={connectorUrl} scope={scopeString} />}
 
         <section className="rounded-xl border border-slate-200 bg-white p-5">
           <h2 className="text-base font-semibold text-slate-900">Scope picker</h2>

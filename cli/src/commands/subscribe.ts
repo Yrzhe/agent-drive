@@ -1,3 +1,4 @@
+import { siteFetch } from "../lib/site-fetch.js";
 import { createHash, webcrypto } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
@@ -42,7 +43,7 @@ function base64UrlDecode(value: string): Uint8Array {
 }
 
 async function verifyManifestSignature(origin: string, manifestBytes: Uint8Array, signatureB64Url: string): Promise<void> {
-  const cardResponse = await fetch(`${origin}/api/public/.well-known/agent.json`);
+  const cardResponse = await siteFetch(`${origin}/api/public/.well-known/agent.json`);
   if (!cardResponse.ok) throw new Error(`Cannot fetch Agent Card for verification (HTTP ${cardResponse.status})`);
   const card = (await cardResponse.json()) as { signing?: { algorithm?: string; publicKeyJwk?: JsonWebKey } };
   const jwk = card.signing?.publicKeyJwk;
@@ -63,11 +64,11 @@ export async function subscribeCommand(url: string, options: SubscribeOptions): 
   const { origin, publicId } = parseSubscribeUrl(url);
   const localPath = resolve(options.to);
 
-  const currentResponse = await fetch(`${origin}/api/public/b/${publicId}/current`);
+  const currentResponse = await siteFetch(`${origin}/api/public/b/${publicId}/current`);
   if (!currentResponse.ok) throw new Error(`Bundle not available (HTTP ${currentResponse.status})`);
   const current = (await currentResponse.json()) as CurrentResponse;
 
-  const manifestResponse = await fetch(`${origin}/api/public/b/${publicId}/manifest`);
+  const manifestResponse = await siteFetch(`${origin}/api/public/b/${publicId}/manifest`);
   if (!manifestResponse.ok) throw new Error(`Manifest not available (HTTP ${manifestResponse.status})`);
   const manifestBytes = new Uint8Array(await manifestResponse.arrayBuffer());
 
@@ -83,10 +84,10 @@ export async function subscribeCommand(url: string, options: SubscribeOptions): 
   await mkdir(localPath, { recursive: true });
   for (const entry of entries) {
     assertSafeRelativePath(entry.path);
-    const fileResponse = await fetch(`${origin}/api/public/b/${publicId}/file?path=${encodeURIComponent(entry.path)}`);
+    const fileResponse = await siteFetch(`${origin}/api/public/b/${publicId}/file?path=${encodeURIComponent(entry.path)}`);
     if (!fileResponse.ok) throw new Error(`Failed to resolve ${entry.path} (HTTP ${fileResponse.status})`);
     const { downloadUrl } = (await fileResponse.json()) as { downloadUrl: string };
-    const download = await fetch(downloadUrl);
+    const download = await siteFetch(downloadUrl);
     if (!download.ok) throw new Error(`Failed to download ${entry.path} (HTTP ${download.status})`);
     const bytes = new Uint8Array(await download.arrayBuffer());
     // The signature covers the manifest; the manifest's per-file sha256 covers

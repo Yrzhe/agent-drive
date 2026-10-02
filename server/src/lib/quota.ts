@@ -1,3 +1,4 @@
+import { getPlatform } from "@platform";
 import { isNull, sql } from "drizzle-orm";
 
 import { files } from "@defs";
@@ -23,12 +24,12 @@ function resolveLimit(raw: string | null | undefined, fallback: number): number 
 }
 
 async function maxFileBytes(): Promise<number> {
-  const { vars } = await import("edgespark");
+  const { vars } = await getPlatform();
   return resolveLimit(vars.get("MAX_FILE_BYTES"), DEFAULT_MAX_FILE_BYTES);
 }
 
 async function maxTotalBytes(): Promise<number> {
-  const { vars } = await import("edgespark");
+  const { vars } = await getPlatform();
   return resolveLimit(vars.get("MAX_TOTAL_BYTES"), DEFAULT_MAX_TOTAL_BYTES);
 }
 
@@ -42,7 +43,8 @@ export async function currentUsageBytes(db: AppDb): Promise<number> {
     .select({ total: sql<number>`coalesce(sum(${files.size}), 0)` })
     .from(files)
     .where(isNull(files.deletedAt));
-  return Number(row?.total ?? 0);
+  const { versioning } = await getPlatform();
+  return Number(row?.total ?? 0) + (versioning ? await versioning.extraUsageBytes() : 0);
 }
 
 export interface QuotaCheck {
@@ -55,7 +57,8 @@ const OK: QuotaCheck = { ok: true, code: "", message: "" };
 
 /** Reject a single object larger than the per-file limit. */
 export async function checkFileSize(size: number): Promise<QuotaCheck> {
-  const max = await maxFileBytes();
+  const { maxUploadBytes } = await getPlatform();
+  const max = Math.min(await maxFileBytes(), maxUploadBytes ?? Infinity);
   if (size > max) {
     return { ok: false, code: "file_too_large", message: `File is ${size} bytes; the per-file limit is ${max} bytes` };
   }

@@ -1,6 +1,8 @@
+import { driveUsers } from "@users";
+import { getPlatform } from "@platform";
 import { eq, sql } from "drizzle-orm";
 
-import { allowlist, esSystemAuthUser, userAccess } from "@defs";
+import { allowlist, userAccess } from "@defs";
 
 import type { AppDb } from "../types";
 import { nowIso } from "./files";
@@ -50,7 +52,7 @@ export async function resolveAccessStatus(
   db: AppDb,
   user: { id: string; email: string | null }
 ): Promise<AccessStatus> {
-  const { vars } = await import("edgespark");
+  const { vars } = await getPlatform();
   const ownerEmail = vars.get("OWNER_EMAIL")?.trim();
   if (!ownerEmail) return "active"; // legacy trust-any: no gate armed at all.
 
@@ -73,9 +75,9 @@ export async function resolveAccessStatus(
   let userEmail = user.email?.trim();
   if (!userEmail) {
     const [authRow] = await db
-      .select({ email: esSystemAuthUser.email })
-      .from(esSystemAuthUser)
-      .where(eq(esSystemAuthUser.id, user.id))
+      .select({ email: driveUsers.email })
+      .from(driveUsers)
+      .where(eq(driveUsers.id, user.id))
       .limit(1);
     userEmail = authRow?.email?.trim();
   }

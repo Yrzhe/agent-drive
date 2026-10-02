@@ -1,3 +1,4 @@
+import { getPlatform } from "@platform";
 import { Hono } from "hono";
 
 import { verifyWithJwk, type Jwk } from "../lib/agent-identity";
@@ -48,7 +49,7 @@ inboxRoutes.post(
       payloadError(error);
     }
 
-    const { db, storage, ctx } = await import("edgespark");
+    const { db, storage, ctx } = await getPlatform();
     const contact = await getContactByUrl(db, payload.from);
     if (!contact) {
       // Unknown sender: no detail leakage, fixed error. Peering requires the

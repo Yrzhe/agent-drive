@@ -1,3 +1,4 @@
+import { siteFetch } from "../lib/site-fetch.js";
 import { createInterface } from "node:readline";
 
 import { type AgentDriveConfig, readConfig, writeConfig } from "../lib/config.js";
@@ -71,7 +72,7 @@ async function refreshTokenIfPossible(config: AgentDriveConfig): Promise<boolean
 }
 
 async function forward(config: AgentDriveConfig, body: string): Promise<{ status: number; body: string }> {
-  const response = await fetch(mcpEndpoint(config.url), {
+  const response = await siteFetch(mcpEndpoint(config.url), {
     method: "POST",
     headers: {
       "content-type": "application/json",

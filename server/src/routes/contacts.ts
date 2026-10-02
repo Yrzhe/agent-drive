@@ -1,3 +1,4 @@
+import { getPlatform } from "@platform";
 import { and, desc, eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { nanoid } from "nanoid";
@@ -59,7 +60,7 @@ contactsRoutes.post(
     const name = normalizeContactName(body.name, fallbackName);
     const autoRelease = body.autoRelease === true ? 1 : 0;
 
-    const { db } = await import("edgespark");
+    const { db } = await getPlatform();
     let created: typeof contacts.$inferSelect;
     try {
       [created] = await db
@@ -101,7 +102,7 @@ contactsRoutes.get(
     requireSessionAuth(c);
     const { limit, offset } = parseListPagination((name) => c.req.query(name), { defaultLimit: 100, maxLimit: 500 });
     const ownerId = c.get("ownerId") ?? null;
-    const { db } = await import("edgespark");
+    const { db } = await getPlatform();
     const rows = await db
       .select()
       .from(contacts)
@@ -120,7 +121,7 @@ contactsRoutes.patch(
     const ownerId = c.get("ownerId") ?? null;
     const body = (await c.req.json().catch(() => ({}))) as { autoRelease?: unknown };
     if (typeof body.autoRelease !== "boolean") throw new ApiError(400, "validation_error", "autoRelease boolean required");
-    const { db } = await import("edgespark");
+    const { db } = await getPlatform();
     const [updated] = await db
       .update(contacts)
       .set({ autoRelease: body.autoRelease ? 1 : 0 })
@@ -136,7 +137,7 @@ contactsRoutes.delete(
   withErrorHandling(async (c) => {
     requireSessionAuth(c);
     const ownerId = c.get("ownerId") ?? null;
-    const { db } = await import("edgespark");
+    const { db } = await getPlatform();
     const deleted = await db
       .delete(contacts)
       .where(and(eq(contacts.name, c.req.param("name") ?? ""), ownerId ? eq(contacts.ownerId, ownerId) : undefined))
@@ -170,7 +171,7 @@ contactsRoutes.post(
     assertRestPathAllowed(c, filePath);
     const message = typeof body.message === "string" && body.message.trim() ? body.message.trim() : null;
 
-    const { db, storage } = await import("edgespark");
+    const { db, storage } = await getPlatform();
     const contact = await getContactByName(db, c.req.param("name") ?? "", c.get("ownerId") ?? null);
     if (!contact) throw new ApiError(404, "contact_not_found", "Contact not found");
 

@@ -1,3 +1,4 @@
+import { getPlatform } from "@platform";
 import { and, asc, desc, eq, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { nanoid } from "nanoid";
@@ -56,15 +57,15 @@ filesRoutes.post(
     const contentType = (body.contentType ?? "application/octet-stream").trim();
     const declaredSize = Number(body.size);
     if (!contentType) throw new ApiError(400, "validation_error", "contentType is required");
-    if (!Number.isFinite(declaredSize) || declaredSize < 0) {
-      throw new ApiError(400, "validation_error", "size must be a non-negative number");
+    if (!Number.isSafeInteger(declaredSize) || declaredSize < 0) {
+      throw new ApiError(400, "validation_error", "size must be a non-negative safe integer");
     }
 
     const parentPath = normalizePath(body.path ?? "/");
     const targetPath = joinPath(parentPath, filename);
     assertRestPathAllowed(c, targetPath);
 
-    const { db, storage } = await import("edgespark");
+    const { db, storage } = await getPlatform();
 
     const fileSizeCheck = await checkFileSize(declaredSize);
     if (!fileSizeCheck.ok) throw new ApiError(413, fileSizeCheck.code, fileSizeCheck.message);
@@ -122,6 +123,7 @@ filesRoutes.post(
       uploadUrl: presigned.uploadUrl,
       requiredHeaders: presigned.requiredHeaders,
       expiresAt: presigned.expiresAt.toISOString(),
+      ...(presigned.multipart ? { multipart: presigned.multipart } : {}),
     });
   })
 );
@@ -138,7 +140,7 @@ filesRoutes.post(
     const targetPath = joinPath(parentPath, filename);
     assertRestPathAllowed(c, targetPath);
 
-    const { db, storage } = await import("edgespark");
+    const { db, storage } = await getPlatform();
     const ownerId = c.get("ownerId") ?? null;
     const [pending] = await db
       .select()
@@ -226,7 +228,7 @@ filesRoutes.get(
     const offset = Number.isFinite(offsetRaw) ? Math.max(0, Math.trunc(offsetRaw)) : 0;
     assertRestListPathAllowed(c, path);
     const pathVisible = restPathFilter(c);
-    const { db } = await import("edgespark");
+    const { db } = await getPlatform();
     const ownerId = c.get("ownerId") ?? null;
     // Read-path union: own rows PLUS files reachable via this caller's space memberships
     // (design §Read-path change). Reduces to the strict owner filter when the caller has no
@@ -254,7 +256,7 @@ filesRoutes.get(
     }
 
     const pattern = `%${escapeLikeQuery(query)}%`;
-    const { db } = await import("edgespark");
+    const { db } = await getPlatform();
     const ownerId = c.get("ownerId") ?? null;
     const readable = await fileReadableFilter(db, ownerId);
     const result = await db
@@ -318,7 +320,7 @@ filesRoutes.delete(
     const body = (await c.req.json().catch(() => ({}))) as { ids?: unknown };
     const ids = normalizeBatchIds(body.ids);
 
-    const { db, storage } = await import("edgespark");
+    const { db, storage } = await getPlatform();
     const ownerId = c.get("ownerId") ?? null;
     const targets = await db
       .select()
@@ -402,7 +404,7 @@ filesRoutes.patch(
     // un-trashes) folder rows as a side effect.
     assertRestPathAllowed(c, nextParentPath);
 
-    const { db, storage } = await import("edgespark");
+    const { db, storage } = await getPlatform();
     const ownerId = c.get("ownerId") ?? null;
     await ensureFolderChain(db, nextParentPath, c.get("ownerId") ?? null);
 
@@ -518,7 +520,7 @@ filesRoutes.patch(
 filesRoutes.get(
   "/trash",
   withErrorHandling(async (c) => {
-    const { db } = await import("edgespark");
+    const { db } = await getPlatform();
     const ownerId = c.get("ownerId") ?? null;
     const { limit, offset } = parseListPagination((name) => c.req.query(name), { defaultLimit: 100, maxLimit: 500 });
     const rows = await db
@@ -551,7 +553,7 @@ filesRoutes.get(
 filesRoutes.get(
   "/:id",
   withErrorHandling(async (c) => {
-    const { db } = await import("edgespark");
+    const { db } = await getPlatform();
     const ownerId = c.get("ownerId") ?? null;
     const readable = await fileReadableFilter(db, ownerId);
     const [file] = await db
@@ -568,7 +570,7 @@ filesRoutes.get(
 filesRoutes.get(
   "/:id/preview",
   withErrorHandling(async (c) => {
-    const { db, storage } = await import("edgespark");
+    const { db, storage } = await getPlatform();
     const ownerId = c.get("ownerId") ?? null;
     // Download/preview presign is a read path: a space file signs the CONTRIBUTOR's s3Uri
     // (cross-owner), but ONLY because the widened filter matched it via space membership.
@@ -604,7 +606,7 @@ filesRoutes.patch(
       throw new ApiError(400, "validation_error", "Either name or parentPath is required");
     }
 
-    const { db, storage } = await import("edgespark");
+    const { db, storage } = await getPlatform();
     const ownerId = c.get("ownerId") ?? null;
     const [existing] = await db
       .select()
@@ -724,7 +726,7 @@ filesRoutes.patch(
 filesRoutes.delete(
   "/:id",
   withErrorHandling(async (c) => {
-    const { db, storage } = await import("edgespark");
+    const { db, storage } = await getPlatform();
     const ownerId = c.get("ownerId") ?? null;
     const [target] = await db
       .select()
@@ -760,7 +762,7 @@ filesRoutes.delete(
 filesRoutes.post(
   "/:id/restore",
   withErrorHandling(async (c) => {
-    const { db, storage } = await import("edgespark");
+    const { db, storage } = await getPlatform();
     const ownerId = c.get("ownerId") ?? null;
     const [target] = await db
       .select()
@@ -808,7 +810,7 @@ filesRoutes.post(
 filesRoutes.delete(
   "/:id/purge",
   withErrorHandling(async (c) => {
-    const { db, storage } = await import("edgespark");
+    const { db, storage } = await getPlatform();
     const ownerId = c.get("ownerId") ?? null;
     const [target] = await db
       .select()

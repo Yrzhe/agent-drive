@@ -53,6 +53,8 @@ export interface PublicFileObject {
 }
 
 export interface ShareObject {
+  shareMode?: "latest" | "fixed";
+  versionId?: string;
   id: string;
   fileId: string | null;
   folderPath: string | null;

@@ -1,3 +1,4 @@
+import type { PlatformStorage } from "../platform/types";
 import { and, eq, inArray, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
 import { buckets, files, shares } from "@defs";
 import type { ActivityActor, AppDb, FileRow } from "../types";
@@ -37,7 +38,7 @@ export function displayTrashPath(path: string): string {
   return path.replace(/~trash~[A-Za-z0-9_-]+/gu, "");
 }
 
-type StorageClient = typeof import("edgespark")["storage"];
+type StorageClient = PlatformStorage;
 
 function s3PathsFor(rows: readonly FileRow[], storage: StorageClient): string[] {
   return rows

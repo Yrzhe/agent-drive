@@ -4,6 +4,7 @@
 |---|---|
 | [`product/agent-exchange-roadmap.md`](product/agent-exchange-roadmap.md) | 产品路线图：从云盘到 Agent 信息交换平台的方向调研、驱动力分析、功能提案与落地顺序 |
 | [`migration/cloudflare-migration.md`](migration/cloudflare-migration.md) | 部署迁移：EdgeSpark → Cloudflare 原生的可移植性评估、耦合面清单与迁移 checklist |
+| [`migration/chatgpt-sites.md`](migration/chatgpt-sites.md) | ChatGPT Sites 适配：现有功能清单、双平台组织、身份/MCP/存储边界与分阶段验收（评估，尚未实现） |
 | [`conventions/website-domain.md`](conventions/website-domain.md) | 网站与域名规范：动态 origin 约定、域名审计结果、换域名 checklist、landing page 规划 |
 | [`api/`](api/) | API 文档：REST、MCP、OAuth、bundles |
 | [`setup/`](setup/) | 各 MCP 客户端（Claude / Cursor / Codex / Gemini / Windsurf）接入指南与兼容性 |

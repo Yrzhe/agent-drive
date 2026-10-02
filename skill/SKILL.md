@@ -28,6 +28,7 @@ Your private cloud drive that agents operate via API. Upload files, organize fol
 
 | Module | Reference | When to read |
 |--------|-----------|-------------|
+| **ChatGPT Sites** | `references/sites.md` | Native Sites OAuth/MCP, private access, Cloudflare R2 multipart and CLI platform credentials |
 | **Setup & Deploy** | `references/setup.md` | First-time deployment or re-deployment |
 | **MCP (remote tools)** | `references/mcp.md` | Connect an IDE/agent over Remote MCP; OAuth vs AGENT_TOKEN; the 16 tools + scopes |
 | **File Operations** | `references/file-ops.md` | Upload, download, list, move, rename, delete files and folders |

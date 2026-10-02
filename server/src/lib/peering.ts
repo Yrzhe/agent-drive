@@ -1,3 +1,4 @@
+import type { PlatformStorage } from "../platform/types";
 import { and, eq, isNull } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { driveObjectKey } from "./object-keys";
@@ -95,7 +96,7 @@ export async function getContactByName(db: AppDb, name: string, ownerId: string 
 /** Store an inbox delivery under quarantine (or the released folder). */
 export async function storeInboxFile(
   db: AppDb,
-  storage: typeof import("edgespark")["storage"],
+  storage: PlatformStorage,
   contact: ContactRow,
   payload: InboxPayload,
   bytes: Uint8Array
@@ -155,7 +156,7 @@ export interface SendResult {
 /** Sign and deliver a drive file to a peer contact's inbox endpoint. */
 export async function sendFileToContact(
   db: AppDb,
-  storage: typeof import("edgespark")["storage"],
+  storage: PlatformStorage,
   contact: ContactRow,
   filePath: string,
   message: string | null,

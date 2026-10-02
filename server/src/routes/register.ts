@@ -1,3 +1,4 @@
+import { getPlatform } from "@platform";
 import { Hono } from "hono";
 
 import { ApiError, withErrorHandling } from "../lib/errors";
@@ -19,7 +20,7 @@ function requestIp(c: { req: { header: (name: string) => string | undefined } })
 }
 
 function publicOrigin(c: { req: { url: string } }): Promise<string> {
-  return import("edgespark").then(({ vars }) =>
+  return getPlatform().then(({ vars }) =>
     (vars.get("ALLOWED_ORIGIN") ?? new URL(c.req.url).origin).replace(/\/+$/u, "")
   );
 }
@@ -27,7 +28,7 @@ function publicOrigin(c: { req: { url: string } }): Promise<string> {
 registerRoutes.post(
   "/start",
   withErrorHandling(async (c) => {
-    const { db } = await import("edgespark");
+    const { db } = await getPlatform();
     const rateLimitKey = `register-start:${requestIp(c)}`;
     const limitState = await checkRateLimit(db, rateLimitKey, RATE_LIMIT_MAX_ATTEMPTS, RATE_LIMIT_WINDOW_MS);
     if (!limitState.allowed) {
@@ -55,7 +56,7 @@ registerRoutes.get(
     const token = c.req.param("token");
     if (!token) throw new ApiError(400, "validation_error", "Missing path param: token");
 
-    const { db } = await import("edgespark");
+    const { db } = await getPlatform();
     const intent = await getActiveRegistrationIntent(db, token);
     if (!intent) throw new ApiError(404, "intent_not_found", "Registration intent not found or expired");
 

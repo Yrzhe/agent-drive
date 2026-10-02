@@ -1,6 +1,7 @@
+import { driveUsers } from "@users";
 import { and, eq, inArray, isNull, ne, or, sql, type SQL } from "drizzle-orm";
 
-import { esSystemAuthUser, files, memories, spaceItems, spaceMembers, spaces } from "@defs";
+import { files, memories, spaceItems, spaceMembers, spaces } from "@defs";
 
 import type { AppDb } from "../types";
 import { resolveAccessStatus } from "./access";
@@ -591,9 +592,9 @@ export function toSpaceSummary(space: SpaceRow, role: SpaceRole, counts: SpaceCo
  */
 export async function resolveUserIdByEmail(db: AppDb, email: string): Promise<string> {
   const rows = await db
-    .select({ id: esSystemAuthUser.id })
-    .from(esSystemAuthUser)
-    .where(sql`lower(${esSystemAuthUser.email}) = lower(${email})`)
+    .select({ id: driveUsers.id })
+    .from(driveUsers)
+    .where(sql`lower(${driveUsers.email}) = lower(${email})`)
     .limit(2);
   if (rows.length !== 1) throw new ApiError(404, "user_not_found", "No user with that email exists");
   return rows[0].id;

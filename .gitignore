@@ -74,9 +74,7 @@ temp/
 !web/public/*.png
 !docs/*.png
 
-# Lock files (regenerated on npm install)
-server/package-lock.json
-web/package-lock.json
+# Dependency lockfiles are tracked for reproducible dual-platform builds.
 
 # Local orchestration / agent workspace state (public-repo hygiene)
 .maestri/
@@ -107,3 +105,5 @@ experiments/
 
 # Superpowers SDD scratch (ledger, briefs, review packages) — never commit
 .superpowers/
+.sites-runtime/
+platforms/chatgpt-sites/.env

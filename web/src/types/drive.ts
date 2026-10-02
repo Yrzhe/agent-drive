@@ -17,9 +17,12 @@ export interface UploadTicket {
   uploadUrl: string;
   requiredHeaders: Record<string, string>;
   expiresAt: string;
+  multipart?: { partSize: number };
 }
 
 export interface ShareLink {
+  shareMode?: "latest" | "fixed";
+  versionId?: string;
   id: string;
   fileId: string | null;
   folderPath: string | null;
@@ -91,6 +94,8 @@ export interface ShareDownloadResult {
 }
 
 export interface CreateShareInput {
+  shareMode?: "latest" | "fixed";
+  versionId?: string;
   fileId?: string;
   folderPath?: string;
   password?: string;

@@ -1,3 +1,4 @@
+import { siteFetch } from "./site-fetch.js";
 import { apiUrl, authorizationHeader, type McpClientOptions } from "./mcp-client.js";
 import type { ManifestFile } from "./hash.js";
 
@@ -57,7 +58,7 @@ async function decodeJsonOrEmpty(response: Response): Promise<unknown> {
 }
 
 export async function commitBundle(client: McpClientOptions, request: CommitRequest): Promise<CommitResponse> {
-  const response = await fetch(apiUrl(client, "/api/public/v1/bundles/commit"), {
+  const response = await siteFetch(apiUrl(client, "/api/public/v1/bundles/commit"), {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -98,7 +99,7 @@ export interface BundleCurrentResponse {
 
 export async function getBundleCurrent(client: McpClientOptions, prefix: string): Promise<BundleCurrentResponse> {
   const url = apiUrl(client, `/api/public/v1/bundles/current?prefix=${encodeURIComponent(prefix)}`);
-  const response = await fetch(url, {
+  const response = await siteFetch(url, {
     headers: { "authorization": await authorizationHeader(client) },
   });
   if (!response.ok) throw new Error(`bundle current failed: HTTP ${response.status}`);
@@ -123,7 +124,7 @@ export interface BundleHistoryResponse {
 
 export async function getBundleHistory(client: McpClientOptions, prefix: string, limit = 50): Promise<BundleHistoryResponse> {
   const url = apiUrl(client, `/api/public/v1/bundles/history?prefix=${encodeURIComponent(prefix)}&limit=${limit}`);
-  const response = await fetch(url, {
+  const response = await siteFetch(url, {
     headers: { "authorization": await authorizationHeader(client) },
   });
   if (!response.ok) throw new Error(`bundle history failed: HTTP ${response.status}`);
@@ -142,7 +143,7 @@ export interface BundleManifestResponse {
 
 export async function getBundleManifest(client: McpClientOptions, prefix: string, versionId: string): Promise<BundleManifestResponse> {
   const url = apiUrl(client, `/api/public/v1/bundles/manifest?prefix=${encodeURIComponent(prefix)}&versionId=${encodeURIComponent(versionId)}`);
-  const response = await fetch(url, {
+  const response = await siteFetch(url, {
     headers: { "authorization": await authorizationHeader(client) },
   });
   if (!response.ok) throw new Error(`bundle manifest failed: HTTP ${response.status}`);

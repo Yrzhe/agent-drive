@@ -1,3 +1,5 @@
+import type { PlatformStorage } from "../platform/types";
+import { getPlatform } from "@platform";
 import { and, desc, eq, isNull } from "drizzle-orm";
 import { Hono } from "hono";
 import { nanoid } from "nanoid";
@@ -109,7 +111,7 @@ function versionConflictResponse(currentVersionId: string | null, message: strin
   } as const;
 }
 
-type StorageClientLike = typeof import("edgespark")["storage"];
+type StorageClientLike = PlatformStorage;
 
 async function snapshotCurrentManifestToHistory(
   db: AppDb,
@@ -175,7 +177,7 @@ async function snapshotCurrentManifestToHistory(
 bundlesRoutes.post(
   "/publish",
   withErrorHandling(async (c) => {
-    const { db } = await import("edgespark");
+    const { db } = await getPlatform();
     const ownerId = c.get("ownerId") ?? null;
     const body = (await c.req.json().catch(() => ({}))) as { prefix?: unknown; public?: unknown };
     if (typeof body.prefix !== "string") throw new ApiError(400, "validation_error", "prefix required");
@@ -219,7 +221,7 @@ bundlesRoutes.post(
 bundlesRoutes.post(
   "/commit",
   withErrorHandling(async (c) => {
-    const { db, storage } = await import("edgespark");
+    const { db, storage } = await getPlatform();
     const ownerId = c.get("ownerId") ?? null;
     const body = (await c.req.json()) as CommitRequestBody;
 
@@ -454,7 +456,7 @@ function requirePrefixQuery(value: string | undefined): string {
 bundlesRoutes.get(
   "/current",
   withErrorHandling(async (c) => {
-    const { db } = await import("edgespark");
+    const { db } = await getPlatform();
     const ownerId = c.get("ownerId") ?? null;
     const prefix = requirePrefixQuery(c.req.query("prefix"));
     assertRestPathAllowed(c, prefix);
@@ -510,7 +512,7 @@ function summariseManifest(raw: unknown, fallbackVersionIdFromName: string): His
 bundlesRoutes.get(
   "/history",
   withErrorHandling(async (c) => {
-    const { db, storage } = await import("edgespark");
+    const { db, storage } = await getPlatform();
     const ownerId = c.get("ownerId") ?? null;
     const prefix = requirePrefixQuery(c.req.query("prefix"));
     assertRestPathAllowed(c, prefix);
@@ -577,7 +579,7 @@ interface RawManifestDownload {
 bundlesRoutes.get(
   "/manifest",
   withErrorHandling(async (c) => {
-    const { db, storage } = await import("edgespark");
+    const { db, storage } = await getPlatform();
     const ownerId = c.get("ownerId") ?? null;
     const prefix = requirePrefixQuery(c.req.query("prefix"));
     assertRestPathAllowed(c, prefix);

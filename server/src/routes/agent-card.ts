@@ -1,3 +1,4 @@
+import { getPlatform } from "@platform";
 import { Hono } from "hono";
 
 import { buildAgentCard, getOrCreateAgentIdentity } from "../lib/agent-identity";
@@ -7,10 +8,10 @@ import { APP_VERSION } from "../lib/version";
 export const agentCardRoutes = new Hono();
 
 async function serveAgentCard(url: string): Promise<Response> {
-  const { db, vars } = await import("edgespark");
+  const { db, vars, kind } = await getPlatform();
   const origin = (vars.get("ALLOWED_ORIGIN") ?? new URL(url).origin).replace(/\/+$/u, "");
   const identity = await getOrCreateAgentIdentity(db);
-  return Response.json(buildAgentCard(identity, origin, APP_VERSION), {
+  return Response.json(buildAgentCard(identity, origin, APP_VERSION, kind), {
     headers: { "Cache-Control": "public, max-age=300" },
   });
 }

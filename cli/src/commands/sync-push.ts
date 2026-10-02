@@ -1,3 +1,4 @@
+import { siteFetch } from "../lib/site-fetch.js";
 import { posix, resolve as resolvePath } from "node:path";
 
 import { BundleConflictError, commitBundle, getBundleCurrent, type CommitManifestInput } from "../lib/bundles.js";
@@ -185,7 +186,7 @@ async function listRemoteFiles(client: McpClientOptions, cloudPath: string): Pro
 }
 
 async function deleteRemoteFile(client: McpClientOptions, id: string): Promise<void> {
-  const response = await fetch(apiUrl(client, `/api/public/v1/files/${encodeURIComponent(id)}`), {
+  const response = await siteFetch(apiUrl(client, `/api/public/v1/files/${encodeURIComponent(id)}`), {
     method: "DELETE",
     headers: {
       "authorization": await authorizationHeader(client),

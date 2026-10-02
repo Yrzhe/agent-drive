@@ -1,3 +1,4 @@
+import { getPlatform } from "@platform";
 import { and, desc, eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { nanoid } from "nanoid";
@@ -86,12 +87,12 @@ tokensRoutes.post(
     const grantedScopes: string[] = [...scopes];
     if (pathPrefix) grantedScopes.push(formatPathScope(pathPrefix));
 
-    const { auth } = await import("edgespark/http");
+    const { auth } = await getPlatform();
     if (!auth.isAuthenticated()) throw new ApiError(401, "unauthorized", "Authentication required");
 
     const id = `dtk_${nanoid(24)}`;
     const secret = nanoid(48);
-    const { db } = await import("edgespark");
+    const { db } = await getPlatform();
     const [created] = await db
       .insert(oauthTokens)
       .values({
@@ -135,7 +136,7 @@ tokensRoutes.get(
   withErrorHandling(async (c) => {
     requireSessionAuth(c);
     const { limit, offset } = parseListPagination((name) => c.req.query(name), { defaultLimit: 100, maxLimit: 500 });
-    const { db } = await import("edgespark");
+    const { db } = await getPlatform();
     const rows = await db
       .select()
       .from(oauthTokens)
@@ -154,7 +155,7 @@ tokensRoutes.delete(
     const id = c.req.param("id");
     if (!id) throw new ApiError(400, "validation_error", "Missing path param: id");
 
-    const { db } = await import("edgespark");
+    const { db } = await getPlatform();
     const revoked = await db
       .update(oauthTokens)
       .set({ revokedAt: nowIso() })
