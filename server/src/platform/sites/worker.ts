@@ -41,7 +41,9 @@ site.notFound(async (c) => {
   // unknown assets and all API/auth routes honest 404s.
   const frontend = /^\/(?:upload|drive|guide|connect(?:\/authorize)?|bundles|trash|waitlist|admin|signup|spaces(?:\/[^/]+)?|s\/[^/]+)\/?$/u.test(c.req.path);
   if (asset.status === 404 && frontend && ["GET", "HEAD"].includes(c.req.method)) {
-    return c.env.ASSETS.fetch(new Request(new URL("/index.html", c.req.url), c.req.raw));
+    // Fetch the root entry internally: /index.html can canonically redirect to /
+    // and would otherwise discard the browser's upload route and query string.
+    return c.env.ASSETS.fetch(new Request(new URL("/", c.req.url), c.req.raw));
   }
   return asset;
 });

@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 const mf = new Miniflare({ workers: [{
   modules: [{ type: "ESModule", path: "index.js", contents: await readFile(new URL("../../dist/server/index.js", import.meta.url), "utf8") }], compatibilityDate: "2026-08-06",
   compatibilityFlags: ["nodejs_compat"], d1Databases: ["DB"], r2Buckets: ["BUCKET"],
-  serviceBindings: { ASSETS: async (request) => new URL(request.url).pathname === "/index.html" ? new Response("<!doctype html><html>Agent Drive</html>", { headers: { "content-type": "text/html" } }) : new Response("Asset not found", { status: 404 }) },
+  serviceBindings: { ASSETS: async (request) => new URL(request.url).pathname === "/" ? new Response("<!doctype html><html>Agent Drive</html>", { headers: { "content-type": "text/html" } }) : new URL(request.url).pathname === "/index.html" ? Response.redirect(new URL("/", request.url), 307) : new Response("Asset not found", { status: 404 }) },
   bindings: { OWNER_EMAIL: "owner@example.com", AGENT_TOKEN: "sites-test-secret-at-least-32-characters", ALLOWED_ORIGIN: "https://drive.example", MCP_ALLOWED_ORIGINS: "https://chatgpt.com" },
 }] });
 const owner = { "oai-authenticated-user-id": "owner-subject", "oai-authenticated-user-email": "owner@example.com" };
