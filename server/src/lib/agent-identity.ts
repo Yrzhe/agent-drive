@@ -209,6 +209,7 @@ export function buildAgentCard(identity: AgentIdentity, origin: string, appVersi
       purpose: "Future peer handshakes and bundle signatures verify against this key.",
     },
     "x-agent-drive": {
+      ...(platform === "sites" ? { mcpDiscovery: "Native initialization/discovery exposes public schemas only before OAuth. Tool calls require authenticated active access. Omitted Sites method/name headers and metadata are accepted; supplied mismatches fail. Refresh plugin tools and start a new chat after an update if actions are missing." } : {}),
       ...(platform === "sites" ? { fileVersions: { history: `${origin}/api/public/v1/files/{id}/versions`, replacement: "/versions/upload + /versions/complete", restore: "/versions/{versionId}/restore", sharing: "create_share share_mode latest|fixed, optional version_id; latest resolves on open/download. No live push to already-open pages. Retained history consumes quota." } } : {}),
       // A2A specifies root /.well-known/agent.json, but this platform only
       // routes /api/* through the server — the canonical card URL below is a

@@ -7,6 +7,8 @@ description: Agent-native private cloud drive. Upload, manage, and share files v
 
 Your private cloud drive that agents operate via API. Upload files, organize folders, create password-protected share links (including whole-drive root shares), sync versioned bundles, persist cross-session memories, and let other agents download directly.
 
+For ChatGPT Sites, native `/mcp` discovery exposes public schemas before OAuth; file and memory calls require authenticated, approved access. Sites-forwarded requests may omit redundant headers/metadata; conflicting supplied values fail. If an existing chat has no tools after an update, refresh the plugin's tools and start a new chat. Read `references/sites.md` before connecting.
+
 ## When to Use
 
 - You need to upload a file for sharing with another agent or person

@@ -201,7 +201,7 @@ export default function ConnectSetupPage() {
           </ol>
           <p className="mt-3 text-sm text-slate-600">大家使用同一个站点 MCP 地址，授权身份不同。你的文件和记忆按账号隔离；共享空间按成员角色开放。下方 scope 选择用于应用 token／外部客户端，不改变原生 OAuth 的账号身份。</p>
           <details className="mt-4 text-sm text-slate-600"><summary className="cursor-pointer font-medium">常见问题与 MCP Events</summary><div className="mt-2 space-y-2">
-            <p>登录成功但收到 403：检查账号是否获批或被暂停。工具变更后：刷新连接的工具元数据，再开一个新聊天。私有 Sites 的访问范围还需要站点所有者授权。</p>
+            <p>登录成功但调用工具收到 403：检查账号是否获批或被暂停。插件已选中但聊天没有工具：刷新连接的工具元数据，再开一个新聊天。工具列表只公开 schema，能看到列表不代表已获得文件访问权限。私有 Sites 的访问范围还需要站点所有者授权。</p>
             <p>目前未启用 MCP Events。启用后由 ChatGPT 先订阅并提供回调地址，Agent Drive 验证回调后才能主动投递匹配事件。它不等同于任意给 ChatGPT 发消息，也不等同于网页的实时更新。</p>
           </div></details>
         </section> : null}

@@ -8,6 +8,10 @@
 ## Deployment variants
 
 Sites: /mcp is the native Sites-managed OAuth endpoint (MCP 2.0 plus legacy compatibility).
+Native initialize/server/discover/tools/list expose public schemas/instructions only.
+Data-bearing tool calls require authenticated, active access. Sites-forwarded requests
+may omit method/name headers and metadata; supplied conflicting values are rejected.
+Refresh plugin tools and start a new chat if an older chat has no callable actions.
 /api/public/mcp remains the application-bearer endpoint. Private Sites requires
 platform access even for app-public shares, bundles, inbox and download URLs.
 GET /api/public/guide reports the deployment variant and access/transfer rules.

@@ -37,6 +37,8 @@ try {
   assert.equal((await json("/api/public/v1/account/status", undefined, visitor)).status, "pending");
   assert.equal((await request("/api/public/v1/files", {}, visitor)).status, 403);
   const visitorId = (await json("/api/public/session", undefined, visitor)).user.id;
+  assert.equal((await rpc("tools/list", {}, visitor)).result.tools.length, 16);
+  assert.equal((await request("/mcp", { method: "POST", body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "list_files", arguments: {} } }) }, visitor)).status, 403);
   await json(`/api/public/v1/admin/waitlist/${visitorId}/approve`, {});
   const modern = { _meta: { "io.modelcontextprotocol/protocolVersion": "2026-07-28", "io.modelcontextprotocol/clientCapabilities": {} } };
   const discover = await rpc("server/discover", modern);
@@ -46,11 +48,34 @@ try {
   const list = await rpc("tools/list", modern);
   assert.equal(list.result.tools.length, 16);
   assert.equal(list.result.tools.find((tool) => tool.name === "read_file").annotations.readOnlyHint, true);
+  // Production Sites requests omit Mcp-Method/Mcp-Name even with the modern header.
+  const sitesHeaders = { "MCP-Protocol-Version": "2026-07-28" };
+  const forwarded = await json("/mcp", { jsonrpc: "2.0", id: 1, method: "server/discover", params: modern }, sitesHeaders);
+  assert.equal(forwarded.result.resultType, "complete");
+  const catalog = await json("/mcp", { jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }, sitesHeaders);
+  assert.equal(catalog.result.tools.length, 16);
+  assert.ok(!JSON.stringify(catalog).includes("owner@example.com"));
+  const unauthenticatedInitialize = await rpc("initialize", { protocolVersion: "2025-11-25" }, {});
+  assert.equal(unauthenticatedInitialize.result.protocolVersion, "2025-11-25");
+  assert.ok(unauthenticatedInitialize.result.instructions.includes("No scopes have been granted"));
+  const modernHandshake = await json("/mcp", { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2026-07-28" } }, sitesHeaders);
+  assert.equal(modernHandshake.result.protocolVersion, "2025-11-25");
+  assert.equal(modernHandshake.result.resultType, undefined);
+  assert.equal((await request("/mcp", { method: "POST", headers: sitesHeaders, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "list_files", arguments: {}, ...modern } }) }, {})).status, 401);
+  for (const name of ["list_files", "write_file"]) {
+    assert.equal((await request("/mcp", { method: "POST", body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: {} } }) }, {})).status, 401);
+  }
   const legacy = await rpc("initialize", {}, { authorization: "Bearer sites-test-secret-at-least-32-characters" }, "/api/public/mcp");
   assert.equal(legacy.result.protocolVersion, "2024-11-05");
   const mismatch = await request("/mcp", { method: "POST", headers: { "Mcp-Method": "tools/call", "MCP-Protocol-Version": "2026-07-28" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: modern }) });
   assert.equal(mismatch.status, 400);
   assert.equal((await mismatch.json()).error.code, -32020);
+  const nameMismatch = await request("/mcp", { method: "POST", headers: { ...sitesHeaders, "Mcp-Name": "write_file" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "list_files", arguments: {}, ...modern } }) });
+  assert.equal(nameMismatch.status, 400);
+  const versionMismatch = await request("/mcp", { method: "POST", headers: { "MCP-Protocol-Version": "2025-11-25" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: modern }) });
+  assert.equal(versionMismatch.status, 400);
+  const badCapabilities = await request("/mcp", { method: "POST", headers: sitesHeaders, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: { _meta: { "io.modelcontextprotocol/clientCapabilities": [] } } }) }, {});
+  assert.equal(badCapabilities.status, 400);
   const badVersion = await request("/mcp", { method: "POST", body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: { _meta: { "io.modelcontextprotocol/protocolVersion": "2099-01-01" } } }) });
   assert.equal(badVersion.status, 400);
   assert.equal((await badVersion.json()).error.code, -32022);
@@ -61,6 +86,10 @@ try {
   assert.ok(!written.error, JSON.stringify(written));
   const read = await rpc("tools/call", { name: "read_file", arguments: { path: "/中文 100%.txt" }, ...modern });
   assert.ok(JSON.stringify(read).includes(text));
+  const forwardedRead = await json("/mcp", { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "read_file", arguments: { path: "/中文 100%.txt" }, ...modern } }, { ...owner, ...sitesHeaders });
+  assert.ok(JSON.stringify(forwardedRead).includes(text));
+  const cleanCatalog = await rpc("tools/list", {}, {});
+  assert.ok(!JSON.stringify(cleanCatalog).includes(text) && !JSON.stringify(cleanCatalog).includes("/中文 100%.txt"));
   const savedFile = written.result.structuredContent.file;
   const latest = await json("/api/public/v1/shares", { fileId: savedFile.id, shareMode: "latest" });
   const fixed = await json("/api/public/v1/shares", { fileId: savedFile.id, shareMode: "fixed", password: "version-password" });
@@ -166,6 +195,7 @@ try {
   assert.ok(!limited.result.tools.some((tool) => tool.name === "write_file"));
   await db.prepare("UPDATE user_access SET status='suspended' WHERE user_id=?").bind(visitorId).run();
   assert.equal((await request("/api/public/v1/files", {}, visitor)).status, 403);
-  assert.equal((await request("/mcp", { method: "POST", body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }) }, visitor)).status, 403);
+  assert.equal((await rpc("tools/list", {}, visitor)).result.tools.length, 16);
+  assert.equal((await request("/mcp", { method: "POST", body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "list_files", arguments: {} } }) }, visitor)).status, 403);
   console.log("Sites workerd checks passed: D1 migrations/FTS, native identity, approval/suspension, concurrent isolation, MCP 2.0/legacy, immutable versions/restore/latest/fixed/password shares/conflicts, Unicode/R2 streaming/ranges, multipart, quota boundary and replay/tamper protection.");
 } finally { await mf.dispose(); }

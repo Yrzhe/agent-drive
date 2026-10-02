@@ -47,17 +47,19 @@ function unauthorized(origin: string, native = false): Response {
   });
 }
 
-function initializeResult(origin: string, auth: McpAuthContext) {
-  const scopeList = auth.scopes.length ? auth.scopes.join(" ") : "(none)";
+function initializeResult(origin: string, auth: McpAuthContext | null) {
+  const scopeList = auth?.scopes.length ? auth.scopes.join(" ") : "(none)";
   const instructions = [
     `Agent Drive MCP at ${origin} — an agent-native private cloud drive (files, shares, cross-session memory, drive-to-drive send).`,
-    `Auth mode: ${auth.kind}. Your granted scopes: ${scopeList}. Call tools/list for schemas.`,
+    auth
+      ? `Auth mode: ${auth.kind}. Your granted scopes: ${scopeList}. Call tools/list for schemas.`
+      : `Auth mode: Sites-managed OAuth. Discovery exposes schemas only; tool calls require an authenticated, approved account. No scopes have been granted to this discovery caller.`,
     ``,
     `Tools -> required scope:`,
     `- list_files, read_file, search_files -> read:drive (read_file returns file TEXT directly — no share needed)`,
     `- write_file -> write:drive. UTF-8 TEXT only, max 5MB. For binary or large files (PDF, images, video) do NOT use write_file — use the REST presigned flow: POST ${origin}/api/public/v1/files/upload -> PUT the bytes to the returned uploadUrl -> POST ${origin}/api/public/v1/files/upload/complete.`,
     `- When the upload ticket includes multipart.partSize, larger files require POST uploadUrl {action:"start"}, sequential PUT uploadUrl&part=N (1-based bounded chunks), POST uploadUrl {action:"complete"}, then REST /files/upload/complete.`,
-    ...(auth.kind === "sites" ? [`Sites /mcp uses platform OAuth. Sites audience restrictions apply to all URLs, including shares, public bundles and inbox; app-public does not imply platform-public.`] : []),
+    ...(!auth || auth.kind === "sites" ? [`Sites /mcp uses platform OAuth. Sites audience restrictions apply to all URLs, including shares, public bundles and inbox; app-public does not imply platform-public.`] : []),
     `- create_share, send_file -> share:create`,
     `- remember, recall, list_memories, forget -> read:memory / write:memory`,
     `- list_spaces, read_space -> read:drive; add_to_space, remove_from_space, create_space, manage_space_members -> write:drive. Shared Spaces let you read/contribute files + memory by reference; an editor+ writing a shared file edits the contributor's REAL file.`,
@@ -95,19 +97,19 @@ mcpRoutes.post("/", async (c) => {
   const auth: McpAuthContext | null = options.sitesIdentity && runtime.kind === "sites" && runtime.auth.isAuthenticated()
     ? { kind: "sites", userId: runtime.auth.user.id, clientId: null, scopes: [...DEFAULT_AGENT_TOKEN_SCOPES] }
     : await authenticateMcpBearer(db, c.req.header("authorization"));
-  if (!auth) return unauthorized(origin, Boolean(options.sitesIdentity));
-
-  // Gate the MCP surface by the caller's app-level access status, same as REST. A
-  // suspended/pending principal must not reach any method dispatch (initialize / tools).
-  // The legacy global AGENT_TOKEN on an OWNER_EMAIL-unset deployment has no principal
-  // (userId null) — pass through, like the REST gate's trust-any bearer branch. The
-  // owner-bound AGENT_TOKEN resolves `active` by owner id and passes.
-  if (auth.userId !== null) {
+  const native = Boolean(options.sitesIdentity && runtime.kind === "sites");
+  // Sites must be able to register the public schemas before user OAuth completes.
+  // Never manufacture a user identity for service access. Discovery has no drive data;
+  // every data-bearing request still goes through authentication and the access gate.
+  const request = (await c.req.json().catch(() => null)) as JsonRpcRequest | null;
+  const discovery = native && request?.jsonrpc === "2.0" &&
+    ["initialize", "server/discover", "tools/list"].includes(request.method ?? "");
+  if (!discovery && !auth) return unauthorized(origin, native);
+  if (!discovery && auth?.userId != null) {
     const denial = await checkAccessGate(db, { id: auth.userId, email: null });
     if (denial) return jsonRpcError(null, -32000, `${denial.code}: ${denial.message}`, undefined, options.sitesIdentity ? 403 : 200);
   }
 
-  const request = (await c.req.json().catch(() => null)) as JsonRpcRequest | null;
   if (!request || Array.isArray(request) || request.jsonrpc !== "2.0" || typeof request.method !== "string") {
     return jsonRpcError(null, -32600, "Invalid JSON-RPC request");
   }
@@ -121,18 +123,39 @@ mcpRoutes.post("/", async (c) => {
     return jsonRpcError(request.id, -32022, "Unsupported protocol version", { supported: MCP_PROTOCOL_VERSIONS, requested }, 400);
   }
   const modern = requested === "2026-07-28";
+  if (native) {
+    // Structural diagnostics only: never log arguments, credentials or identity values.
+    const knownMethods = ["initialize", "server/discover", "tools/list", "tools/call", "ping", "notifications/initialized", "notifications/cancelled"];
+    console.info("mcp_request", {
+      method: knownMethods.includes(request.method) ? request.method : "unknown",
+      protocolVersion: requested ?? "legacy", authenticated: Boolean(auth), discovery,
+      methodHeader: Boolean(c.req.header("mcp-method")), nameHeader: Boolean(c.req.header("mcp-name")),
+      protocolMeta: metaVersion !== undefined, capabilitiesMeta: meta["io.modelcontextprotocol/clientCapabilities"] !== undefined,
+    });
+  }
   if (modern) {
     let nameHeader = c.req.header("mcp-name");
     if (nameHeader?.startsWith("=?base64?") && nameHeader.endsWith("?=")) {
-      try { nameHeader = new TextDecoder().decode(Uint8Array.from(atob(nameHeader.slice(9, -2)), (char) => char.charCodeAt(0))); } catch { nameHeader = undefined; }
+      try { nameHeader = new TextDecoder().decode(Uint8Array.from(atob(nameHeader.slice(9, -2)), (char) => char.charCodeAt(0))); }
+      catch { return jsonRpcError(request.id, -32020, "HeaderMismatch", { reason: "Invalid MCP name header encoding" }, 400); }
     }
     const expectedName = request.method === "tools/call" || request.method === "prompts/get" ? params.name : request.method === "resources/read" ? params.uri : undefined;
-    if (headerVersion !== requested || metaVersion !== requested || c.req.header("mcp-method") !== request.method ||
-        (expectedName !== undefined && nameHeader !== expectedName)) {
+    const methodHeader = c.req.header("mcp-method");
+    // The Sites dispatcher forwards MCP-Protocol-Version but can omit redundant
+    // method/name headers. Check every supplied value; use the JSON-RPC envelope
+    // when these transport hints or metadata are absent on the native endpoint.
+    const mismatch = native
+      ? (headerVersion !== undefined && headerVersion !== requested) ||
+        (metaVersion !== undefined && metaVersion !== requested) ||
+        (methodHeader !== undefined && methodHeader !== request.method) ||
+        (nameHeader !== undefined && nameHeader !== expectedName)
+      : headerVersion !== requested || metaVersion !== requested || methodHeader !== request.method ||
+        (expectedName !== undefined && nameHeader !== expectedName);
+    if (mismatch) {
       return jsonRpcError(request.id, -32020, "HeaderMismatch", { reason: "MCP headers must match request metadata and method" }, 400);
     }
     const capabilities = meta["io.modelcontextprotocol/clientCapabilities"];
-    if (!capabilities || typeof capabilities !== "object" || Array.isArray(capabilities)) {
+    if ((!native || capabilities !== undefined) && (!capabilities || typeof capabilities !== "object" || Array.isArray(capabilities))) {
       return jsonRpcError(request.id, -32602, "Modern requests require clientCapabilities metadata", undefined, 400);
     }
   } else if (headerVersion && metaVersion && headerVersion !== metaVersion) {
@@ -144,20 +167,21 @@ mcpRoutes.post("/", async (c) => {
     const initialized = initializeResult(origin, auth);
     return result({ supportedVersions: MCP_PROTOCOL_VERSIONS, serverInfo: SERVER_INFO, capabilities: initialized.capabilities, instructions: initialized.instructions }, true);
   }
-  if (!modern && request.method === "initialize") {
+  if (request.method === "initialize") {
     const proposal = typeof params.protocolVersion === "string" ? params.protocolVersion : "2024-11-05";
     const protocolVersion = MCP_PROTOCOL_VERSIONS.includes(proposal as typeof MCP_PROTOCOL_VERSIONS[number]) && proposal !== "2026-07-28" ? proposal : "2025-11-25";
-    return result({ ...initializeResult(origin, auth), protocolVersion });
+    return result({ ...initializeResult(origin, auth), protocolVersion }, false);
   }
   if (request.id === undefined && ["notifications/initialized", "notifications/cancelled"].includes(request.method)) return new Response(null, { status: 202 });
-  if (!modern && request.method === "ping") return result({});
+  if (request.method === "ping") return result({});
   if (request.id === undefined) return jsonRpcError(null, -32600, "Unsupported notification", undefined, 400);
 
   if (request.method === "tools/list") {
-    return result({ tools: listMcpTools(auth.scopes), ...(modern ? { ttlMs: 60000, cacheScope: "private" } : {}) });
+    return result({ tools: listMcpTools(auth?.scopes ?? DEFAULT_AGENT_TOKEN_SCOPES), ...(modern ? { ttlMs: 60000, cacheScope: "private" } : {}) });
   }
 
   if (request.method === "tools/call") {
+    if (!auth) return unauthorized(origin, native);
     if (typeof params.name !== "string") return jsonRpcError(request.id, -32602, "Tool name is required");
     if (params.arguments !== undefined && (!params.arguments || typeof params.arguments !== "object" || Array.isArray(params.arguments))) return jsonRpcError(request.id, -32602, "Tool arguments must be an object");
     try {
