@@ -78,6 +78,10 @@ R2 binding 不需要、也不能生成 S3 presign 凭证；上传分块与短期
 MCP 2.0 使用 `2026-07-28`：`server/discover`、每请求 namespaced `_meta`、匹配的
 `MCP-Protocol-Version` / `Mcp-Method` / `Mcp-Name`，无会话 ID。
 旧版 initialize 协商保留。工具有读写/破坏性/幂等/外部副作用标注。
+原生 Sites 入口兼容转发时缺失的 method/name 请求头和协议/能力元数据；实际提供的字段仍必须匹配。
+`initialize` / `server/discover` / `tools/list` 只公开说明与 schema，可在用户 OAuth 或审批前完成；
+读取/修改数据仍要求登录并通过审批，服务凭证不能代替用户身份。旧应用 bearer 入口保留严格协议校验。
+若更新后旧聊天没有可调用工具，刷新插件工具元数据并新建聊天，再测试只读 `list_files`。
 完整报文与 multipart 顺序见 [Sites skill](../../skill/references/sites.md)。
 
 ## 必须理解的边界

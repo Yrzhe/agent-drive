@@ -18,6 +18,7 @@ guideRoutes.get(
       deployment: kind === "sites" ? {
         platform: "chatgpt-sites", nativeMcp: `${origin}/mcp`, legacyMcp: `${origin}/api/public/mcp`,
         auth: "Native /mcp uses Sites-managed OAuth and trusted ChatGPT identity. Browser sign-in uses top-level /signin-with-chatgpt. Existing approvals, owner isolation and space roles remain enforced.",
+        mcpDiscovery: "Native initialize/server/discover/tools/list expose only public instructions and schemas, including before user OAuth. Tool calls require authenticated active access. The Sites endpoint accepts omitted method/name headers and metadata; conflicting supplied values return HTTP 400. Refresh plugin tools and start a new chat if an older chat has no actions.",
         privateAccess: "App-public routes below remain behind Sites access policy. CLI needs an application token plus OAI-Sites-Authorization service access when private. A service credential does not identify a user.",
         uploads: "If upload ticket includes multipart.partSize, files above that size use POST uploadUrl {action:start}, sequential PUT uploadUrl&part=N, POST {action:complete}, then the usual REST /files/upload/complete. Downloads stream through short-lived signed same-origin URLs.",
         storageLimits: "Sites application defaults: 625 GiB/file and 1 TiB total; dynamic 8–64 MiB streaming parts, max 10,000. These do not establish Sites plan entitlements. DO/KV/Queues bindings are not exposed by the current Sites configuration interface.",

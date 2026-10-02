@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Native Sites MCP discovery no longer returns HTTP 400 when the dispatcher omits `Mcp-Method`/`Mcp-Name`. Native requests accept absent protocol metadata and capabilities, while validating supplied values. Initialization and tool schemas are available before user OAuth; private tool calls retain authentication, account approval and scope checks. Classic initialization also works when a client sends the modern transport header. Structural MCP diagnostics exclude arguments, credentials and identity values.
+
 ### Added
 
 - ChatGPT Sites deployment alongside EdgeSpark, using request-scoped native identity, D1 and R2 adapters; separate additive Sites migrations avoid EdgeSpark system tables.
