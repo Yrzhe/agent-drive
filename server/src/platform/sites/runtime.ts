@@ -8,6 +8,7 @@ import { resolveSitesUser } from "./identity";
 import { createSitesStorage, SITES_MAX_FILE_BYTES } from "./storage";
 import { cleanupExpiredUploads } from "./cleanup";
 import { createVersions } from "./versions";
+import { storeFileStream } from "./file-stream";
 import { uploadSessions } from "./schema";
 import type { SitesEnv, SitesExecutionContext } from "./types";
 
@@ -22,10 +23,13 @@ export async function createSitesRuntime(c: Context<SitesEnv>, execution: SitesE
     user,
     isAuthenticated(): this is PlatformAuth & { readonly user: NonNullable<PlatformAuth["user"]> } { return this.user !== null; },
   };
-  const origin = (c.env.ALLOWED_ORIGIN || new URL(c.req.url).origin).replace(/\/+$/u, "");
+  // Transfers stay on the dispatcher-validated request origin. A configured
+  // browser allowlist must not keep tickets pointing at an old Site hostname.
+  const origin = new URL(c.req.url).origin;
   return {
     kind: "sites", db, auth,
     maxUploadBytes: SITES_MAX_FILE_BYTES,
+    storeFileStream: (key, body, contentType, expectedSize, validateSize) => storeFileStream(c.env.BUCKET, key, body, contentType, expectedSize, validateSize),
     hasLiveUpload: async (fileId) => {
       const [active] = await db.select({ id: uploadSessions.id }).from(uploadSessions).where(and(eq(uploadSessions.fileId, fileId), gt(uploadSessions.expiresAt, Date.now()), notInArray(uploadSessions.state, ["aborted", "committed"]))).limit(1);
       return Boolean(active);

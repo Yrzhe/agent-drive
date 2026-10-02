@@ -16,7 +16,7 @@
 | 持久记忆、key 更新、标签、FTS、重建索引 | 原生 D1，迁移创建 FTS5 虚拟表 |
 | 多用户隔离、审批、allowlist、封禁 | ChatGPT 身份按 Site-scoped subject 映射；原有审批和 ownerId 隔离 |
 | Shared Spaces、引用分享、角色、公共 commons | 共用业务；public commons 仍只向 active 用户开放 |
-| Remote MCP：16 个工具 | 原生 `/mcp` 使用 Sites OAuth；`/api/public/mcp` 保留应用 bearer 兼容 |
+| Remote MCP：18 个工具 | 原生 `/mcp` 使用 Sites OAuth；`/api/public/mcp` 保留应用 bearer 兼容 |
 | OAuth、scope、路径权限、可撤销 token | 原有应用 OAuth 保留供外部/CLI；原生入口独立使用平台 OAuth |
 | CLI push/pull/history/rollback、stdio bridge | 保留；新增按明确 origin 发送环境中的平台服务凭证 |
 | 发布 bundle、Ed25519 签名订阅、contacts、signed inbox | 处理器保留；私有 Site 的外部订阅/跨 Drive 投递受平台边界限制 |
@@ -83,6 +83,13 @@ MCP 2.0 使用 `2026-07-28`：`server/discover`、每请求 namespaced `_meta`�
 读取/修改数据仍要求登录并通过审批，服务凭证不能代替用户身份。旧应用 bearer 入口保留严格协议校验。
 若更新后旧聊天没有可调用工具，刷新插件工具元数据并新建聊天，再测试只读 `list_files`。
 完整报文与 multipart 顺序见 [Sites skill](../../skill/references/sites.md)。
+
+## 大文件与程序上传
+
+500 MB 程序可通过网站上传。MCP `prepare_file_upload {path}` 不传 size 时提供浏览器上传链接，
+使用同一个账号登录，选择真实文件后自动读取字节数、分块上传并确认完成。
+有文件字节访问能力的自动化客户端可传入精确 size，使用上传凭证，再调用
+`complete_file_upload {file_id}`。5 MiB 只限制 `write_file` 的单条文本参数，不限制此传输路径。
 
 ## 必须理解的边界
 

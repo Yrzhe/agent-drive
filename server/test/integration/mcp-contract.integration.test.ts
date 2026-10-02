@@ -1,7 +1,7 @@
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 
 import app from "../../src/index";
-import { jsonHeaders, resetRuntime, runtime, seedDriveFile, useBearer } from "./edge-runtime";
+import { jsonHeaders, resetRuntime, runtime, seedDriveFile, useBearer, putViaPresignedUrl } from "./edge-runtime";
 
 async function rpc(headers: HeadersInit, method: string, params?: unknown): Promise<Response> {
   return app.request("/api/public/mcp", {
@@ -69,6 +69,26 @@ describe("MCP agent-facing contract", () => {
     expect(raw).toContain("guideUrl");
     expect(raw).toContain("/api/public/guide");
     expect(raw).toContain("/s/"); // shareUrl still present
+  });
+
+  it("uploads binary data using MCP tickets and completion without inline text", async () => {
+    const headers = jsonHeaders(useBearer(["write:drive", "read:drive", "path:/"]));
+    const prepared = await (await rpc(headers, "tools/call", { name: "prepare_file_upload", arguments: { path: "/program.zip", size: 4 } })).json();
+    const ticket = JSON.parse(prepared.result.content[0].text);
+    expect(ticket).toMatchObject({ filename: "program.zip", path: "/", uploadMode: "transfer" });
+    // Simulate direct storage PUT; the MCP service must authoritatively verify it.
+    await putViaPresignedUrl(ticket.uploadUrl, new Uint8Array([0, 255, 1, 2]), "application/octet-stream");
+    const completed = await (await rpc(headers, "tools/call", { name: "complete_file_upload", arguments: { file_id: ticket.fileId } })).json();
+    expect(completed.error).toBeUndefined();
+    expect(JSON.parse(completed.result.content[0].text).file).toMatchObject({ path: "/program.zip", size: 4 });
+  });
+
+  it("rejects upload preparation outside the granted path and on a read-only token", async () => {
+    for (const scopes of [["write:drive", "path:/allowed/*"], ["read:drive", "path:/"]]) {
+      const headers = jsonHeaders(useBearer(scopes));
+      const body = await (await rpc(headers, "tools/call", { name: "prepare_file_upload", arguments: { path: "/outside.zip", size: 524288000 } })).json();
+      expect(body.error.code).toBe(-32001);
+    }
   });
 
   it("does not expose the removed read:skills / write:skills scopes on a granted token", async () => {

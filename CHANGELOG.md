@@ -7,10 +7,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Fixed
+- Sites transfer tickets now use the active request origin, avoiding stale upload/download domains after a Site hostname change. Pending upload records expose `uploadStatus: pending`; preview returns `409 upload_pending`, and the file table shows an unfinished upload instead of presenting a zero-byte file as ready.
+
+### Added
+- Sites MCP `upload_file` receives real ChatGPT attachments through the official `openai/fileParams` schema and streams bytes from authorized temporary HTTPS URLs into bounded R2 multipart storage. Parent folders and completed file records are created after successful transfer; authorization, path scopes, quotas, source/redirect validation and failure cleanup apply. No sandbox PUT or separate completion call is required.
+
+### Fixed
+
+- Sites frontend deep links, including MCP browser upload links, fall back to the SPA entry point even when the hosting asset binding omits SPA handling; API/auth routes and unknown assets retain 404 responses.
 
 - Native Sites MCP discovery no longer returns HTTP 400 when the dispatcher omits `Mcp-Method`/`Mcp-Name`. Native requests accept absent protocol metadata and capabilities, while validating supplied values. Initialization and tool schemas are available before user OAuth; private tool calls retain authentication, account approval and scope checks. Classic initialization also works when a client sends the modern transport header. Structural MCP diagnostics exclude arguments, credentials and identity values.
 
 ### Added
+
+- MCP `prepare_file_upload` / `complete_file_upload` reuse REST ownership, path-scope, quota and stored-size checks for large/binary uploads. A metadata-only browser upload link handles local programs/ZIPs without guessing their size; the authenticated /upload page reads exact bytes, uses bounded multipart chunks and confirms completion. Inline-text limits are documented separately from storage uploads.
 
 - ChatGPT Sites deployment alongside EdgeSpark, using request-scoped native identity, D1 and R2 adapters; separate additive Sites migrations avoid EdgeSpark system tables.
 - Native Sites OAuth `/mcp`, MCP 2.0 stateless discovery/metadata checks, legacy compatibility, structured tool results, tool annotations and exact Origin validation.

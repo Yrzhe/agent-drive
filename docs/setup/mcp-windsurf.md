@@ -62,11 +62,11 @@ List files in Agent Drive at /
 The tools you see depend on your token's scopes:
 
 ```text
-read:drive write:drive share:create  ->  list_files, read_file, write_file, search_files, create_share, send_file
+read:drive write:drive share:create  ->  list_files, read_file, write_file, upload_file, prepare_file_upload, complete_file_upload, search_files, create_share, send_file
 + read:memory write:memory           ->  also remember, recall, list_memories, forget
 + (spaces reuse read:drive/write:drive)  ->  also list_spaces, read_space, add_to_space,
                                           remove_from_space, create_space, manage_space_members
-                                          (16 tools total)
+                                          (19 tools total; upload_file requires Sites)
 ```
 
 If only some tools appear, the OAuth consent step downgraded scope — re-run the consent flow with broader scope from Windsurf settings.

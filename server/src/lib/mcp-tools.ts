@@ -6,6 +6,8 @@ import { driveObjectKey } from "./object-keys";
 import { buckets, files, shares, spaceItems, spaceMembers, spaces } from "@defs";
 
 import { hashPassword } from "./crypto";
+import { prepareFileUpload, completeFileUpload } from "./file-uploads";
+import { uploadChatGptFile, type ChatGptFile } from "./chatgpt-files";
 import { ensureFolderChain, nowIso, toFileObject } from "./files";
 import { forgetMemory, listMemories, recallMemories, rememberMemory } from "./memory";
 import { getContactByName, sendFileToContact } from "./peering";
@@ -35,6 +37,8 @@ interface McpToolDefinition {
   description: string;
   requiredScope: McpScope;
   inputSchema: Record<string, unknown>;
+  _meta?: Record<string, unknown>;
+  outputSchema?: Record<string, unknown>;
 }
 
 type ToolResult = { content: Array<{ type: "text"; text: string }> };
@@ -97,7 +101,7 @@ export const MCP_TOOLS: McpToolDefinition[] = [
   },
   {
     name: "write_file",
-    description: "Write a UTF-8 text file to Agent Drive by path (max 5 MB). Text only — for binary files (PDF, images) or larger uploads use the REST presigned flow: POST /api/public/v1/files/upload -> PUT the bytes -> POST /files/upload/complete.",
+    description: "Write inline UTF-8 text to Agent Drive (max 5 MiB per tool message). For programs, ZIPs, binary files or larger uploads use prepare_file_upload; omit size for a browser upload link, or supply exact bytes for a streaming upload ticket. The Sites application upload limit is 625 GiB per file, separate from this inline-text limit.",
     requiredScope: "write:drive",
     inputSchema: {
       type: "object",
@@ -109,6 +113,41 @@ export const MCP_TOOLS: McpToolDefinition[] = [
       },
       required: ["path", "content"],
     },
+  },
+  {
+    name: "upload_file",
+    description: "Save a file attached to or generated in this ChatGPT conversation directly to Agent Drive on Sites. Pass the real ChatGPT file parameter; the server downloads and streams its bytes into R2 and returns success only after completion. No curl/PUT, base64, guessed size or separate complete call is needed. Requires an absolute destination file path; creates parent folders automatically. Existing paths are not overwritten. If ChatGPT cannot supply a file parameter, use prepare_file_upload without size for a browser handoff.",
+    requiredScope: "write:drive",
+    _meta: { "openai/fileParams": ["file"] },
+    outputSchema: { type: "object", properties: { file: { type: "object" }, uploadStatus: { type: "string", enum: ["complete"] } }, required: ["file", "uploadStatus"] },
+    inputSchema: {
+      type: "object",
+      properties: {
+        path: { type: "string", description: "Absolute destination file path including filename, e.g. /image/poster.png." },
+        file: { type: "object", properties: { download_url: { type: "string" }, file_id: { type: "string" }, mime_type: { type: "string" }, file_name: { type: "string" } }, required: ["download_url", "file_id"], additionalProperties: false },
+      },
+      required: ["path", "file"],
+    },
+  },
+  {
+    name: "prepare_file_upload",
+    description: "Upload large/binary files such as a 500 MB program. Omit size when the file is on the user's device: returns an authenticated browser upload link where they select the file and its exact size is detected automatically. Only supply size when a client can access the bytes and knows their exact count: returns a short-lived upload ticket for PUT or sequential multipart transfer, then complete_file_upload. Sites application defaults allow up to 625 GiB/file; platform audience and quota checks still apply. No file bytes belong in these tool arguments.",
+    requiredScope: "write:drive",
+    inputSchema: {
+      type: "object",
+      properties: {
+        path: { type: "string", description: "Absolute destination FILE path, including filename, e.g. /program.zip." },
+        size: { type: "integer", minimum: 0, description: "Exact byte count only if a byte-access client will upload. Omit for a user-operated browser upload link." },
+        content_type: { type: "string", description: "Optional MIME type; defaults to application/octet-stream." },
+      },
+      required: ["path"],
+    },
+  },
+  {
+    name: "complete_file_upload",
+    description: "Confirm a prepare_file_upload ticket after its bytes and multipart completion have reached storage. Checks file ownership, path scope, stored size and quota; returns the completed file. Browser upload links complete automatically.",
+    requiredScope: "write:drive",
+    inputSchema: { type: "object", properties: { file_id: { type: "string", description: "fileId returned by prepare_file_upload." } }, required: ["file_id"] },
   },
   {
     name: "search_files",
@@ -330,11 +369,13 @@ export function listMcpTools(scopes: readonly string[]) {
       name: tool.name,
       description: tool.description,
       inputSchema: tool.inputSchema,
+      ...(tool._meta ? { _meta: tool._meta } : {}),
+      ...(tool.outputSchema ? { outputSchema: tool.outputSchema } : {}),
       annotations: {
         readOnlyHint: tool.requiredScope.startsWith("read:"),
-        destructiveHint: ["write_file", "forget", "remove_from_space", "manage_space_members"].includes(tool.name),
+        destructiveHint: ["write_file", "prepare_file_upload", "forget", "remove_from_space", "manage_space_members"].includes(tool.name),
         idempotentHint: tool.requiredScope.startsWith("read:"),
-        openWorldHint: ["send_file", "create_share"].includes(tool.name),
+        openWorldHint: ["send_file", "create_share", "upload_file"].includes(tool.name),
       },
     }))
     .sort((left, right) => left.name.localeCompare(right.name, "en"));
@@ -344,6 +385,42 @@ export async function callMcpTool(db: AppDb, origin: string, scopes: readonly st
   const tool = MCP_TOOLS.find((candidate) => candidate.name === name);
   if (!tool) throw new Error(`unknown_tool:${name}`);
   if (!hasScope(scopes, tool.requiredScope)) throw new Error(`invalid_scope:${tool.requiredScope}`);
+
+  if (name === "upload_file") {
+    return textResult(await uploadChatGptFile(stringArg(input, "path")!, input.file as ChatGptFile,
+      requireUserId(ownerId), (path) => requirePathAllowed(scopes, path)));
+  }
+
+  if (name === "prepare_file_upload") {
+    const rawPath = stringArg(input, "path")!;
+    if (!rawPath.startsWith("/")) throw new Error("invalid_params:path must be absolute");
+    const path = normalizePath(rawPath);
+    if (path === "/") throw new Error("invalid_params:path must include a filename");
+    requirePathAllowed(scopes, path);
+    const filename = normalizeName(path.slice(path.lastIndexOf("/") + 1));
+    if (input.size === undefined) {
+      const userId = requireUserId(ownerId);
+      const url = new URL("/upload", origin);
+      url.searchParams.set("path", path);
+      url.searchParams.set("account", userId);
+      return textResult({ uploadMode: "browser", uploadPageUrl: url.toString(), path,
+        instructions: "Open uploadPageUrl and sign in to the same account. Choose the actual file; the browser detects its byte count, streams bounded parts and confirms completion automatically. This link contains no upload token and grants no data access." });
+    }
+    if (typeof input.size !== "number" || !Number.isSafeInteger(input.size) || input.size < 0) throw new Error("invalid_params:size must be the exact non-negative byte count");
+    const ticket = await prepareFileUpload({ filename, path: parentOfPath(path), size: input.size,
+      contentType: stringArg(input, "content_type", false) ?? "application/octet-stream" }, ownerId, (target) => requirePathAllowed(scopes, target));
+    return textResult({ ...ticket, uploadMode: "transfer", size: input.size,
+      instructions: ticket.multipart && input.size > ticket.multipart.partSize
+        ? "POST uploadUrl {action:start}; sequential PUT uploadUrl with part=1..N using multipart.partSize bytes except the final remainder; POST uploadUrl {action:complete}; call complete_file_upload {file_id:fileId}. Private Sites also requires platform access for HTTP transfers."
+        : "PUT the exact file bytes to uploadUrl with requiredHeaders, then call complete_file_upload {file_id:fileId}. Private Sites also requires platform access for HTTP transfers." });
+  }
+  if (name === "complete_file_upload") {
+    const fileId = stringArg(input, "file_id")!;
+    const [pending] = await db.select().from(files).where(and(eq(files.id, fileId), isNull(files.deletedAt), ownerId ? eq(files.ownerId, ownerId) : undefined)).limit(1);
+    if (!pending) throw new Error("file_not_found:upload ticket not found for this account");
+    requirePathAllowed(scopes, pending.path);
+    return textResult(await completeFileUpload({ fileId, filename: pending.name, path: pending.parentPath }, ownerId, (target) => requirePathAllowed(scopes, target)));
+  }
 
   if (name === "list_files") {
     const path = normalizePath(typeof input.path === "string" ? input.path : "/");

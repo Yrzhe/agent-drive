@@ -1,4 +1,5 @@
 export interface DriveFile {
+  uploadStatus?: "pending";
   id: string;
   name: string;
   path: string;

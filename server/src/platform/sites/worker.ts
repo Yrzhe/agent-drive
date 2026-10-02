@@ -35,7 +35,17 @@ site.notFound(async (c) => {
   if (c.req.path.startsWith("/api/") || c.req.path === "/mcp" || c.req.path.startsWith("/.well-known/")) return c.json({ error: "not_found" }, 404);
   if (c.req.path === "/signin-with-chatgpt" || c.req.path === "/signout-with-chatgpt" || c.req.path === "/callback") return c.text("Authentication is managed by Sites", 404);
   if (!c.env.ASSETS) return c.text("Site assets unavailable", 503);
-  return c.env.ASSETS.fetch(c.req.raw);
+  const asset = await c.env.ASSETS.fetch(c.req.raw);
+  // Sites asset bindings may omit Wrangler's SPA fallback. Serve the entry point
+  // for known frontend routes, including MCP browser upload links, while keeping
+  // unknown assets and all API/auth routes honest 404s.
+  const frontend = /^\/(?:upload|drive|guide|connect(?:\/authorize)?|bundles|trash|waitlist|admin|signup|spaces(?:\/[^/]+)?|s\/[^/]+)\/?$/u.test(c.req.path);
+  if (asset.status === 404 && frontend && ["GET", "HEAD"].includes(c.req.method)) {
+    // Fetch the root entry internally: /index.html can canonically redirect to /
+    // and would otherwise discard the browser's upload route and query string.
+    return c.env.ASSETS.fetch(new Request(new URL("/", c.req.url), c.req.raw));
+  }
+  return asset;
 });
 export default {
   fetch(request: Request, env: SitesBindings, ctx: SitesExecutionContext): Promise<Response> | Response {
