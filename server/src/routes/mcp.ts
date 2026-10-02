@@ -8,7 +8,7 @@ import { callMcpTool, listMcpTools } from "../lib/mcp-tools";
 import { DEFAULT_AGENT_TOKEN_SCOPES } from "../lib/mcp-scopes";
 
 export const MCP_PROTOCOL_VERSIONS = ["2026-07-28", "2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"] as const;
-const SERVER_INFO = { name: "agent-drive", version: "0.2.0" };
+export const SERVER_INFO = { name: "agent-drive", version: "0.3.0" };
 
 interface JsonRpcRequest {
   jsonrpc?: string;
@@ -57,6 +57,7 @@ function initializeResult(origin: string, auth: McpAuthContext | null) {
     ``,
     `Tools -> required scope:`,
     `- list_files, read_file, search_files -> read:drive (read_file returns file TEXT directly — no share needed)`,
+    `- delete_file {file_id} -> write:drive plus the file path scope. Move your own file (including a pending upload) to the recycle bin and free its path. Uses a stable ID; retries never delete a same-path replacement. Does not delete folders or other members' shared files.`,
     `- upload_file -> write:drive (Sites). For files attached to or generated in this chat, pass the real ChatGPT file parameter {download_url,file_id,mime_type?,file_name?} and an absolute destination path. The server streams the attachment to storage and confirms completion in one call. Never invent a file ID or treat a sandbox path/filename as downloadable. If no attachment parameter is available, hand off a browser upload link.`,
     `- write_file -> write:drive. Inline UTF-8 TEXT only, max 5 MiB per message. This is separate from the drive's upload limit. For programs, ZIPs, binary or larger local files, call prepare_file_upload {path:"/program.zip"} WITHOUT size to get a browser upload link. The user selects their local file there; its exact size is detected and transfer/completion are automatic.`,
     `- prepare_file_upload and complete_file_upload -> write:drive. If a client can read the bytes and knows their EXACT count, call prepare_file_upload {path,size,content_type?}, transfer with its uploadUrl/requiredHeaders/multipart, then complete_file_upload {file_id:fileId}. Browser upload links need no completion call. The same REST flow remains available: POST ${origin}/api/public/v1/files/upload -> transfer bytes -> POST ${origin}/api/public/v1/files/upload/complete.`,

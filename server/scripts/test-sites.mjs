@@ -26,7 +26,7 @@ const mf = new Miniflare({ workers: [{
     return new Response(body, { headers: { "content-type": "application/octet-stream", ...(["/chunked.bin", "/short.bin"].includes(url.pathname) ? {} : { "content-length": String(size) }) } });
   },
   serviceBindings: { ASSETS: async (request) => new URL(request.url).pathname === "/" ? new Response("<!doctype html><html>Agent Drive</html>", { headers: { "content-type": "text/html" } }) : new URL(request.url).pathname === "/index.html" ? Response.redirect(new URL("/", request.url), 307) : new Response("Asset not found", { status: 404 }) },
-  bindings: { OWNER_EMAIL: "owner@example.com", AGENT_TOKEN: "sites-test-secret-at-least-32-characters", ALLOWED_ORIGIN: "https://old-drive.example", MCP_ALLOWED_ORIGINS: "https://chatgpt.com,https://drive.example" },
+  bindings: { OWNER_EMAIL: "owner@example.com", AGENT_TOKEN: "sites-test-secret-at-least-32-characters", ALLOWED_ORIGIN: "https://old-drive.example", MCP_ALLOWED_ORIGINS: "https://chatgpt.com,https://drive.example", SITES_MCP_URL: "https://native-drive.chatgpt.site/mcp" },
 }] });
 const owner = { "oai-authenticated-user-id": "owner-subject", "oai-authenticated-user-email": "owner@example.com" };
 const visitor = { "oai-authenticated-user-id": "visitor-subject", "oai-authenticated-user-email": "visitor@example.com" };
@@ -61,7 +61,7 @@ try {
   assert.equal((await json("/api/public/v1/account/status", undefined, visitor)).status, "pending");
   assert.equal((await request("/api/public/v1/files", {}, visitor)).status, 403);
   const visitorId = (await json("/api/public/session", undefined, visitor)).user.id;
-  assert.equal((await rpc("tools/list", {}, visitor)).result.tools.length, 19);
+  assert.equal((await rpc("tools/list", {}, visitor)).result.tools.length, 20);
   assert.equal((await request("/mcp", { method: "POST", body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "list_files", arguments: {} } }) }, visitor)).status, 403);
   await json(`/api/public/v1/admin/waitlist/${visitorId}/approve`, {});
   const modern = { _meta: { "io.modelcontextprotocol/protocolVersion": "2026-07-28", "io.modelcontextprotocol/clientCapabilities": {} } };
@@ -70,7 +70,7 @@ try {
   assert.ok(discover.result.supportedVersions.includes("2026-07-28"));
   assert.equal(discover.result.capabilities.events, undefined);
   const list = await rpc("tools/list", modern);
-  assert.equal(list.result.tools.length, 19);
+  assert.equal(list.result.tools.length, 20);
   assert.equal(list.result.tools.find((tool) => tool.name === "read_file").annotations.readOnlyHint, true);
   const attachmentTool = list.result.tools.find((tool) => tool.name === "upload_file");
   assert.deepEqual(attachmentTool._meta["openai/fileParams"], ["file"]);
@@ -114,13 +114,28 @@ try {
   const emptyText = await rpc("tools/call", { name: "write_file", arguments: { path: "/chat-images/.keep", content: "" } });
   assert.equal(emptyText.result.structuredContent.file.size, 0);
   assert.equal(emptyText.result.structuredContent.file.uploadStatus, undefined, "completed zero-byte file is not pending");
+  const guide = await json("/api/public/guide", undefined, {});
+  assert.equal(guide.deployment.nativeMcp, "https://native-drive.chatgpt.site/mcp", "custom website origin must not determine the OAuth MCP URL");
+  assert.equal(guide.mcpCatalog.toolCount, list.result.tools.length);
+  assert.equal(guide.mcpCatalog.serverInfo.version, "0.3.0");
+  assert.equal((await json("/api/public/.well-known/agent.json", undefined, {}))["x-agent-drive"].mcp, guide.deployment.nativeMcp);
+  assert.ok(guide.mcpCatalog.tools.some((tool) => tool.name === "delete_file"));
+  const otherDelete = await rpc("tools/call", { name: "delete_file", arguments: { file_id: pendingImage.fileId } }, visitor);
+  assert.ok(otherDelete.error.message.startsWith("file_not_found:"));
+  const deletedPending = await rpc("tools/call", { name: "delete_file", arguments: { file_id: pendingImage.fileId } });
+  assert.equal(deletedPending.result.structuredContent.trashed, 1);
+  const replacementImage = await rpc("tools/call", { name: "upload_file", arguments: { path: "/chat-images/pending.png", file: attachment("image.png") } });
+  assert.equal(replacementImage.result.structuredContent.file.size, attachmentImage.length);
+  assert.equal((await rpc("tools/call", { name: "delete_file", arguments: { file_id: pendingImage.fileId } })).result.structuredContent.alreadyTrashed, true);
+  assert.equal((await json(`/api/public/v1/files/${replacementImage.result.structuredContent.file.id}`)).file.path, "/chat-images/pending.png");
+  assert.equal((await json(`/api/public/v1/files/${emptyText.result.structuredContent.file.id}`)).file.path, "/chat-images/.keep");
   console.log("Attachment ingestion verified: byte-identical PNG, 500 MiB streamed file, chunked source, cleanup, pending status, and hostname changes.");
   // Production Sites requests omit Mcp-Method/Mcp-Name even with the modern header.
   const sitesHeaders = { "MCP-Protocol-Version": "2026-07-28" };
   const forwarded = await json("/mcp", { jsonrpc: "2.0", id: 1, method: "server/discover", params: modern }, sitesHeaders);
   assert.equal(forwarded.result.resultType, "complete");
   const catalog = await json("/mcp", { jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }, sitesHeaders);
-  assert.equal(catalog.result.tools.length, 19);
+  assert.equal(catalog.result.tools.length, 20);
   assert.ok(!JSON.stringify(catalog).includes("owner@example.com"));
   const unauthenticatedInitialize = await rpc("initialize", { protocolVersion: "2025-11-25" }, {});
   assert.equal(unauthenticatedInitialize.result.protocolVersion, "2025-11-25");
@@ -296,6 +311,7 @@ try {
   assert.ok(!limited.result.tools.some((tool) => ["upload_file", "prepare_file_upload", "complete_file_upload"].includes(tool.name)));
   const deniedSourceRequests = attachmentRequests.length;
   const readonlyAttachment = await rpc("tools/call", { name: "upload_file", arguments: { path: "/forbidden.png", file: attachment("image.png") } }, { authorization: `Bearer ${scoped.token}` }, "/api/public/mcp");
+  assert.equal((await rpc("tools/call", { name: "delete_file", arguments: { file_id: replacementImage.result.structuredContent.file.id } }, { authorization: `Bearer ${scoped.token}` }, "/api/public/mcp")).error.code, -32001);
   assert.equal(readonlyAttachment.error.code, -32001);
   assert.equal(attachmentRequests.length, deniedSourceRequests, "unauthorized calls never fetch an attachment");
   const readonlyUpload = await rpc("tools/call", { name: "prepare_file_upload", arguments: { path: "/forbidden.zip", size: 500000000 } }, { authorization: `Bearer ${scoped.token}` }, "/api/public/mcp");
@@ -308,7 +324,7 @@ try {
   assert.equal(attachmentRequests.length, deniedSourceRequests, "out-of-scope attachment never leaves the server");
   await db.prepare("UPDATE user_access SET status='suspended' WHERE user_id=?").bind(visitorId).run();
   assert.equal((await request("/api/public/v1/files", {}, visitor)).status, 403);
-  assert.equal((await rpc("tools/list", {}, visitor)).result.tools.length, 19);
+  assert.equal((await rpc("tools/list", {}, visitor)).result.tools.length, 20);
   assert.equal((await request("/mcp", { method: "POST", body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "list_files", arguments: {} } }) }, visitor)).status, 403);
   console.log("Sites workerd checks passed: D1 migrations/FTS, native identity, approval/suspension, concurrent isolation, MCP 2.0/legacy, immutable versions/restore/latest/fixed/password shares/conflicts, Unicode/R2 streaming/ranges, multipart, quota boundary and replay/tamper protection.");
 } finally { await mf.dispose(); }

@@ -58,7 +58,7 @@ read:drive write:drive share:create  ->  list_files, read_file, write_file, uplo
 + read:memory write:memory           ->  also remember, recall, list_memories, forget
 + (spaces reuse read:drive/write:drive)  ->  also list_spaces, read_space, add_to_space,
                                           remove_from_space, create_space, manage_space_members
-                                          (19 tools total; upload_file requires Sites)
+                                          (20 tools total; upload_file requires Sites)
 ```
 
 Sanity check:

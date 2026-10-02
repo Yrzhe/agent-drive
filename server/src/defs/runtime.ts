@@ -11,6 +11,8 @@ export type VarKey =
   | "MAX_FILE_BYTES"
   | "MAX_TOTAL_BYTES"
   | "AGENT_TOKEN_SCOPES"
+  // Canonical MCP URL returned by Sites; custom website domains may not route /mcp.
+  | "SITES_MCP_URL"
   // Native and external Remote MCP browser origins, comma-separated.
   | "MCP_ALLOWED_ORIGINS";
 

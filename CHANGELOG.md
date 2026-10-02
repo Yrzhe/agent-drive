@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- MCP `delete_file {file_id}` moves an owned file or pending upload to the existing 30-day trash, revokes shares and releases its path. Stable-ID retries preserve new same-path files; owner, path and write scope checks apply. Folders and anonymous legacy identities are rejected.
+- Public `guide.mcpCatalog` reports the live server version and 20 tool names for comparison with ChatGPT's loaded tool list.
+
+### Fixed
+- Sites connection pages and Agent Cards use the configured canonical `SITES_MCP_URL`. Custom website domains do not necessarily route native `/mcp`; constructing the connector address from the website domain could return 404. Server catalog checks explicitly do not claim that a ChatGPT conversation has loaded new tools.
+
 ### Fixed
 - Sites transfer tickets now use the active request origin, avoiding stale upload/download domains after a Site hostname change. Pending upload records expose `uploadStatus: pending`; preview returns `409 upload_pending`, and the file table shows an unfinished upload instead of presenting a zero-byte file as ready.
 

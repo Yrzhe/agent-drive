@@ -110,6 +110,8 @@ Body: { "name": "renamed.pdf", "parentPath": "/archive" }
 
 ## Delete
 
+MCP: `delete_file {file_id}` moves your own single file (including a pending upload) to the 30-day recycle bin and revokes shares. It requires user-bound identity, write:drive and the file path scope; folders and files owned by other space members are rejected. Repeating an already-trashed ID is a no-op and never deletes a new same-path file. Returns `{trashed,targetId,path,alreadyTrashed}`. REST still supports folder deletion below.
+
 ```bash
 DELETE {apiBase}/files/{fileId}
 Returns: { trashed: N, targetId: string }

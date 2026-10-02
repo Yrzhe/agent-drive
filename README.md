@@ -25,6 +25,10 @@ Sites defaults to a 625 GiB per-file cap and 1 TiB application quota, using dyna
 
 Sites also retains file history, supports downloading/restoring old versions and uploading binary replacements, and offers fixed-version or latest-version share links. Latest links resolve new contents on open/download; live updates to already-open pages are pending a supported cross-instance push service. See [the version API](docs/api/sites.md#file-versions-and-stable-shares-sites).
 
+MCP `delete_file {file_id}` moves your own file (including a pending upload) to the 30-day recycle bin, revokes its shares and frees its original path. Stable-ID retries never take a same-path replacement; folders and other members' files are rejected. A user-bound identity, write:drive and the file path scope are required.
+
+The public guide exposes `mcpCatalog` with the live server version, count and tool names. Sites connection pages use the canonical `SITES_MCP_URL` returned by Sites instead of constructing `/mcp` on a custom website domain. The connection check verifies the server catalog; verify ChatGPT separately with an actual tool call after refreshing the existing plugin tools.
+
 See [Sites migration and deployment](docs/migration/chatgpt-sites.md) and [Sites API contract](docs/api/sites.md). Build with `npm run build:sites`; EdgeSpark keeps its existing CLI deployment flow. This creates a separate Sites deployment; old EdgeSpark data is not copied automatically. Private Sites access applies to shares, subscriptions and peer inbox delivery. MCP Events is a documented follow-up, not an advertised capability.
 
 ## What is Agent Drive?

@@ -113,14 +113,28 @@ function parseInitializeResult(payload: unknown): { name?: string; version?: str
 
 export default function ConnectSetupPage() {
   const origin = getOrigin();
-  const connectorUrl = `${origin}${deploymentPlatform === "sites" ? "/mcp" : "/api/public/mcp"}`;
+  const [connectorUrl, setConnectorUrl] = useState(deploymentPlatform === "sites" ? "" : `${origin}/api/public/mcp`);
   const protectedResourceUrl = `${origin}/api/public/.well-known/oauth-protected-resource`;
   const authorizationServerUrl = `${origin}/api/public/.well-known/oauth-authorization-server`;
   const [selectedScopes, setSelectedScopes] = useState<string[]>(() => loadStoredScopes() ?? ALL_SCOPES.filter((scope) => DEFAULT_SCOPES.has(scope)));
   const [pathPrefix, setPathPrefix] = useState<string>(() => {
     try { return window.localStorage.getItem(PATH_SCOPE_STORAGE_KEY) ?? ""; } catch { return ""; }
   });
-  const [testStatus, setTestStatus] = useState<TestStatus>({ kind: "idle", message: "Run a quick probe to confirm the MCP endpoint is reachable." });
+  const [testStatus, setTestStatus] = useState<TestStatus>({ kind: "idle", message: deploymentPlatform === "sites" ? "Check the live server tool list, then verify the connection in ChatGPT." : "Run a quick probe to confirm the MCP endpoint is reachable." });
+
+  useEffect(() => {
+    if (deploymentPlatform !== "sites") return;
+    let active = true;
+    void fetch("/api/public/guide", { credentials: "include", cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Unable to load the Sites MCP address.");
+        const guide = await response.json();
+        const url = new URL(guide.deployment?.nativeMcp);
+        if (url.protocol !== "https:" || url.pathname !== "/mcp" || url.username || url.password || url.search || url.hash) throw new Error("Invalid Sites MCP address.");
+        if (active) setConnectorUrl(url.toString());
+      }).catch((error) => { if (active) setTestStatus({ kind: "error", message: error instanceof Error ? error.message : "Unable to load the MCP address." }); });
+    return () => { active = false; };
+  }, []);
 
   const pathScopeResult = useMemo(() => normalizePathInput(pathPrefix), [pathPrefix]);
   const pathScopeToken = pathScopeResult.ok === true ? pathScopeResult.canonical : null;
@@ -154,6 +168,18 @@ export default function ConnectSetupPage() {
     setTestStatus({ kind: "idle", message: "Testing MCP endpoint..." });
     const token = deploymentPlatform === "sites" ? null : findLocalBearerToken();
     try {
+      if (deploymentPlatform === "sites") {
+        const response = await fetch("/api/public/guide", { credentials: "include", cache: "no-store" });
+        if (!response.ok) throw new Error(`Server catalog responded with HTTP ${response.status}.`);
+        const guide = await response.json();
+        const catalog = guide.mcpCatalog;
+        if (!Array.isArray(catalog?.tools)) throw new Error("Server tool catalog is missing; this deployment may be outdated.");
+        const names = catalog.tools.map((tool: { name: string }) => tool.name);
+        const missing = ["upload_file", "delete_file"].filter((name) => !names.includes(name));
+        if (missing.length) throw new Error(`Server tools missing: ${missing.join(", ")}.`);
+        setTestStatus({ kind: "success", message: `服务器已公布 ${names.length} 个工具（v${catalog.serverInfo?.version ?? "unknown"}），包含 upload_file 和 delete_file。这里只核对线上工具声明；请在 ChatGPT 刷新 Agent Drive 工具，再用 list_files 验证账号连接。` });
+        return;
+      }
       const response = await fetch(connectorUrl, {
         method: "POST",
         credentials: "include",
@@ -216,7 +242,7 @@ export default function ConnectSetupPage() {
           </p>
         </header>
 
-        <ConnectorUrlBlock url={connectorUrl} />
+        {connectorUrl ? <ConnectorUrlBlock url={connectorUrl} /> : <p className="text-sm text-slate-600">Loading the Sites MCP address…</p>}
         {deploymentPlatform === "sites" ? <section className="rounded-xl border border-slate-200 bg-white p-5"><h2 className="text-base font-semibold">ChatGPT Developer Mode</h2><ol className="mt-3 list-decimal space-y-2 pl-5 text-sm text-slate-700"><li>Enable Developer mode in ChatGPT Settings → Security and login.</li><li>Open Plugins, select the plus button, and add the Remote MCP URL above using OAuth.</li><li>Connect your ChatGPT account, refresh tools, and first test list_files or recall.</li></ol><p className="mt-3 text-sm text-slate-600">Sites manages this connection. External CLI clients use /api/public/mcp and an Agent Drive token; private Sites also require platform service access.</p></section> : <PlatformTabs connectorUrl={connectorUrl} scope={scopeString} />}
 
         <section className="rounded-xl border border-slate-200 bg-white p-5">
@@ -283,15 +309,15 @@ export default function ConnectSetupPage() {
         <section className="rounded-xl border border-slate-200 bg-white p-5">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h2 className="text-base font-semibold text-slate-900">Test connection</h2>
-              <p className="mt-1 text-sm text-slate-600">Probe the MCP endpoint from this browser.</p>
+              <h2 className="text-base font-semibold text-slate-900">{deploymentPlatform === "sites" ? "Check server tools" : "Test connection"}</h2>
+              <p className="mt-1 text-sm text-slate-600">{deploymentPlatform === "sites" ? "核对服务器公布的工具。ChatGPT 当前会话是否加载这些工具，需要在 ChatGPT 中单独验证。" : "Probe the MCP endpoint from this browser."}</p>
             </div>
             <button
               className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
               onClick={() => { void handleTestConnection(); }}
               type="button"
             >
-              Test connection
+              {deploymentPlatform === "sites" ? "Check server tools" : "Test connection"}
             </button>
           </div>
           <div className={`mt-4 rounded-lg border px-3 py-2 text-sm ${testStatus.kind === "success" ? "border-green-200 bg-green-50 text-green-800" : testStatus.kind === "error" ? "border-red-200 bg-red-50 text-red-700" : "border-slate-200 bg-slate-50 text-slate-600"}`}>

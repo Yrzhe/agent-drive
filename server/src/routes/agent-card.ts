@@ -11,7 +11,7 @@ async function serveAgentCard(url: string): Promise<Response> {
   const { db, vars, kind } = await getPlatform();
   const origin = (vars.get("ALLOWED_ORIGIN") ?? new URL(url).origin).replace(/\/+$/u, "");
   const identity = await getOrCreateAgentIdentity(db);
-  return Response.json(buildAgentCard(identity, origin, APP_VERSION, kind), {
+  return Response.json(buildAgentCard(identity, origin, APP_VERSION, kind, vars.get("SITES_MCP_URL")), {
     headers: { "Cache-Control": "public, max-age=300" },
   });
 }
