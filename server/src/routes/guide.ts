@@ -4,19 +4,26 @@ import { getPlatform } from "@platform";
 import { withErrorHandling } from "../lib/errors";
 import { APP_VERSION } from "../lib/version";
 import { SHARE_DOWNLOAD_URL_TTL_SECS } from "../types";
+import { MCP_TOOLS } from "../lib/mcp-tools";
+import { SERVER_INFO } from "./mcp";
 
 export const guideRoutes = new Hono();
 
 guideRoutes.get(
   "/guide",
   withErrorHandling(async (c) => {
+    c.header("Cache-Control", "no-store");
     const origin = new URL(c.req.url).origin;
-    const { kind } = await getPlatform();
+    const { kind, vars } = await getPlatform();
+    const nativeMcp = kind === "sites" ? vars.get("SITES_MCP_URL") || `${origin}/mcp` : null;
     return c.json({
       name: "Agent Drive",
       version: APP_VERSION,
+      mcpCatalog: { serverInfo: SERVER_INFO, toolCount: MCP_TOOLS.length,
+        tools: MCP_TOOLS.map(({ name, requiredScope }) => ({ name, requiredScope })),
+        note: "This is the live server catalog, not the tools loaded into a ChatGPT conversation. Compare with native tools/list and the plugin tool list. Reload/refresh the existing plugin tools, then start a new conversation if actions remain stale. This server is stateless and does not send tools/list_changed notifications; deployment alone cannot change an already loaded conversation tool set." },
       deployment: kind === "sites" ? {
-        platform: "chatgpt-sites", nativeMcp: `${origin}/mcp`, legacyMcp: `${origin}/api/public/mcp`,
+        platform: "chatgpt-sites", nativeMcp, legacyMcp: `${origin}/api/public/mcp`,
         auth: "Native /mcp uses Sites-managed OAuth and trusted ChatGPT identity. Browser sign-in uses top-level /signin-with-chatgpt. Existing approvals, owner isolation and space roles remain enforced.",
         mcpDiscovery: "Native initialize/server/discover/tools/list expose only public instructions and schemas, including before user OAuth. Tool calls require authenticated active access. The Sites endpoint accepts omitted method/name headers and metadata; conflicting supplied values return HTTP 400. Refresh plugin tools and start a new chat if an older chat has no actions.",
         privateAccess: "App-public routes below remain behind Sites access policy. CLI needs an application token plus OAI-Sites-Authorization service access when private. A service credential does not identify a user.",
@@ -31,7 +38,7 @@ guideRoutes.get(
       description: "Agent-native private cloud drive. Agents upload files, create share links, persist cross-session memories, and other agents download via API — no browser needed.",
       agentSurfaces: {
         description: "All machine-facing entry points of this deployment (owner auth required except shares)",
-        mcp: `${origin}/api/public/mcp — remote MCP server. Tools: list_files, read_file, write_file, upload_file, prepare_file_upload, complete_file_upload, search_files, create_share, remember, recall, list_memories, forget, send_file, list_spaces, read_space, add_to_space, remove_from_space, create_space, manage_space_members. Auth: OAuth 2.1 (discovery at ${origin}/api/public/.well-known/oauth-protected-resource) or owner AGENT_TOKEN bearer.`,
+        mcp: `${origin}/api/public/mcp — remote MCP server. Tools: list_files, read_file, write_file, delete_file, upload_file, prepare_file_upload, complete_file_upload, search_files, create_share, remember, recall, list_memories, forget, send_file, list_spaces, read_space, add_to_space, remove_from_space, create_space, manage_space_members. Auth: OAuth 2.1 (discovery at ${origin}/api/public/.well-known/oauth-protected-resource) or owner AGENT_TOKEN bearer.`,
         restApi: `${origin}/api/public/v1/* — files, folders, shares, memory, spaces, bundles, contacts, tokens, webhooks, activity. Same bearer auth and scopes as MCP. (/account/* is described under accountAccess below; /admin/* is owner-only tooling and is deliberately not an agent surface.)`,
         memory: `Persistent agent memory with full-text search. MCP remember/recall, or REST: POST ${origin}/api/public/v1/memory, GET ${origin}/api/public/v1/memory/search?q=..., GET ${origin}/api/public/v1/memory/index-status, POST ${origin}/api/public/v1/memory/rebuild-index. Scopes: read:memory / write:memory.`,
         spaces: `Share your own files/folders/memory with other users by reference (no storage copy) -- invite spaces, plus ONE instance-wide public commons every active user implicitly belongs to. MCP: list_spaces, read_space, add_to_space, remove_from_space, create_space, manage_space_members. REST: ${origin}/api/public/v1/spaces (+ /:id/members, /:id/items). No new scope -- reuses read:drive / write:drive. See the top-level "spaces" field for the full model, especially publicCommons.`,

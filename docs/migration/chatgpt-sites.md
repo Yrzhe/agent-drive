@@ -53,6 +53,7 @@ EdgeSpark 继续使用原 `edgespark.toml`、生成 SDK 和 CLI 部署流程。
 Sites 保存的是源码快照；产品仓库更新不会自动部署到 Site。
 
 通过 Sites 环境变量配置 `OWNER_EMAIL`、强随机 secret `AGENT_TOKEN`、`ALLOWED_ORIGIN`，
+`SITES_MCP_URL` 填入 Sites get_site 返回的原生 mcp_connection.mcp_url（不要用自定义网站域名拼接 /mcp），
 以及可选 `MCP_ALLOWED_ORIGINS`、`MAX_FILE_BYTES`、`MAX_TOTAL_BYTES`。
 真实邮箱和 token 不写入公开源码。Sites 入口在缺少绑定、管理员或 secret 时返回 503，
 避免使用旧版未配置管理员时的 trust-any 行为。不会自动将第一个访客设为管理员。

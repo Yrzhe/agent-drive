@@ -29,7 +29,8 @@ import {
   type SpaceItemType,
 } from "./spaces";
 import { checkTotalQuota, MCP_READ_FILE_MAX_BYTES, MCP_WRITE_FILE_MAX_BYTES } from "./quota";
-import { purgeConflictingTrashAtPath } from "./trash";
+import { originalTrashPath, purgeConflictingTrashAtPath, softDeleteSubtree } from "./trash";
+import { getRequestActor, logEvent } from "./activity";
 import type { AppDb } from "../types";
 
 interface McpToolDefinition {
@@ -113,6 +114,12 @@ export const MCP_TOOLS: McpToolDefinition[] = [
       },
       required: ["path", "content"],
     },
+  },
+  {
+    name: "delete_file",
+    description: "Move one of YOUR OWN files, including an unfinished upload, to the 30-day recycle bin by its stable file ID from list_files/search_files. Frees the original path for a new upload and revokes file shares. Never deletes folders or another member's shared file, and never permanently purges bytes. Repeating the same ID is safe even if a new file now occupies the old path. Requires an authenticated user-bound identity and write:drive plus the file's path scope.",
+    requiredScope: "write:drive",
+    inputSchema: { type: "object", properties: { file_id: { type: "string", description: "Stable ID of your own file, returned by list_files or search_files." } }, required: ["file_id"] },
   },
   {
     name: "upload_file",
@@ -342,7 +349,7 @@ type SpaceMemberRole = (typeof SPACE_MEMBER_ROLES)[number];
  * is rejected here rather than silently attributed to a null owner.
  */
 function requireUserId(ownerId: string | null): string {
-  if (!ownerId) throw new Error("identity_required:spaces require an authenticated user identity (session or a user-bound bearer token)");
+  if (!ownerId) throw new Error("identity_required:This action requires an authenticated user identity (session or a user-bound bearer token)");
   return ownerId;
 }
 
@@ -373,8 +380,8 @@ export function listMcpTools(scopes: readonly string[]) {
       ...(tool.outputSchema ? { outputSchema: tool.outputSchema } : {}),
       annotations: {
         readOnlyHint: tool.requiredScope.startsWith("read:"),
-        destructiveHint: ["write_file", "prepare_file_upload", "forget", "remove_from_space", "manage_space_members"].includes(tool.name),
-        idempotentHint: tool.requiredScope.startsWith("read:"),
+        destructiveHint: ["write_file", "delete_file", "prepare_file_upload", "forget", "remove_from_space", "manage_space_members"].includes(tool.name),
+        idempotentHint: tool.requiredScope.startsWith("read:") || tool.name === "delete_file",
         openWorldHint: ["send_file", "create_share", "upload_file"].includes(tool.name),
       },
     }))
@@ -385,6 +392,22 @@ export async function callMcpTool(db: AppDb, origin: string, scopes: readonly st
   const tool = MCP_TOOLS.find((candidate) => candidate.name === name);
   if (!tool) throw new Error(`unknown_tool:${name}`);
   if (!hasScope(scopes, tool.requiredScope)) throw new Error(`invalid_scope:${tool.requiredScope}`);
+
+  if (name === "delete_file") {
+    const fileId = stringArg(input, "file_id")!;
+    const userId = requireUserId(ownerId);
+    const [target] = await db.select().from(files).where(and(eq(files.id, fileId), eq(files.ownerId, userId))).limit(1);
+    if (!target) throw new Error("file_not_found:File not found in your drive");
+    if (target.isFolder !== 0) throw new Error("invalid_params:delete_file only accepts files, not folders");
+    const path = target.deletedAt ? originalTrashPath(target) : target.path;
+    requirePathAllowed(scopes, path);
+    if (target.deletedAt) return textResult({ trashed: 0, targetId: fileId, path, alreadyTrashed: true });
+    const actor = await getRequestActor();
+    await softDeleteSubtree(db, target, { actor, ownerId: userId });
+    await logEvent(db, { ownerId: userId, eventType: "file.trashed", targetType: "file", targetId: fileId,
+      targetPath: path, actor, metadata: { size: target.size } });
+    return textResult({ trashed: 1, targetId: fileId, path, alreadyTrashed: false });
+  }
 
   if (name === "upload_file") {
     return textResult(await uploadChatGptFile(stringArg(input, "path")!, input.file as ChatGptFile,

@@ -2,6 +2,7 @@ import type { D1Database, ExecutionContext, R2Bucket } from "@cloudflare/workers
 import type { PlatformRuntime } from "../types";
 
 export interface SitesBindings {
+  SITES_MCP_URL?: string;
   DB: D1Database;
   BUCKET: R2Bucket;
   ASSETS?: { fetch(request: Request): Promise<Response> };

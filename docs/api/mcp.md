@@ -107,6 +107,10 @@ Response (with full drive scopes):
       { "name": "list_files", "description": "...", "inputSchema": { ... } },
       { "name": "read_file", ... },
       { "name": "write_file", ... },
+      { "name": "delete_file", ... },
+      { "name": "upload_file", ... },
+      { "name": "prepare_file_upload", ... },
+      { "name": "complete_file_upload", ... },
       { "name": "search_files", ... },
       { "name": "create_share", ... },
       { "name": "send_file", ... },
@@ -214,6 +218,10 @@ Output:
 ```
 
 Errors: `file_not_found`, `file_too_large:...` (over 5 MB — use the REST download).
+
+### `delete_file`
+
+`{file_id}` (required, stable ID from list_files/search_files). Requires write:drive, user-bound identity and the file's path scope. Trashes an owned single file or pending ticket using the existing 30-day recycle bin, revokes file shares and frees its original path. Folders return invalid_params; files owned by another user return file_not_found even when shared with you. No permanent purge is exposed. Returns `{trashed:1,targetId,path,alreadyTrashed:false}`; an already-trashed ID returns trashed=0/alreadyTrashed=true and cannot affect a replacement at the same path. Retry scope checks use the original pre-trash path.
 
 ### `write_file`
 
@@ -353,3 +361,7 @@ curl -X POST "$BASE/api/public/mcp" \
 - [`oauth.md`](./oauth.md) — how to obtain access tokens
 - [Setup guides](../setup/) — per-IDE config
 - [MCP specification](https://modelcontextprotocol.io/specification/)
+
+## Sites discovery diagnostics
+
+`GET /api/public/guide` exposes `mcpCatalog.serverInfo`, `toolCount` and tool name/scope pairs. This public metadata contains no private files or user identity. Sites uses `deployment.nativeMcp` (configured via `SITES_MCP_URL`) for its OAuth connection, not a URL inferred from a custom website domain. Refresh the existing plugin tool list after updates; an already loaded ChatGPT conversation may remain stale. No SSE or tools/list_changed notification capability is advertised. Server catalog reachability, user OAuth/approval, tool availability in a conversation and a completed binary transfer are distinct checks.

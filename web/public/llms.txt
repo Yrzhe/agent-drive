@@ -48,7 +48,7 @@ fixed retains selected bytes. Already-open browser push is not implemented.
 - /api/public/guide — machine-readable JSON guide. Public. START HERE if you
   received a share link: it documents the anonymous download flow.
 - /api/public/mcp — remote MCP server (JSON-RPC over HTTP POST). Tools:
-  list_files, read_file, write_file, upload_file, prepare_file_upload, complete_file_upload,
+  list_files, read_file, write_file, delete_file, upload_file, prepare_file_upload, complete_file_upload,
   search_files, create_share,
   remember, recall, list_memories, forget, send_file, list_spaces,
   read_space, add_to_space, remove_from_space, create_space,
@@ -187,3 +187,10 @@ fixed retains selected bytes. Already-open browser push is not implemented.
    (X-Access-Token header)
 
 Full walkthrough: /api/public/guide
+
+MCP delete_file {file_id}: trash your own file or unfinished upload; stable-ID
+retries cannot delete a replacement. Folders and shared files owned by others
+are rejected. Requires user-bound identity, write:drive and the file path scope.
+GET /api/public/guide exposes mcpCatalog (live names/count/server version).
+For Sites, use deployment.nativeMcp from that guide, not a custom-domain /mcp.
+A live server catalog does not prove an existing ChatGPT chat loaded new tools.

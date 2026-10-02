@@ -19,12 +19,13 @@ POST {url}/api/public/mcp        (JSON-RPC 2.0)
 
 Both land on the same scope-checked tool surface. Never put the `AGENT_TOKEN` in a hand-off message — it is the owner's private key.
 
-## Tools (19) → required scope
+## Tools (20) → required scope
 
 | Tool | Scope | Notes |
 |---|---|---|
 | `list_files`, `read_file`, `search_files` | `read:drive` | `read_file` returns file **text directly** (no share needed), UTF-8 up to 5 MB — larger/binary via REST download |
 | `write_file` | `write:drive` | Inline UTF-8 text only, max 5 MiB. Large/binary files use `prepare_file_upload` |
+| `delete_file` | `write:drive` | Move your own file to 30-day trash by stable file_id; user-bound identity and file path scope required; no folders or permanent purge |
 | `upload_file` | `write:drive` | Sites: save a real ChatGPT attachment in one call via `openai/fileParams`; no sandbox PUT |
 | `prepare_file_upload`, `complete_file_upload` | `write:drive` | Browser upload links or streaming transfer tickets and confirmation for large/binary files |
 | `create_share` | `share:create` | Returns `{ shareUrl, guideUrl }` — put `guideUrl` in hand-off messages |
@@ -63,3 +64,9 @@ See `file-ops.md`.
 - JSON-RPC error codes: `-32001` scope, `-32602` bad params, `-32000` app errors (`file_too_large`, `quota_exceeded`, `path_conflict`, `file_not_found`, …). `error.message` is a colon-delimited code.
 
 Full JSON-RPC contract: `docs/api/mcp.md`. OAuth details: `docs/api/oauth.md`.
+
+## Updating a Sites tool list
+
+Read `/api/public/guide`: `mcpCatalog` gives the live server version, names and count; `deployment.nativeMcp` gives the canonical Sites OAuth URL. Do not construct the native URL from a custom website domain. Compare the live catalog with the existing plugin tools, refresh/reload those tools and start a new chat if the old conversation stays stale. This stateless server offers no `tools/list_changed` notification stream, so publishing does not force a conversation to load new schemas. A server catalog check is not proof of user OAuth, approval, or successful file transfer.
+
+`delete_file {file_id}` uses a stable ID from list_files/search_files. It moves only your own single file (including a pending ticket) to the 30-day recycle bin, revokes shares and releases its original path. Returns `{trashed,targetId,path,alreadyTrashed}`; repeated calls on the same trashed ID return trashed=0 and leave same-path replacements alone. Another owner's file returns file_not_found even if shared with you. Folders return invalid_params. It requires user-bound identity, write:drive and the original path scope, including on retries. No permanent purge is exposed.

@@ -36,3 +36,9 @@ Completed files keep immutable R2 objects. MCP `write_file` overwrites retain pr
 `POST /api/public/v1/shares` accepts `shareMode: "latest" | "fixed"` (default latest), and an optional `versionId` for fixed single-file shares. MCP `create_share` accepts `share_mode` and `version_id`. Fixed folder shares are rejected. Password, expiry, download limits and Site audience checks still apply. Fixed links retain their selected bytes; latest links resolve current bytes on open/download. Already-open pages do not yet receive cross-instance push updates, and an already-issued download grant continues to refer to its granted object until expiry.
 
 Purging a file makes its history and shares unavailable. Bounded background cleanup retries removal of retained R2 objects and orphaned metadata. This cleanup is opportunistic, not a guaranteed scheduled job.
+
+## Canonical MCP URL and catalog updates
+
+Set `SITES_MCP_URL` to the exact `mcp_connection.mcp_url` returned by Sites get_site. Keep it current after a native hostname change; do not derive it from a custom website domain. `/connect` and the Agent Card use this URL. `GET /api/public/guide` publishes `mcpCatalog.serverInfo`, `toolCount` and names/scopes, which can be compared with the tools ChatGPT loaded. The Sites connection-page check verifies server declarations only. Refresh the existing plugin tools and start a new chat if old schemas persist. This stateless endpoint has no SSE or tools/list_changed stream and cannot force a current chat to refresh.
+
+`delete_file {file_id}` requires user-bound identity, write:drive and the file path scope. It trashes only your own single file, including unfinished uploads, with 30-day recovery and share revocation. Folders and another user's shared file are rejected. Repeating a stable ID after deletion is a no-op even if a replacement now occupies its old path. Returns `{trashed,targetId,path,alreadyTrashed}`; it never exposes permanent purge.
